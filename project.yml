@@ -16,9 +16,7 @@ targets:
     platform: iOS
     sources:
       - BillBanditApp/Sources
-      - path: BillBanditApp/Resources
-        type: folder
-        buildPhase: resources
+      - BillBanditApp/Resources
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
@@ -39,7 +37,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIAppFonts:
-          - Fonts/Caveat-VariableFont.ttf
+          - Caveat-VariableFont.ttf
         ITSAppUsesNonExemptEncryption: false
   BillBanditTests:
     type: bundle.unit-test
