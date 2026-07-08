@@ -4,24 +4,60 @@ import SwiftUI
 struct BillBanditApp: App {
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(model: RootViewModel(container: AppDependencies.live()))
         }
     }
 }
 
-/// Temporary root while the app shell is under construction.
 struct RootView: View {
+    @State var model: RootViewModel
+
     var body: some View {
-        ZStack {
-            Color(red: 15 / 255, green: 69 / 255, blue: 214 / 255)
-                .ignoresSafeArea()
-            Text("BillBandit")
-                .font(.system(.largeTitle, design: .serif).weight(.black))
-                .foregroundStyle(Color(red: 1, green: 245 / 255, blue: 222 / 255))
+        Group {
+            switch model.phase {
+            case .launching:
+                LaunchView(mode: .checking) {
+                    model.showSignIn()
+                }
+            case .welcome:
+                LaunchView(mode: .welcome) {
+                    model.showSignIn()
+                }
+            case .signIn:
+                SignInView(
+                    model: SignInViewModel(authRepository: model.container.authRepository),
+                    onAuthenticated: { user in
+                        model.finishAuthentication(user)
+                    },
+                    onUseDevSession: {
+                        model.useDevSession()
+                    }
+                )
+            case .main:
+                MainTabView(
+                    container: model.container,
+                    currentUser: model.currentUser,
+                    onSignOut: {
+                        await model.signOut()
+                    }
+                )
+            }
+        }
+        .preferredColorScheme(.light)
+        .environment(\.dataContainer, model.container)
+        .task {
+            await model.bootstrap()
+        }
+        .onOpenURL { url in
+            model.handle(url: url)
         }
     }
 }
 
 #Preview {
-    RootView()
+    #if DEBUG
+    RootView(model: RootViewModel(container: AppDependencies.mock(), startsAuthenticated: true))
+    #else
+    RootView(model: RootViewModel(container: AppDependencies.live()))
+    #endif
 }
