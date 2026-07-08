@@ -1,0 +1,3 @@
+// Debug builds talk to the production Railway API by default.
+// Previews and unit tests use in-process mock repositories instead (never the network).
+API_BASE_URL = https:/$()/billbandit-api.contenthelper.in

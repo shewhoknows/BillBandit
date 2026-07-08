@@ -1,0 +1,68 @@
+name: BillBandit
+options:
+  bundleIdPrefix: com.eshabhoon
+  deploymentTarget:
+    iOS: "26.0"
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: 4JRB53LG5C
+targets:
+  BillBandit:
+    type: application
+    platform: iOS
+    sources:
+      - BillBanditApp/Sources
+      - path: BillBanditApp/Resources
+        type: folder
+        buildPhase: resources
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    settings:
+      base:
+        # App Store Connect already depends on this identifier — do not change.
+        PRODUCT_BUNDLE_IDENTIFIER: com.eshabhoon.fairshare
+        CODE_SIGN_ENTITLEMENTS: BillBanditApp/Sources/App/BillBandit.entitlements
+        INFOPLIST_KEY_CFBundleDisplayName: BillBandit
+    info:
+      path: BillBanditApp/Sources/App/Info.plist
+      properties:
+        CFBundleDisplayName: BillBandit
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        API_BASE_URL: $(API_BASE_URL)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIAppFonts:
+          - Fonts/Caveat-VariableFont.ttf
+        ITSAppUsesNonExemptEncryption: false
+  BillBanditTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - BillBanditApp/Tests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.eshabhoon.fairshare.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: BillBandit
+schemes:
+  BillBandit:
+    build:
+      targets:
+        BillBandit: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - BillBanditTests
+    archive:
+      config: Release
