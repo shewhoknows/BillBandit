@@ -50,6 +50,17 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: BillBandit
+  BillBanditUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - BillBanditApp/UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.eshabhoon.fairshare.uitests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: BillBandit
 schemes:
   BillBandit:
     build:
@@ -62,5 +73,6 @@ schemes:
       gatherCoverageData: true
       targets:
         - BillBanditTests
+        - BillBanditUITests
     archive:
       config: Release
