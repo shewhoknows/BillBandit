@@ -20,7 +20,8 @@ extension MobileMember {
         TripParticipant(
             id: userId,
             displayName: user.preferredName ?? user.name ?? user.email ?? userId,
-            kind: userId == currentUserId ? .currentUser : .friend(friendId: userId)
+            kind: userId == currentUserId ? .currentUser : .friend(friendId: userId),
+            role: role == .admin ? .admin : .member
         )
     }
 }
@@ -44,24 +45,48 @@ extension MobileGroup {
 
 extension MobileExpense {
     func toDomain() -> Expense {
-        Expense(
+        let currency = Currency(code: currency)
+        let total = Money(apiMajorUnitNumber: amount, currency: currency)
+        return Expense(
             id: id,
             title: description,
-            amount: Money(apiMajorUnitNumber: amount, currency: Currency(code: currency)),
+            amount: total,
             paidBy: paidById,
             date: date,
             category: category,
             notes: notes,
             includedParticipants: splits.map(\.userId),
-            splitMethod: splitType.toDomain(splits: splits, currency: Currency(code: currency))
+            splitMethod: splitType.toDomain(splits: splits, currency: currency, total: total)
         )
     }
 }
 
 extension MobileExpense.SplitType {
-    func toDomain(splits: [MobileExpense.Split], currency: Currency) -> SplitMethod {
+    func toDomain(splits: [MobileExpense.Split], currency: Currency, total: Money? = nil) -> SplitMethod {
         switch self {
         case .equal:
+            if let total {
+                let expense = Expense(
+                    id: "server-split-check",
+                    title: "Server split check",
+                    amount: total,
+                    paidBy: splits.first?.userId ?? "",
+                    includedParticipants: splits.map(\.userId),
+                    splitMethod: .equal
+                )
+                let localSplits = (try? SplitEngine.splits(for: expense)) ?? []
+                let localAmounts = Dictionary(uniqueKeysWithValues: localSplits.map { ($0.participantId, $0.amount.minorUnits) })
+                let serverAmounts = Dictionary(uniqueKeysWithValues: splits.map {
+                    ($0.userId, Money(apiMajorUnitNumber: $0.amount, currency: currency).minorUnits)
+                })
+                if localAmounts != serverAmounts {
+                    return .exactAmounts(
+                        Dictionary(uniqueKeysWithValues: splits.map {
+                            ($0.userId, Money(apiMajorUnitNumber: $0.amount, currency: currency))
+                        })
+                    )
+                }
+            }
             return .equal
         case .exact:
             return .exactAmounts(

@@ -100,6 +100,7 @@ final class TripDashboardViewModel {
     var errorMessage: String?
     var memberEmail = ""
     var settlementNote: String?
+    var settlementInFlight: SettlementInstruction?
 
     init(container: DataContainer, tripId: String) {
         self.tripRepository = container.tripRepository
@@ -113,6 +114,12 @@ final class TripDashboardViewModel {
     var expenses: [Expense] { detail?.expenses ?? [] }
     var settlementSummary: SettlementSummary? { detail?.settlementSummary }
     var isFinalized: Bool { trip?.status == .finalized }
+    var currentUserId: ParticipantID? {
+        trip?.participants.first(where: { $0.kind == .currentUser })?.id
+    }
+    var currentUserCanFinalize: Bool {
+        trip?.participants.first(where: { $0.kind == .currentUser })?.role == .admin
+    }
     var totalSpend: Money {
         expenses.reduce(.zero(currency: trip?.currency ?? .inr)) { $0 + $1.amount }
     }
@@ -154,27 +161,47 @@ final class TripDashboardViewModel {
         isMutating = false
     }
 
-    func finalize() async {
-        guard let trip else { return }
+    func finalize() async -> Bool {
+        guard let trip else { return false }
         isMutating = true
         errorMessage = nil
+        defer { isMutating = false }
         do {
             detail = try await tripRepository.finalize(id: trip.id)
+            return true
         } catch {
             errorMessage = error.billBanditMessage
+            return false
         }
-        isMutating = false
     }
 
     func record(_ instruction: SettlementInstruction) async {
         guard let trip else { return }
+        guard settlementInFlight == nil, !isMutating else { return }
+        let receiverId: ParticipantID?
+        let senderId: ParticipantID?
+        if instruction.from == currentUserId {
+            receiverId = instruction.to
+            senderId = nil
+        } else if instruction.to == currentUserId {
+            receiverId = nil
+            senderId = instruction.from
+        } else {
+            errorMessage = "Only payments involving you can be recorded from this device."
+            return
+        }
         isMutating = true
+        settlementInFlight = instruction
         errorMessage = nil
+        defer {
+            isMutating = false
+            settlementInFlight = nil
+        }
         do {
             _ = try await settlementRepository.record(
                 groupId: trip.id,
-                receiverId: instruction.to,
-                senderId: nil,
+                receiverId: receiverId,
+                senderId: senderId,
                 amount: instruction.amount,
                 note: "Settled from BillBandit"
             )
@@ -182,7 +209,18 @@ final class TripDashboardViewModel {
         } catch {
             errorMessage = error.billBanditMessage
         }
-        isMutating = false
+    }
+
+    func canRecord(_ instruction: SettlementInstruction) -> Bool {
+        instruction.from == currentUserId || instruction.to == currentUserId
+    }
+
+    func settlementCaption(for instruction: SettlementInstruction) -> String {
+        canRecord(instruction) ? "SETTLEMENT" : "Only payments involving you can be recorded from this device."
+    }
+
+    func isRecording(_ instruction: SettlementInstruction) -> Bool {
+        settlementInFlight == instruction
     }
 }
 
@@ -417,7 +455,8 @@ struct TripDashboardView: View {
                         expenseRepository: container.expenseRepository,
                         trip: context.trip,
                         currentUserId: context.currentUserId,
-                        existingExpense: context.expense
+                        existingExpense: context.expense,
+                        isTripFinalized: context.trip.status == .finalized
                     )
                 ) {
                     showingExpense = nil
@@ -428,8 +467,9 @@ struct TripDashboardView: View {
         .confirmationDialog("Finalize this trip?", isPresented: $confirmingFinalize, titleVisibility: .visible) {
             Button("Finalize trip") {
                 Task {
-                    await model.finalize()
-                    openFinalBill()
+                    if await model.finalize() {
+                        openFinalBill()
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -515,7 +555,7 @@ struct TripDashboardView: View {
             balancesCard(trip)
             settlementsCard(trip)
 
-            if !model.isFinalized {
+            if !model.isFinalized && model.currentUserCanFinalize {
                 SecondaryButton(title: "Finalize trip", systemImage: "checkmark.seal") {
                     confirmingFinalize = true
                 }
@@ -555,13 +595,15 @@ struct TripDashboardView: View {
                     EmptyState(mascot: .badge, title: "No payments needed", message: "The trip is balanced.")
                 } else {
                     ForEach(model.settlementSummary?.simplifiedInstructions ?? [], id: \.self) { instruction in
+                        let canRecord = model.canRecord(instruction) && !model.isMutating
                         SettlementRow(
                             payerName: participantName(instruction.from, in: trip.participants),
                             recipientName: participantName(instruction.to, in: trip.participants),
-                            amount: instruction.amount
-                        ) {
-                            Task { await model.record(instruction) }
-                        }
+                            amount: instruction.amount,
+                            caption: model.settlementCaption(for: instruction),
+                            isLoading: model.isRecording(instruction),
+                            onTap: canRecord ? { Task { await model.record(instruction) } } : nil
+                        )
                     }
                 }
             }

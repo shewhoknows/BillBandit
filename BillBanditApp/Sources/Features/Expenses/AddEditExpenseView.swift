@@ -17,6 +17,7 @@ final class ExpenseEditorViewModel {
     let trip: Trip
     let currentUserId: ParticipantID?
     let existingExpense: Expense?
+    let isTripFinalized: Bool
 
     var title = ""
     var amountText = ""
@@ -36,12 +37,14 @@ final class ExpenseEditorViewModel {
         expenseRepository: any ExpenseRepository,
         trip: Trip,
         currentUserId: ParticipantID?,
-        existingExpense: Expense?
+        existingExpense: Expense?,
+        isTripFinalized: Bool = false
     ) {
         self.expenseRepository = expenseRepository
         self.trip = trip
         self.currentUserId = currentUserId
         self.existingExpense = existingExpense
+        self.isTripFinalized = isTripFinalized
         self.paidBy = existingExpense?.paidBy ?? currentUserId ?? trip.participants.first?.id ?? ""
         self.includedParticipants = Set(existingExpense?.includedParticipants ?? trip.participants.map(\.id))
 
@@ -71,6 +74,7 @@ final class ExpenseEditorViewModel {
     }
 
     var canMutateExistingExpense: Bool {
+        guard !isTripFinalized else { return false }
         guard let existingExpense else { return true }
         return existingExpense.paidBy == currentUserId
     }
@@ -125,7 +129,7 @@ final class ExpenseEditorViewModel {
 
     func save() async -> Bool {
         guard canMutateExistingExpense else {
-            errorMessage = "Only the current payer can edit this expense."
+            errorMessage = isTripFinalized ? "This trip is finalized, so expenses are locked." : "Only the current payer can edit this expense."
             return false
         }
         let expense: Expense
@@ -154,7 +158,7 @@ final class ExpenseEditorViewModel {
 
     func delete() async -> Bool {
         guard let existingExpense, canMutateExistingExpense else {
-            errorMessage = "Only the current payer can delete this expense."
+            errorMessage = isTripFinalized ? "This trip is finalized, so expenses are locked." : "Only the current payer can delete this expense."
             return false
         }
         isSaving = true
@@ -286,7 +290,7 @@ struct AddEditExpenseView: View {
             ReceiptCard(eyebrow: model.existingExpense == nil ? "New bill" : "Edit bill", title: model.existingExpense == nil ? "Add expense" : "Expense details") {
                 VStack(spacing: BBSpacing.lg) {
                     if !model.canMutateExistingExpense {
-                        Text("Only \(model.participantName(model.existingExpense?.paidBy ?? "")) can edit or delete this expense. You can still review the split.")
+                        Text(model.isTripFinalized ? "This trip is finalized — expenses are locked." : "Only \(model.participantName(model.existingExpense?.paidBy ?? "")) can edit or delete this expense. You can still review the split.")
                             .font(BBFont.bodyRounded(size: 14, relativeTo: .subheadline))
                             .foregroundStyle(BBColor.textFaded)
                             .fixedSize(horizontal: false, vertical: true)

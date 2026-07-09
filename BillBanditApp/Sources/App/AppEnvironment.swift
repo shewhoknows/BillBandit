@@ -62,6 +62,17 @@ final class RootViewModel {
         phase = .signIn
     }
 
+    func handleUnauthorizedSession() {
+        // Only an expired session inside the app should force sign-in; a 401
+        // during bootstrap already routes to the welcome screen.
+        guard phase == .main else { return }
+        Task {
+            await container.sessionState.clear()
+            currentUser = nil
+            phase = .signIn
+        }
+    }
+
     func handle(url: URL) {
         guard container.capabilities.inviteLinks else { return }
     }

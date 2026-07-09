@@ -46,6 +46,41 @@ final class DataTests: XCTestCase {
         XCTAssertEqual(body["password"] as? String, "password123")
     }
 
+    func testAppleSignInSendsNonceValueVerbatimInRequestBody() async throws {
+        StubURLProtocol.enqueue(statusCode: 200, body: """
+        {
+          "token": "jwt-apple",
+          "user": {
+            "id": "user-apple",
+            "name": "Apple User",
+            "email": "apple@example.com",
+            "image": null,
+            "phone": null,
+            "preferredName": null,
+            "upiID": null,
+            "isProfileComplete": false
+          }
+        }
+        """)
+        let tokenStore = InMemoryTokenStore()
+        let auth = LiveAuthRepository(client: makeClient(tokenStore: tokenStore), tokenStore: tokenStore, sessionState: SessionState())
+
+        _ = try await auth.appleSignIn(
+            identityToken: "identity-token",
+            nonce: "hashed-nonce",
+            fullName: "Apple User",
+            email: "apple@example.com"
+        )
+
+        let request = try XCTUnwrap(StubURLProtocol.requests.first)
+        XCTAssertEqual(request.url?.path, "/api/mobile/auth/apple")
+        let body = try XCTUnwrap(request.jsonBody)
+        XCTAssertEqual(body["identityToken"] as? String, "identity-token")
+        XCTAssertEqual(body["nonce"] as? String, "hashed-nonce")
+        XCTAssertEqual(body["fullName"] as? String, "Apple User")
+        XCTAssertEqual(body["email"] as? String, "apple@example.com")
+    }
+
     func testTripRepositoryUsesGroupEndpointsAndBearerHeader() async throws {
         StubURLProtocol.enqueue(statusCode: 200, body: """
         {
@@ -119,8 +154,71 @@ final class DataTests: XCTestCase {
         XCTAssertNil(detail.trip.destination)
         XCTAssertNil(detail.trip.startDate)
         XCTAssertEqual(detail.expenses.first?.amount.minorUnits, 12_345)
-        XCTAssertEqual(detail.expenses.first?.splitMethod, .equal)
+        XCTAssertEqual(detail.expenses.first?.splitMethod, .exactAmounts([
+            "user-1": Money(minorUnits: 6_172, currency: .inr),
+            "user-2": Money(minorUnits: 6_173, currency: .inr)
+        ]))
         XCTAssertEqual(detail.settlementSummary.balances.first?.net.minorUnits, 6_173)
+    }
+
+    func testFetchedEqualExpensePreservesServerSplitsWhenTheyDoNotMatchLocalAllocation() throws {
+        let dto = MobileExpense(
+            id: "expense-odd-paise",
+            description: "Dinner",
+            amount: 123.45,
+            currency: "INR",
+            date: Date(timeIntervalSince1970: 0),
+            category: "food",
+            groupId: "group-1",
+            group: nil,
+            paidById: "user-1",
+            paidBy: nil,
+            splitType: .equal,
+            notes: nil,
+            splits: [
+                MobileExpense.Split(userId: "user-1", amount: 61.72, percentage: nil, shares: nil, user: nil),
+                MobileExpense.Split(userId: "user-2", amount: 61.73, percentage: nil, shares: nil, user: nil)
+            ],
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        XCTAssertEqual(dto.toDomain().splitMethod, .exactAmounts([
+            "user-1": Money(minorUnits: 6_172, currency: .inr),
+            "user-2": Money(minorUnits: 6_173, currency: .inr)
+        ]))
+    }
+
+    @MainActor
+    func testSettlementRecordUsesReceiverIdWhenCurrentUserPaidSomeoneElse() async throws {
+        let settlementRepository = CapturingSettlementRepository()
+        let model = TripDashboardViewModel(
+            container: makeDashboardContainer(settlementRepository: settlementRepository),
+            tripId: "group-1"
+        )
+        await model.load()
+
+        await model.record(SettlementInstruction(from: "user-1", to: "user-2", amount: Money(minorUnits: 1_234, currency: .inr)))
+
+        XCTAssertEqual(settlementRepository.receiverId, "user-2")
+        XCTAssertNil(settlementRepository.senderId)
+        XCTAssertEqual(settlementRepository.amount?.minorUnits, 1_234)
+    }
+
+    @MainActor
+    func testSettlementRecordUsesSenderIdWhenSomeoneElsePaidCurrentUser() async throws {
+        let settlementRepository = CapturingSettlementRepository()
+        let model = TripDashboardViewModel(
+            container: makeDashboardContainer(settlementRepository: settlementRepository),
+            tripId: "group-1"
+        )
+        await model.load()
+
+        await model.record(SettlementInstruction(from: "user-2", to: "user-1", amount: Money(minorUnits: 5_000, currency: .inr)))
+
+        XCTAssertNil(settlementRepository.receiverId)
+        XCTAssertEqual(settlementRepository.senderId, "user-2")
+        XCTAssertEqual(settlementRepository.amount?.minorUnits, 5_000)
     }
 
     func testParticipantExpenseSettlementAndFinalizeEndpointsMatchContract() async throws {
@@ -197,9 +295,10 @@ final class DataTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(requests[4].jsonBody)["senderId"] as? String)
     }
 
-    func testUnauthorizedStatusMapsToUnauthorized() async throws {
+    func testUnauthorizedStatusMapsToUnauthorizedAndClearsSessionToken() async throws {
         StubURLProtocol.enqueue(statusCode: 401, body: #"{"error":"Unauthorized"}"#)
-        let repository = LiveTripRepository(client: makeClient(token: "expired"), sessionState: SessionState())
+        let tokenStore = InMemoryTokenStore(token: "expired")
+        let repository = LiveTripRepository(client: makeClient(tokenStore: tokenStore), sessionState: SessionState())
 
         do {
             _ = try await repository.list()
@@ -208,6 +307,8 @@ final class DataTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+        let storedToken = try await tokenStore.token()
+        XCTAssertNil(storedToken)
     }
 
     func testMoneyMajorUnitRoundTripThroughExpenseRequestAndDTO() throws {
@@ -382,6 +483,105 @@ private func expenseEnvelopeJSON(id: String) -> String {
       }
     }
     """
+}
+
+@MainActor
+private func makeDashboardContainer(settlementRepository: CapturingSettlementRepository) -> DataContainer {
+    let tripRepository = StaticTripRepository()
+    return DataContainer(
+        authRepository: EmptyAuthRepository(),
+        tripRepository: tripRepository,
+        participantRepository: EmptyParticipantRepository(),
+        expenseRepository: EmptyExpenseRepository(),
+        settlementRepository: settlementRepository,
+        sessionState: SessionState(),
+        capabilities: .current
+    )
+}
+
+private final class StaticTripRepository: TripRepository, @unchecked Sendable {
+    private let detail: TripDetail
+
+    init() {
+        let trip = Trip(
+            id: "group-1",
+            name: "Goa",
+            destination: nil,
+            startDate: nil,
+            endDate: nil,
+            currency: .inr,
+            participants: [
+                TripParticipant(id: "user-1", displayName: "Prateek", kind: .currentUser, role: .admin),
+                TripParticipant(id: "user-2", displayName: "Esha", kind: .friend(friendId: "user-2"))
+            ],
+            status: .active
+        )
+        self.detail = TripDetail(
+            trip: trip,
+            expenses: [],
+            settlementSummary: SettlementSummary(balances: [], simplifiedInstructions: [])
+        )
+    }
+
+    func list() async throws -> [Trip] {
+        [detail.trip]
+    }
+
+    func create(name: String, description: String?, currency: Currency, category: MobileGroup.Category) async throws -> Trip {
+        detail.trip
+    }
+
+    func get(id: String) async throws -> TripDetail {
+        detail
+    }
+
+    func finalize(id: String) async throws -> TripDetail {
+        var finalized = detail
+        finalized.trip.status = .finalized
+        return finalized
+    }
+}
+
+private final class CapturingSettlementRepository: SettlementRepository, @unchecked Sendable {
+    private(set) var receiverId: ParticipantID?
+    private(set) var senderId: ParticipantID?
+    private(set) var amount: Money?
+
+    func record(groupId: String?, receiverId: ParticipantID?, senderId: ParticipantID?, amount: Money, note: String?) async throws -> Settlement {
+        self.receiverId = receiverId
+        self.senderId = senderId
+        self.amount = amount
+        return Settlement(
+            id: "settlement-1",
+            from: senderId ?? "user-1",
+            to: receiverId ?? "user-1",
+            amount: amount,
+            note: note
+        )
+    }
+}
+
+private struct EmptyAuthRepository: AuthRepository {
+    func appleSignIn(identityToken: String, nonce: String?, fullName: String?, email: String?) async throws -> UserProfile { throw APIError.notFound }
+    func emailLogin(email: String, password: String) async throws -> UserProfile { throw APIError.notFound }
+    func register(name: String, email: String, password: String) async throws -> UserProfile { throw APIError.notFound }
+    func otpStart(identifier: String) async throws -> OTPStartEnvelope { throw APIError.notFound }
+    func otpVerify(challengeId: String, code: String) async throws -> UserProfile { throw APIError.notFound }
+    func me() async throws -> UserProfile { throw APIError.notFound }
+    func updateProfile(name: String?, preferredName: String?, upiID: String?) async throws -> UserProfile { throw APIError.notFound }
+}
+
+private struct EmptyParticipantRepository: ParticipantRepository {
+    func addMember(groupId: String, email: String) async throws -> TripParticipant {
+        throw APIError.notFound
+    }
+}
+
+private struct EmptyExpenseRepository: ExpenseRepository {
+    func list(groupId: String) async throws -> [Expense] { [] }
+    func create(groupId: String?, expense: Expense) async throws -> Expense { expense }
+    func update(id: String, groupId: String?, expense: Expense) async throws -> Expense { expense }
+    func delete(id: String) async throws {}
 }
 
 private struct CapturedRequest {

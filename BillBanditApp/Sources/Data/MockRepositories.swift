@@ -50,7 +50,7 @@ actor MockDataStore {
             endDate: nil,
             currency: .inr,
             participants: [
-                TripParticipant(id: prateek.id, displayName: "Prateek", kind: .currentUser),
+                TripParticipant(id: prateek.id, displayName: "Prateek", kind: .currentUser, role: .admin),
                 TripParticipant(id: esha.id, displayName: "Esha", kind: .friend(friendId: esha.id)),
                 TripParticipant(id: aarav.id, displayName: "Aarav", kind: .friend(friendId: aarav.id))
             ],
@@ -99,7 +99,7 @@ actor MockDataStore {
             startDate: nil,
             endDate: nil,
             currency: currency,
-            participants: [TripParticipant(id: currentUser.id, displayName: currentUser.preferredName ?? currentUser.name ?? "You", kind: .currentUser)],
+            participants: [TripParticipant(id: currentUser.id, displayName: currentUser.preferredName ?? currentUser.name ?? "You", kind: .currentUser, role: .admin)],
             status: .active
         )
         trips.insert(trip, at: 0)
@@ -154,7 +154,8 @@ actor MockDataStore {
         let participant = TripParticipant(
             id: user.id,
             displayName: user.preferredName ?? user.name ?? normalizedEmail,
-            kind: user.id == currentUser.id ? .currentUser : .friend(friendId: user.id)
+            kind: user.id == currentUser.id ? .currentUser : .friend(friendId: user.id),
+            role: user.id == currentUser.id ? .admin : .member
         )
         trips[tripIndex].participants.append(participant)
         return participant
@@ -332,4 +333,3 @@ struct MockSettlementRepository: SettlementRepository {
     }
 }
 #endif
-

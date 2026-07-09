@@ -246,10 +246,11 @@ struct SignInView: View {
                 return
             }
             let fullName = credential.fullName.map(PersonNameComponentsFormatter().string(from:))
+            let hashedNonce = currentNonce.map(sha256)
             Task {
                 if let user = await model.appleSignIn(
                     identityToken: identityToken,
-                    nonce: currentNonce,
+                    nonce: hashedNonce,
                     fullName: fullName,
                     email: credential.email
                 ) {

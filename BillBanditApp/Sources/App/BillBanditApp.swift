@@ -48,6 +48,9 @@ struct RootView: View {
         .task {
             await model.bootstrap()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .billBanditUnauthorized)) { _ in
+            model.handleUnauthorizedSession()
+        }
         .onOpenURL { url in
             model.handle(url: url)
         }

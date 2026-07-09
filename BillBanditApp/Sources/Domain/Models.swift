@@ -30,6 +30,11 @@ struct FriendCode: Hashable, Codable, Sendable {
 }
 
 struct TripParticipant: Identifiable, Hashable, Codable, Sendable {
+    enum Role: String, Codable, Sendable {
+        case admin
+        case member
+    }
+
     enum Kind: Hashable, Codable, Sendable {
         case currentUser
         case friend(friendId: String)
@@ -40,6 +45,14 @@ struct TripParticipant: Identifiable, Hashable, Codable, Sendable {
     var id: ParticipantID
     var displayName: String
     var kind: Kind
+    var role: Role
+
+    init(id: ParticipantID, displayName: String, kind: Kind, role: Role = .member) {
+        self.id = id
+        self.displayName = displayName
+        self.kind = kind
+        self.role = role
+    }
 }
 
 struct Trip: Identifiable, Hashable, Codable, Sendable {
@@ -145,4 +158,3 @@ struct InviteLink: Hashable, Codable, Sendable {
     var url: URL
     var code: InviteCode
 }
-

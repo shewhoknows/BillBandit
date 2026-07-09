@@ -62,6 +62,10 @@ final class APIClient: Sendable {
             } catch {
                 throw APIError.decoding(error.localizedDescription)
             }
+        } catch APIError.unauthorized {
+            try? await tokenStore.clearToken()
+            NotificationCenter.default.post(name: .billBanditUnauthorized, object: nil)
+            throw APIError.unauthorized
         } catch let error as APIError {
             throw error
         } catch {
@@ -127,6 +131,10 @@ final class APIClient: Sendable {
             return .server(statusCode: statusCode, message: message)
         }
     }
+}
+
+extension Notification.Name {
+    static let billBanditUnauthorized = Notification.Name("BillBanditUnauthorized")
 }
 
 struct EmptyResponse: Decodable, Sendable {}

@@ -170,6 +170,8 @@ struct SettlementRow: View {
     var payerName: String
     var recipientName: String
     var amount: Money
+    var caption: String = "SETTLEMENT"
+    var isLoading: Bool = false
     var onTap: (() -> Void)?
 
     var body: some View {
@@ -182,7 +184,7 @@ struct SettlementRow: View {
                         .font(BBFont.bodyRounded(size: 16, weight: .semibold, relativeTo: .body))
                         .foregroundStyle(BBColor.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("SETTLEMENT")
+                    Text(caption)
                         .font(BBFont.label(size: 10, relativeTo: .caption2))
                         .tracking(BBTracking.value(BBTracking.monoLabel, for: 10))
                         .foregroundStyle(BBColor.textFaded)
@@ -190,17 +192,22 @@ struct SettlementRow: View {
 
                 Spacer(minLength: BBSpacing.sm)
 
-                Text(amount.formatted())
-                    .font(BBFont.amount(size: 16, relativeTo: .headline))
-                    .foregroundStyle(BBColor.accent)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                if isLoading {
+                    ProgressView()
+                        .tint(BBColor.accent)
+                } else {
+                    Text(amount.formatted())
+                        .font(BBFont.amount(size: 16, relativeTo: .headline))
+                        .foregroundStyle(BBColor.accent)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(onTap == nil)
+        .disabled(onTap == nil || isLoading)
         .accessibilityLabel("\(payerName) pays \(recipientName) \(amount.formatted())")
     }
 }
