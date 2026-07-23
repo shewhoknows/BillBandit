@@ -1,0 +1,129 @@
+DEFINE SCHEMA
+
+RECORD TYPE BBGroup (
+    id STRING,
+    name STRING,
+    icon STRING,
+    simplifyDebts INT64,
+    createdAt TIMESTAMP,
+    memberIDs LIST<STRING>,
+    expenseIDs LIST<STRING>,
+    settlementIDs LIST<STRING>,
+    activityIDs LIST<STRING>,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBPerson (
+    id STRING,
+    name STRING,
+    avatar STRING,
+    cloudUser STRING,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBExpense (
+    id STRING,
+    groupID STRING,
+    title STRING,
+    amount STRING,
+    date TIMESTAMP,
+    category STRING,
+    notes STRING,
+    paidByID STRING,
+    splits BYTES,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBSettlement (
+    id STRING,
+    groupID STRING,
+    amount STRING,
+    date TIMESTAMP,
+    fromID STRING,
+    toID STRING,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBActivity (
+    id STRING,
+    kind STRING,
+    summary STRING,
+    timestamp TIMESTAMP,
+    refID STRING,
+    actorID STRING,
+    groupID STRING,
+    groupName STRING,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBFriendInvite (
+    code STRING,
+    inviterCloudUser STRING,
+    inviterName STRING,
+    inviterAvatar STRING,
+    createdAt TIMESTAMP,
+    expiresAt TIMESTAMP,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBFriendAcceptance (
+    inviteCode STRING,
+    accepterCloudUser STRING,
+    accepterName STRING,
+    accepterAvatar STRING,
+    acceptedAt TIMESTAMP,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBGroupInvitation (
+    groupID STRING,
+    recipientCloudUser STRING QUERYABLE,
+    senderCloudUser STRING,
+    shareURL STRING,
+    createdAt TIMESTAMP,
+    updatedAt TIMESTAMP,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE Users (
+    "___createTime" TIMESTAMP,
+    "___createdBy" REFERENCE,
+    "___etag" STRING,
+    "___modTime" TIMESTAMP,
+    "___modifiedBy" REFERENCE,
+    "___recordID" REFERENCE,
+    roles LIST<INT64>,
+    GRANT WRITE TO "_creator",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE "cloudkit.share" (
+    "___createTime" TIMESTAMP,
+    "___createdBy" REFERENCE,
+    "___etag" STRING,
+    "___modTime" TIMESTAMP,
+    "___modifiedBy" REFERENCE,
+    "___recordID" REFERENCE,
+    "cloudkit.thumbnailImageData" BYTES,
+    "cloudkit.title" STRING,
+    "cloudkit.type" STRING,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);

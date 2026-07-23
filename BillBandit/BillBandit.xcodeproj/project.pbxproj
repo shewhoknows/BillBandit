@@ -1,0 +1,721 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+
+/* Begin PBXBuildFile section */
+		750086B9A5BFDFFFF5A69EB2 /* BillBanditApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ECB6AE9BB181B3B5E3B78A /* BillBanditApp.swift */; };
+		78F3346695FA79D2BBAF4E38 /* BrandColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4BFC8AE6E1808DC7CD799D /* BrandColors.swift */; };
+		CDE609FB22AD0A8D0A687C93 /* BrandFonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09EF212BD9BA4B25381E73BD /* BrandFonts.swift */; };
+		B33A20FFC59353C690F9EC15 /* BrandAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B2F6B653F0F40458EEA4F7 /* BrandAssets.swift */; };
+		1A25338A4D0342DA303BAEE4 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB725A9D7436A1303C35745F /* RootTabView.swift */; };
+		D6C143A4FB04E1470CAD5829 /* PlaceholderScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2EDE43157E310565E03E5A /* PlaceholderScreens.swift */; };
+		7313F37F1CF55262D4D224BA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DAC78D39681CC2CC76F4F501 /* Assets.xcassets */; };
+		B30000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000002 /* PrivacyInfo.xcprivacy */; };
+		D1AF5B7BD86BC8C84420821E /* Fredoka-400.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AA0CF1F76F9993E3F431FA70 /* Fredoka-400.ttf */; };
+		68FD124FD0AECA6455F36B52 /* Fredoka-500.ttf in Resources */ = {isa = PBXBuildFile; fileRef = FC0B10BA81D5C14EA8578DA5 /* Fredoka-500.ttf */; };
+		79A05E04A714DA88B0119661 /* Fredoka-600.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 89C43A8122F1AD7181F78A7A /* Fredoka-600.ttf */; };
+		7F7253BD3D5A34B15C9FC99B /* Fredoka-700.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C970A167285970956AE7C17C /* Fredoka-700.ttf */; };
+		4B138F137E5BFBCC4191E30F /* Caveat-500.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 05479C8AFE07542679A83B30 /* Caveat-500.ttf */; };
+		A9E835A4FF7217FD5B7FAEA9 /* Caveat-600.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B0B4BED205BF442B6B15F45A /* Caveat-600.ttf */; };
+		0E625BEDFAABE977E0D6D4B3 /* Caveat-700.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E700340C1368B92A49192E65 /* Caveat-700.ttf */; };
+		60C740C557A69C67709E5183 /* CourierPrime-400.ttf in Resources */ = {isa = PBXBuildFile; fileRef = F7CFCDEB7A91A65655253D26 /* CourierPrime-400.ttf */; };
+		ECF63A87263CCBA6B2D1A1B2 /* CourierPrime-700.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 11B8466BD75124F3CAA49C3B /* CourierPrime-700.ttf */; };
+		8BDB5BACEC29EE152A1F09C5 /* Nunito-400.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9B49D9929BE80CF41AEE6FE2 /* Nunito-400.ttf */; };
+		BE33A73D99B143AF05932F2E /* Nunito-600.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 37D74AE3FE7777AB80AA0B19 /* Nunito-600.ttf */; };
+		E0A2C7631AFF423D8069E7B6 /* Nunito-700.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 27728B9DAE33793B724489CA /* Nunito-700.ttf */; };
+		2C4878922E6DD319DE069C0C /* Nunito-800.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 995B0968E4DC3860D3B3EE5F /* Nunito-800.ttf */; };
+		77D791AB8DF0E8C0FDDCFEB0 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0A7FCD5BBE17DD84AA7C91 /* Models.swift */; };
+		8AD5FC043AACBA0E5DE5C307 /* Money.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9964603D3D4A711E93C91875 /* Money.swift */; };
+		A18A786B47F3AE6F26A56933 /* SplitEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6DD2E12E52AD054B506755 /* SplitEngine.swift */; };
+		8C1364D487A9E68C103E9412 /* BalanceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DCC1B52A81B40CCDDB1AEBC /* BalanceEngine.swift */; };
+		1582D742CC939043F4E3B667 /* BalanceMath+SwiftData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C1C8F5DBD5CCFA5AF5B7FC /* BalanceMath+SwiftData.swift */; };
+		C884A21DE149F2972F3A27FF /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BDBF2A788D6C3F807D7EC5 /* AppStore.swift */; };
+		B20000000000000000000001 /* CloudCollaboration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* CloudCollaboration.swift */; };
+		90946E79CC442640640BAE54 /* FriendsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E7D479C4469EEF07BC602A /* FriendsScreen.swift */; };
+		8BC6D65DACF59E5250FC9E62 /* GroupsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5174C531A7298F089484854 /* GroupsScreen.swift */; };
+		06AFE8F3048EA4ACF17FFE21 /* AddGroupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0E2618A3F50EAE1C6FAF0D /* AddGroupSheet.swift */; };
+		002687977B28F5DAAA090C20 /* GroupDetailScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5512CAF5917FB2127AD85186 /* GroupDetailScreen.swift */; };
+		AFA9DEAA878B374CD9301DEB /* AddExpenseSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD0DE75597C3CF7F9FAC917E /* AddExpenseSheet.swift */; };
+		029E7DB2DF011CEFE3CA13F2 /* SplitEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */; };
+		6002A4BD33DB4A70DB970FE8 /* BalanceEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */; };
+		A10000000000000000000001 /* BillBanditUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* BillBanditUITests.swift */; };
+/* End PBXBuildFile section */
+
+
+/* Begin PBXFileReference section */
+		078AB8ADBD9B1EFBFEF1AF76 /* BillBandit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BillBandit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		14ECB6AE9BB181B3B5E3B78A /* BillBanditApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillBanditApp.swift; sourceTree = "<group>"; };
+		AC4BFC8AE6E1808DC7CD799D /* BrandColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandColors.swift; sourceTree = "<group>"; };
+		09EF212BD9BA4B25381E73BD /* BrandFonts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandFonts.swift; sourceTree = "<group>"; };
+		E3B2F6B653F0F40458EEA4F7 /* BrandAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandAssets.swift; sourceTree = "<group>"; };
+		CB725A9D7436A1303C35745F /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		EA2EDE43157E310565E03E5A /* PlaceholderScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderScreens.swift; sourceTree = "<group>"; };
+		DAC78D39681CC2CC76F4F501 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C2BB5A3A24AE724A91E8561F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B30000000000000000000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA0CF1F76F9993E3F431FA70 /* Fredoka-400.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fredoka-400.ttf; sourceTree = "<group>"; };
+		FC0B10BA81D5C14EA8578DA5 /* Fredoka-500.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fredoka-500.ttf; sourceTree = "<group>"; };
+		89C43A8122F1AD7181F78A7A /* Fredoka-600.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fredoka-600.ttf; sourceTree = "<group>"; };
+		C970A167285970956AE7C17C /* Fredoka-700.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Fredoka-700.ttf; sourceTree = "<group>"; };
+		05479C8AFE07542679A83B30 /* Caveat-500.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Caveat-500.ttf; sourceTree = "<group>"; };
+		B0B4BED205BF442B6B15F45A /* Caveat-600.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Caveat-600.ttf; sourceTree = "<group>"; };
+		E700340C1368B92A49192E65 /* Caveat-700.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Caveat-700.ttf; sourceTree = "<group>"; };
+		F7CFCDEB7A91A65655253D26 /* CourierPrime-400.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = CourierPrime-400.ttf; sourceTree = "<group>"; };
+		11B8466BD75124F3CAA49C3B /* CourierPrime-700.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = CourierPrime-700.ttf; sourceTree = "<group>"; };
+		9B49D9929BE80CF41AEE6FE2 /* Nunito-400.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Nunito-400.ttf; sourceTree = "<group>"; };
+		37D74AE3FE7777AB80AA0B19 /* Nunito-600.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Nunito-600.ttf; sourceTree = "<group>"; };
+		27728B9DAE33793B724489CA /* Nunito-700.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Nunito-700.ttf; sourceTree = "<group>"; };
+		995B0968E4DC3860D3B3EE5F /* Nunito-800.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = Nunito-800.ttf; sourceTree = "<group>"; };
+		3A0A7FCD5BBE17DD84AA7C91 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		9964603D3D4A711E93C91875 /* Money.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Money.swift; sourceTree = "<group>"; };
+		7F6DD2E12E52AD054B506755 /* SplitEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEngine.swift; sourceTree = "<group>"; };
+		9DCC1B52A81B40CCDDB1AEBC /* BalanceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceEngine.swift; sourceTree = "<group>"; };
+		05C1C8F5DBD5CCFA5AF5B7FC /* BalanceMath+SwiftData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BalanceMath+SwiftData.swift"; sourceTree = "<group>"; };
+		16BDBF2A788D6C3F807D7EC5 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		B20000000000000000000002 /* CloudCollaboration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCollaboration.swift; sourceTree = "<group>"; };
+		88E7D479C4469EEF07BC602A /* FriendsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsScreen.swift; sourceTree = "<group>"; };
+		A5174C531A7298F089484854 /* GroupsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsScreen.swift; sourceTree = "<group>"; };
+		3C0E2618A3F50EAE1C6FAF0D /* AddGroupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroupSheet.swift; sourceTree = "<group>"; };
+		5512CAF5917FB2127AD85186 /* GroupDetailScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupDetailScreen.swift; sourceTree = "<group>"; };
+		AD0DE75597C3CF7F9FAC917E /* AddExpenseSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddExpenseSheet.swift; sourceTree = "<group>"; };
+		70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEngineTests.swift; sourceTree = "<group>"; };
+		77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceEngineTests.swift; sourceTree = "<group>"; };
+		FBF3B0AA194414B1FC2A358C /* BillBanditTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BillBanditTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000002 /* BillBanditUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillBanditUITests.swift; sourceTree = "<group>"; };
+		A10000000000000000000003 /* BillBanditUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BillBanditUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+
+/* Begin PBXGroup section */
+		2CDAFEEF30A7A30AB93D8144 = {isa = PBXGroup; children = (
+			AB353B3FDE6CFA023251764A /* BillBandit */,
+			95E940FD9835AE2219E25A6E /* BillBanditTests */,
+			A10000000000000000000004 /* BillBanditUITests */,
+			44CD98B39D880D85DB8BB1D1 /* Products */,
+		);
+			sourceTree = "<group>";
+		};
+		44CD98B39D880D85DB8BB1D1 /* Products */ = {isa = PBXGroup; children = (
+			078AB8ADBD9B1EFBFEF1AF76 /* BillBandit.app */,
+			FBF3B0AA194414B1FC2A358C /* BillBanditTests.xctest */,
+			A10000000000000000000003 /* BillBanditUITests.xctest */,
+		);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AB353B3FDE6CFA023251764A /* BillBandit */ = {isa = PBXGroup; children = (
+			14ECB6AE9BB181B3B5E3B78A /* BillBanditApp.swift */,
+			3A26A1253CED2CC7C429AF7F /* DesignSystem */,
+			CAB224DCBCC92CC097E78389 /* Shell */,
+			C86656FBE9CB0A29E6A4099A /* Models */,
+			C420085E2C143A6B7887685A /* Engine */,
+			0EF3488B72D5E7A95FABA496 /* Store */,
+			3D2FE69411ED53F8C2C3E412 /* UI */,
+			5B3D1405594584938FE667FD /* Fonts */,
+			DAC78D39681CC2CC76F4F501 /* Assets.xcassets */,
+			C2BB5A3A24AE724A91E8561F /* Info.plist */,
+			B30000000000000000000002 /* PrivacyInfo.xcprivacy */,
+		);
+			path = BillBandit;
+			sourceTree = "<group>";
+		};
+		3A26A1253CED2CC7C429AF7F /* DesignSystem */ = {isa = PBXGroup; children = (
+			AC4BFC8AE6E1808DC7CD799D /* BrandColors.swift */,
+			09EF212BD9BA4B25381E73BD /* BrandFonts.swift */,
+			E3B2F6B653F0F40458EEA4F7 /* BrandAssets.swift */,
+		);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		CAB224DCBCC92CC097E78389 /* Shell */ = {isa = PBXGroup; children = (
+			CB725A9D7436A1303C35745F /* RootTabView.swift */,
+			EA2EDE43157E310565E03E5A /* PlaceholderScreens.swift */,
+		);
+			path = Shell;
+			sourceTree = "<group>";
+		};
+		5B3D1405594584938FE667FD /* Fonts */ = {isa = PBXGroup; children = (
+			AA0CF1F76F9993E3F431FA70 /* Fredoka-400.ttf */,
+			FC0B10BA81D5C14EA8578DA5 /* Fredoka-500.ttf */,
+			89C43A8122F1AD7181F78A7A /* Fredoka-600.ttf */,
+			C970A167285970956AE7C17C /* Fredoka-700.ttf */,
+			05479C8AFE07542679A83B30 /* Caveat-500.ttf */,
+			B0B4BED205BF442B6B15F45A /* Caveat-600.ttf */,
+			E700340C1368B92A49192E65 /* Caveat-700.ttf */,
+			F7CFCDEB7A91A65655253D26 /* CourierPrime-400.ttf */,
+			11B8466BD75124F3CAA49C3B /* CourierPrime-700.ttf */,
+			9B49D9929BE80CF41AEE6FE2 /* Nunito-400.ttf */,
+			37D74AE3FE7777AB80AA0B19 /* Nunito-600.ttf */,
+			27728B9DAE33793B724489CA /* Nunito-700.ttf */,
+			995B0968E4DC3860D3B3EE5F /* Nunito-800.ttf */,
+		);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
+		C86656FBE9CB0A29E6A4099A /* Models */ = {isa = PBXGroup; children = (
+			3A0A7FCD5BBE17DD84AA7C91 /* Models.swift */,
+		);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		C420085E2C143A6B7887685A /* Engine */ = {isa = PBXGroup; children = (
+			9964603D3D4A711E93C91875 /* Money.swift */,
+			7F6DD2E12E52AD054B506755 /* SplitEngine.swift */,
+			9DCC1B52A81B40CCDDB1AEBC /* BalanceEngine.swift */,
+			05C1C8F5DBD5CCFA5AF5B7FC /* BalanceMath+SwiftData.swift */,
+		);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		0EF3488B72D5E7A95FABA496 /* Store */ = {isa = PBXGroup; children = (
+			16BDBF2A788D6C3F807D7EC5 /* AppStore.swift */,
+			B20000000000000000000002 /* CloudCollaboration.swift */,
+		);
+			path = Store;
+			sourceTree = "<group>";
+		};
+		3D2FE69411ED53F8C2C3E412 /* UI */ = {isa = PBXGroup; children = (
+			88E7D479C4469EEF07BC602A /* FriendsScreen.swift */,
+			A5174C531A7298F089484854 /* GroupsScreen.swift */,
+			3C0E2618A3F50EAE1C6FAF0D /* AddGroupSheet.swift */,
+			5512CAF5917FB2127AD85186 /* GroupDetailScreen.swift */,
+			AD0DE75597C3CF7F9FAC917E /* AddExpenseSheet.swift */,
+		);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		95E940FD9835AE2219E25A6E /* BillBanditTests */ = {isa = PBXGroup; children = (
+			70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */,
+			77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */,
+		);
+			path = BillBanditTests;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000004 /* BillBanditUITests */ = {isa = PBXGroup; children = (
+			A10000000000000000000002 /* BillBanditUITests.swift */,
+		);
+			path = BillBanditUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+
+/* Begin PBXNativeTarget section */
+		30A9B2E69474EF68D53B5EBE /* BillBandit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2498D472496BDA0A3D6C98D0 /* Build configuration list for PBXNativeTarget "BillBandit" */;
+			buildPhases = (
+				C5F3107E3A82F28A0C915355 /* Sources */,
+				FFC0A3C5DFFF037FE7947FA4 /* Frameworks */,
+				AF4E58BF412BB16F1064042C /* Resources */,
+				280B78315A926714BF51DF91 /* Strip FinderInfo before codesign */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BillBandit;
+			productName = BillBandit;
+			productReference = 078AB8ADBD9B1EFBFEF1AF76 /* BillBandit.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C96E2EE35D7A1580464BB84C /* BillBanditTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 22A1600E2B02D7D5BCCF6AFC /* Build configuration list for PBXNativeTarget "BillBanditTests" */;
+			buildPhases = (
+				FFD365512EC1A979DE9592EA /* Sources */,
+				ECF0FEC522A1A4EF9F0CF958 /* Frameworks */,
+				15C49FA8E988E338AE7A2D8A /* Resources */,
+				3789D8B523B88F2D7B38A006 /* Strip FinderInfo before codesign */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C838F97ED70691B094534517 /* PBXTargetDependency */,
+			);
+			name = BillBanditTests;
+			productName = BillBanditTests;
+			productReference = FBF3B0AA194414B1FC2A358C /* BillBanditTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A10000000000000000000005 /* BillBanditUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000006 /* Build configuration list for PBXNativeTarget "BillBanditUITests" */;
+			buildPhases = (
+				A10000000000000000000007 /* Sources */,
+				A10000000000000000000008 /* Frameworks */,
+				A10000000000000000000009 /* Resources */,
+				A1000000000000000000000A /* Strip FinderInfo before codesign */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000000000000000000000B /* PBXTargetDependency */,
+			);
+			name = BillBanditUITests;
+			productName = BillBanditUITests;
+			productReference = A10000000000000000000003 /* BillBanditUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		3FDC44EBA386A915E395DA12 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ADC7ECAE2DCA761B8354BB50 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 30A9B2E69474EF68D53B5EBE;
+			remoteInfo = BillBandit;
+		};
+		A1000000000000000000000C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ADC7ECAE2DCA761B8354BB50 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 30A9B2E69474EF68D53B5EBE;
+			remoteInfo = BillBandit;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		C838F97ED70691B094534517 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 30A9B2E69474EF68D53B5EBE /* BillBandit */;
+			targetProxy = 3FDC44EBA386A915E395DA12 /* PBXContainerItemProxy */;
+		};
+		A1000000000000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 30A9B2E69474EF68D53B5EBE /* BillBandit */;
+			targetProxy = A1000000000000000000000C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+
+/* Begin PBXProject section */
+		ADC7ECAE2DCA761B8354BB50 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					30A9B2E69474EF68D53B5EBE = {
+						CreatedOnToolsVersion = 26.6;
+						SystemCapabilities = {
+							com.apple.BackgroundModes = { enabled = 1; };
+							com.apple.CloudKit = { enabled = 1; };
+							com.apple.Push = { enabled = 1; };
+						};
+					};
+					C96E2EE35D7A1580464BB84C = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 30A9B2E69474EF68D53B5EBE;
+					};
+					A10000000000000000000005 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 30A9B2E69474EF68D53B5EBE;
+					};
+				};
+			};
+			buildConfigurationList = 2B71E25FF8EFDB42FDB1C560 /* Build configuration list for PBXProject "BillBandit" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 2CDAFEEF30A7A30AB93D8144;
+			productRefGroup = 44CD98B39D880D85DB8BB1D1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				30A9B2E69474EF68D53B5EBE /* BillBandit */,
+				C96E2EE35D7A1580464BB84C /* BillBanditTests */,
+				A10000000000000000000005 /* BillBanditUITests */,
+			);
+		};
+/* End PBXProject section */
+
+
+/* Begin PBXResourcesBuildPhase section */
+		AF4E58BF412BB16F1064042C /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+				7313F37F1CF55262D4D224BA /* Assets.xcassets in Resources */,
+				B30000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+				D1AF5B7BD86BC8C84420821E /* Fredoka-400.ttf in Resources */,
+				68FD124FD0AECA6455F36B52 /* Fredoka-500.ttf in Resources */,
+				79A05E04A714DA88B0119661 /* Fredoka-600.ttf in Resources */,
+				7F7253BD3D5A34B15C9FC99B /* Fredoka-700.ttf in Resources */,
+				4B138F137E5BFBCC4191E30F /* Caveat-500.ttf in Resources */,
+				A9E835A4FF7217FD5B7FAEA9 /* Caveat-600.ttf in Resources */,
+				0E625BEDFAABE977E0D6D4B3 /* Caveat-700.ttf in Resources */,
+				60C740C557A69C67709E5183 /* CourierPrime-400.ttf in Resources */,
+				ECF63A87263CCBA6B2D1A1B2 /* CourierPrime-700.ttf in Resources */,
+				8BDB5BACEC29EE152A1F09C5 /* Nunito-400.ttf in Resources */,
+				BE33A73D99B143AF05932F2E /* Nunito-600.ttf in Resources */,
+				E0A2C7631AFF423D8069E7B6 /* Nunito-700.ttf in Resources */,
+				2C4878922E6DD319DE069C0C /* Nunito-800.ttf in Resources */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+		15C49FA8E988E338AE7A2D8A /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000009 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+
+/* Begin PBXSourcesBuildPhase section */
+		C5F3107E3A82F28A0C915355 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+				750086B9A5BFDFFFF5A69EB2 /* BillBanditApp.swift in Sources */,
+				78F3346695FA79D2BBAF4E38 /* BrandColors.swift in Sources */,
+				CDE609FB22AD0A8D0A687C93 /* BrandFonts.swift in Sources */,
+				B33A20FFC59353C690F9EC15 /* BrandAssets.swift in Sources */,
+				1A25338A4D0342DA303BAEE4 /* RootTabView.swift in Sources */,
+				D6C143A4FB04E1470CAD5829 /* PlaceholderScreens.swift in Sources */,
+				77D791AB8DF0E8C0FDDCFEB0 /* Models.swift in Sources */,
+				8AD5FC043AACBA0E5DE5C307 /* Money.swift in Sources */,
+				A18A786B47F3AE6F26A56933 /* SplitEngine.swift in Sources */,
+				8C1364D487A9E68C103E9412 /* BalanceEngine.swift in Sources */,
+				1582D742CC939043F4E3B667 /* BalanceMath+SwiftData.swift in Sources */,
+				C884A21DE149F2972F3A27FF /* AppStore.swift in Sources */,
+				B20000000000000000000001 /* CloudCollaboration.swift in Sources */,
+				90946E79CC442640640BAE54 /* FriendsScreen.swift in Sources */,
+				8BC6D65DACF59E5250FC9E62 /* GroupsScreen.swift in Sources */,
+				06AFE8F3048EA4ACF17FFE21 /* AddGroupSheet.swift in Sources */,
+				002687977B28F5DAAA090C20 /* GroupDetailScreen.swift in Sources */,
+				AFA9DEAA878B374CD9301DEB /* AddExpenseSheet.swift in Sources */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFD365512EC1A979DE9592EA /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+				029E7DB2DF011CEFE3CA13F2 /* SplitEngineTests.swift in Sources */,
+				6002A4BD33DB4A70DB970FE8 /* BalanceEngineTests.swift in Sources */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+			A10000000000000000000001 /* BillBanditUITests.swift in Sources */,
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+
+/* Begin PBXFrameworksBuildPhase section */
+		FFC0A3C5DFFF037FE7947FA4 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+		ECF0FEC522A1A4EF9F0CF958 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000008 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+		);
+		runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		280B78315A926714BF51DF91 /* Strip FinderInfo before codesign */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Strip FinderInfo before codesign";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "xattr -cr \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\" 2>/dev/null || true\n";
+		};
+
+		3789D8B523B88F2D7B38A006 /* Strip FinderInfo before codesign */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Strip FinderInfo before codesign";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "xattr -cr \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\" 2>/dev/null || true\n";
+		};
+		A1000000000000000000000A /* Strip FinderInfo before codesign */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Strip FinderInfo before codesign";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "xattr -cr \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\" 2>/dev/null || true\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+
+/* Begin XCBuildConfiguration section */
+		059ADADE86ABAB73AA8C9B10 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		EB3D7170B23D2AD95EB01253 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		EBAC17A95EFD142CD219A7E1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BillBandit/BillBandit.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = 4JRB53LG5C;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BillBandit/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.billbandit.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		27BC405797E654D77EEBDF1C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = BillBandit/BillBandit.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = 4JRB53LG5C;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BillBandit/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.billbandit.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		B7F9698EEC3F3F2F1B4151AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.billbandit.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BillBandit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BillBandit";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		9941FC8533477CE37E4D58EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.billbandit.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BillBandit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BillBandit";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		A1000000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.billbandit.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = BillBandit;
+			};
+			name = Debug;
+		};
+		A1000000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.billbandit.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = BillBandit;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+
+/* Begin XCConfigurationList section */
+		2B71E25FF8EFDB42FDB1C560 /* Build configuration list for PBXProject "BillBandit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				059ADADE86ABAB73AA8C9B10 /* Debug */,
+				EB3D7170B23D2AD95EB01253 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2498D472496BDA0A3D6C98D0 /* Build configuration list for PBXNativeTarget "BillBandit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EBAC17A95EFD142CD219A7E1 /* Debug */,
+				27BC405797E654D77EEBDF1C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		22A1600E2B02D7D5BCCF6AFC /* Build configuration list for PBXNativeTarget "BillBanditTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B7F9698EEC3F3F2F1B4151AC /* Debug */,
+				9941FC8533477CE37E4D58EA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000006 /* Build configuration list for PBXNativeTarget "BillBanditUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000000000000000000000D /* Debug */,
+				A1000000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = ADC7ECAE2DCA761B8354BB50 /* Project object */;
+}

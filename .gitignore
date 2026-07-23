@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Xcode user state and generated products
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Signing material and local environment files
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+.env
+.env.*
+
+# Separate project that is not part of BillBandit
+Daud/
