@@ -96,6 +96,13 @@ enum ConnectedFriendIdentity {
     }
 }
 
+enum CollaborationRetryPolicy {
+    static func delay(after attempt: Int) -> TimeInterval {
+        guard attempt > 0 else { return 0 }
+        return min(pow(2, Double(attempt - 1)), 30)
+    }
+}
+
 /// CloudKit collaboration deliberately sits beside SwiftData instead of asking
 /// SwiftData to mirror its store. SwiftData's automatic CloudKit integration is
 /// private-database only, while BillBandit groups need owner/participant shares.
@@ -127,13 +134,23 @@ final class CloudCollaborationService: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var lastSync: Date?
+    @Published private(set) var lastIssue: String?
     @Published private(set) var pendingMemberClaimGroupID: UUID?
 
     let container: CKContainer
     private var currentUserRecordName: String?
     private var isSynchronizing = false
+    private var isUploading = false
+    private var synchronizeRequested = false
+    private var fullSynchronizationRequested = false
     private var pendingUploadGroupIDs: Set<UUID> = []
+    private var uploadAttempts: [UUID: Int] = [:]
+    private var uploadRetryAfter: [UUID: Date] = [:]
     private var uploadWorker: Task<Void, Never>?
+    private var foregroundSyncWorker: Task<Void, Never>?
+    private var invitationAttempts: [CKRecord.ID: Int] = [:]
+    private var invitationRetryAfter: [CKRecord.ID: Date] = [:]
+    private var subscribedZoneKeys: Set<String> = []
 
     private init() {
         self.container = CKContainer(identifier: Self.containerIdentifier)
@@ -151,37 +168,76 @@ final class CloudCollaborationService: ObservableObject {
             currentUserRecordName = try await container.userRecordID().recordName
             linkCurrentPerson()
             await subscribeToAutomaticGroupInvitations()
-            await synchronize()
+            await subscribeToDatabaseChanges()
+            await synchronize(promoteLocalChanges: true)
         } catch {
             state = .unavailable(Self.readable(error))
+            lastIssue = Self.readable(error)
         }
     }
 
-    func synchronize() async {
-        guard !isSynchronizing else { return }
+    func startForegroundSync() {
+        guard foregroundSyncWorker == nil else { return }
+        foregroundSyncWorker = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(4))
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+                await self?.synchronize()
+            }
+        }
+    }
+
+    func stopForegroundSync() {
+        foregroundSyncWorker?.cancel()
+        foregroundSyncWorker = nil
+    }
+
+    func synchronize(promoteLocalChanges: Bool = false) async {
+        guard !isSynchronizing, !isUploading else {
+            synchronizeRequested = true
+            fullSynchronizationRequested = fullSynchronizationRequested || promoteLocalChanges
+            return
+        }
         guard currentUserRecordName != nil else {
             await prepare()
             return
         }
         isSynchronizing = true
         state = .syncing
-        defer { isSynchronizing = false }
 
-        do {
-            try await acceptPendingAutomaticGroupInvitations()
-            try await pull(database: container.privateCloudDatabase, scope: .private)
-            try await pull(database: container.sharedCloudDatabase, scope: .shared)
-            resolveMembershipClaims()
-            try await promoteLocalGroups()
-            lastSync = .now
-            state = .ready
-        } catch {
-            state = .unavailable(Self.readable(error))
+        var issues = await acceptPendingAutomaticGroupInvitations()
+        issues.append(contentsOf: await pull(database: container.privateCloudDatabase,
+                                             scope: .private))
+        issues.append(contentsOf: await pull(database: container.sharedCloudDatabase,
+                                             scope: .shared))
+        resolveMembershipClaims()
+        if promoteLocalChanges {
+            issues.append(contentsOf: await promoteLocalGroups())
+        }
+        lastSync = .now
+        if let issue = issues.first {
+            lastIssue = Self.readable(issue)
+        } else if pendingUploadGroupIDs.isEmpty {
+            lastIssue = nil
+        }
+        state = .ready
+        isSynchronizing = false
+        startUploadWorkerIfNeeded()
+
+        if synchronizeRequested {
+            let needsFullSync = fullSynchronizationRequested
+            synchronizeRequested = false
+            fullSynchronizationRequested = false
+            await synchronize(promoteLocalChanges: needsFullSync)
         }
     }
 
-    /// Queue-free first beta behavior: save locally immediately, then mirror in
-    /// the background. A later foreground sync retries every local group.
+    /// Save locally immediately, then keep retrying the cloud mirror until it
+    /// succeeds. A temporary account/network/share error must never drop a group.
     func groupDidChange(_ group: Group) {
         pendingUploadGroupIDs.insert(group.id)
         startUploadWorkerIfNeeded()
@@ -256,45 +312,96 @@ final class CloudCollaborationService: ObservableObject {
     func accept(_ metadata: CKShare.Metadata) async {
         state = .syncing
         do {
-            _ = try await container.accept([metadata])
+            _ = try await container.accept(metadata)
             currentUserRecordName = try await container.userRecordID().recordName
-            try await pull(database: container.sharedCloudDatabase, scope: .shared)
+            let issues = await pull(database: container.sharedCloudDatabase, scope: .shared)
             resolveMembershipClaims()
-            try await promoteLocalGroups()
+            let promotionIssues = await promoteLocalGroups()
             lastSync = .now
+            lastIssue = (issues + promotionIssues).first.map(Self.readable)
             state = .ready
         } catch {
             state = .unavailable(Self.readable(error))
+            lastIssue = Self.readable(error)
         }
     }
 
     // MARK: Upload
 
-    private func promoteLocalGroups() async throws {
+    private func promoteLocalGroups() async -> [Error] {
         let context = AppStore.container.mainContext
         let groups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
+        var issues: [Error] = []
         for group in groups {
-            try await uploadGroup(withID: group.id)
+            do {
+                try await uploadGroup(withID: group.id)
+                pendingUploadGroupIDs.remove(group.id)
+                uploadAttempts[group.id] = nil
+                uploadRetryAfter[group.id] = nil
+            } catch {
+                pendingUploadGroupIDs.insert(group.id)
+                issues.append(error)
+            }
         }
+        return issues
     }
 
     private func startUploadWorkerIfNeeded() {
-        guard uploadWorker == nil else { return }
+        guard uploadWorker == nil, !pendingUploadGroupIDs.isEmpty else { return }
         uploadWorker = Task { [weak self] in
             guard let self else { return }
-            while let groupID = self.pendingUploadGroupIDs.first {
+            while !Task.isCancelled, !self.pendingUploadGroupIDs.isEmpty {
+                if self.isSynchronizing || self.isUploading {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    continue
+                }
+
+                let now = Date.now
+                guard let groupID = self.pendingUploadGroupIDs.first(where: {
+                    self.uploadRetryAfter[$0, default: .distantPast] <= now
+                }) else {
+                    let nextRetry = self.pendingUploadGroupIDs.compactMap {
+                        self.uploadRetryAfter[$0]
+                    }.min() ?? now.addingTimeInterval(1)
+                    let wait = max(0.25, min(nextRetry.timeIntervalSince(now), 5))
+                    try? await Task.sleep(for: .seconds(wait))
+                    continue
+                }
+
                 self.pendingUploadGroupIDs.remove(groupID)
+                self.isUploading = true
                 do {
+                    if self.currentUserRecordName == nil {
+                        await self.prepare()
+                    }
                     try await self.uploadGroup(withID: groupID)
+                    self.uploadAttempts[groupID] = nil
+                    self.uploadRetryAfter[groupID] = nil
                     self.lastSync = .now
+                    if self.pendingUploadGroupIDs.isEmpty {
+                        self.lastIssue = nil
+                    }
                     self.state = .ready
                 } catch {
-                    self.state = .unavailable(Self.readable(error))
+                    let attempt = self.uploadAttempts[groupID, default: 0] + 1
+                    self.uploadAttempts[groupID] = attempt
+                    self.uploadRetryAfter[groupID] = Date.now.addingTimeInterval(
+                        CollaborationRetryPolicy.delay(after: attempt)
+                    )
+                    self.pendingUploadGroupIDs.insert(groupID)
+                    self.lastIssue = Self.readable(error)
                 }
+                self.isUploading = false
             }
             self.uploadWorker = nil
             if !self.pendingUploadGroupIDs.isEmpty {
                 self.startUploadWorkerIfNeeded()
+            }
+            if self.synchronizeRequested {
+                let needsFullSync = self.fullSynchronizationRequested
+                self.synchronizeRequested = false
+                self.fullSynchronizationRequested = false
+                await self.synchronize(promoteLocalChanges: needsFullSync)
             }
         }
     }
@@ -415,6 +522,12 @@ final class CloudCollaborationService: ObservableObject {
     private func ensureAutomaticShare(for group: Group,
                                       zoneID: CKRecordZone.ID) async throws {
         guard let currentUserRecordName else { throw CollaborationError.iCloudUnavailable }
+        let disconnectedMembers = group.members.filter {
+            !$0.isCurrentUser && ($0.cloudUserRecordName?.isEmpty != false)
+        }
+        guard disconnectedMembers.isEmpty else {
+            throw CollaborationError.friendIdentityUnavailable
+        }
         let recipients = AutomaticGroupShareRouting.recipients(
             from: group.members.map(\.cloudUserRecordName),
             currentUser: currentUserRecordName
@@ -517,8 +630,8 @@ final class CloudCollaborationService: ObservableObject {
     /// The recipient app polls this query on launch/foreground and receives a
     /// silent push for new envelopes. Acceptance is automatic because the user
     /// already explicitly connected this account as a BillBandit friend.
-    private func acceptPendingAutomaticGroupInvitations() async throws {
-        guard let currentUserRecordName else { throw CollaborationError.iCloudUnavailable }
+    private func acceptPendingAutomaticGroupInvitations() async -> [Error] {
+        guard let currentUserRecordName else { return [CollaborationError.iCloudUnavailable] }
         let predicate = NSPredicate(
             format: "%K == %@",
             AutomaticInvitationField.recipientCloudUser,
@@ -526,31 +639,54 @@ final class CloudCollaborationService: ObservableObject {
         )
         let query = CKQuery(recordType: AutomaticGroupShareRouting.recordType,
                             predicate: predicate)
-        let page = try await container.publicCloudDatabase.records(
-            matching: query,
-            desiredKeys: [AutomaticInvitationField.groupID, AutomaticInvitationField.shareURL],
-            resultsLimit: 200
-        )
+        let page: (matchResults: [(CKRecord.ID, Result<CKRecord, Error>)],
+                   queryCursor: CKQueryOperation.Cursor?)
+        do {
+            page = try await container.publicCloudDatabase.records(
+                matching: query,
+                desiredKeys: [AutomaticInvitationField.groupID, AutomaticInvitationField.shareURL],
+                resultsLimit: 200
+            )
+        } catch {
+            return [error]
+        }
         let context = AppStore.container.mainContext
         let localGroups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
+        let sharedGroupIDs = Set(localGroups.filter { scope(for: $0) == .shared }.map(\.id))
+        var issues: [Error] = []
 
-        for (_, result) in page.matchResults {
-            guard case .success(let record) = result,
-                  let groupID = record.uuid(AutomaticInvitationField.groupID),
-                  !localGroups.contains(where: {
-                      $0.id == groupID && scope(for: $0) == .shared
-                  }),
+        for (recordID, result) in page.matchResults {
+            guard invitationRetryAfter[recordID, default: .distantPast] <= .now else { continue }
+            guard case .success(let record) = result else {
+                if case .failure(let error) = result { issues.append(error) }
+                continue
+            }
+            guard let groupID = record.uuid(AutomaticInvitationField.groupID),
+                  !sharedGroupIDs.contains(groupID),
                   let rawURL = record.string(AutomaticInvitationField.shareURL),
                   let shareURL = URL(string: rawURL) else { continue }
 
-            let metadataResults = try await container.shareMetadatas(for: [shareURL])
-            guard case .success(let metadata)? = metadataResults[shareURL] else {
-                if case .failure(let error)? = metadataResults[shareURL] { throw error }
-                throw CollaborationError.shareMetadataUnavailable
+            do {
+                let metadataResults = try await container.shareMetadatas(for: [shareURL])
+                guard case .success(let metadata)? = metadataResults[shareURL] else {
+                    if case .failure(let error)? = metadataResults[shareURL] { throw error }
+                    throw CollaborationError.shareMetadataUnavailable
+                }
+                _ = try await container.accept(metadata)
+                invitationAttempts[recordID] = nil
+                invitationRetryAfter[recordID] = nil
+            } catch {
+                // A stale or temporarily unavailable share must not prevent other
+                // groups (or already-shared expenses) from syncing in this pass.
+                let attempt = invitationAttempts[recordID, default: 0] + 1
+                invitationAttempts[recordID] = attempt
+                invitationRetryAfter[recordID] = Date.now.addingTimeInterval(
+                    CollaborationRetryPolicy.delay(after: attempt)
+                )
+                issues.append(error)
             }
-            let acceptanceResults = try await container.accept([metadata])
-            if case .failure(let error)? = acceptanceResults[metadata] { throw error }
         }
+        return issues
     }
 
     private func subscribeToAutomaticGroupInvitations() async {
@@ -578,6 +714,27 @@ final class CloudCollaborationService: ObservableObject {
         _ = try? await database.save(subscription)
     }
 
+    /// A database subscription is the recommended CloudKit safety net for the
+    /// shared database because new accepted zones are not known in advance.
+    private func subscribeToDatabaseChanges() async {
+        for (scope, database) in [
+            (DatabaseScope.private, container.privateCloudDatabase),
+            (DatabaseScope.shared, container.sharedCloudDatabase),
+        ] {
+            let subscriptionID = "BillBandit.Database.\(scope.rawValue)"
+            if (try? await database.subscription(for: subscriptionID)) != nil { continue }
+            let subscription = CKDatabaseSubscription(subscriptionID: subscriptionID)
+            let notification = CKSubscription.NotificationInfo()
+            notification.shouldSendContentAvailable = true
+            subscription.notificationInfo = notification
+            do {
+                _ = try await database.save(subscription)
+            } catch {
+                lastIssue = Self.readable(error)
+            }
+        }
+    }
+
     private func deleteRecord(prefix: RecordPrefix, id: UUID, from group: Group) {
         guard let zoneID = zoneID(for: group) else { return }
         let database = database(for: scope(for: group))
@@ -587,13 +744,25 @@ final class CloudCollaborationService: ObservableObject {
 
     // MARK: Pull
 
-    private func pull(database: CKDatabase, scope: DatabaseScope) async throws {
-        let zones = try await database.allRecordZones()
-            .filter { $0.zoneID.zoneName.hasPrefix(Self.zonePrefix) }
+    private func pull(database: CKDatabase, scope: DatabaseScope) async -> [Error] {
+        let zones: [CKRecordZone]
+        do {
+            zones = try await database.allRecordZones()
+                .filter { $0.zoneID.zoneName.hasPrefix(Self.zonePrefix) }
+        } catch {
+            return [error]
+        }
+        var issues: [Error] = []
         for zone in zones {
             await subscribe(to: zone.zoneID, in: database, scope: scope)
-            try await pull(zoneID: zone.zoneID, database: database, scope: scope)
+            do {
+                try await pull(zoneID: zone.zoneID, database: database, scope: scope)
+            } catch {
+                // One damaged/deleted/busy zone must not block every other group.
+                issues.append(error)
+            }
         }
+        return issues
     }
 
     private func pull(zoneID: CKRecordZone.ID, database: CKDatabase,
@@ -912,11 +1081,16 @@ final class CloudCollaborationService: ObservableObject {
                            scope: DatabaseScope) async {
         let rawID = "BillBandit.\(scope.rawValue).\(zoneID.ownerName).\(zoneID.zoneName)"
         let subscriptionID = String(rawID.prefix(255))
+        guard subscribedZoneKeys.insert(subscriptionID).inserted else { return }
         let subscription = CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: subscriptionID)
         let notification = CKSubscription.NotificationInfo()
         notification.shouldSendContentAvailable = true
         subscription.notificationInfo = notification
-        _ = try? await database.save(subscription)
+        do {
+            _ = try await database.save(subscription)
+        } catch {
+            subscribedZoneKeys.remove(subscriptionID)
+        }
     }
 
     private func loadToken(scope: DatabaseScope, zoneID: CKRecordZone.ID) -> CKServerChangeToken? {

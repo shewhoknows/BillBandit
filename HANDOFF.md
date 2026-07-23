@@ -702,4 +702,18 @@ everywhere — no ad-hoc values · record user actions as `ActivityItem`s (feed 
   The development-signed archive/export succeeded; its Sqim manifest confirms
   bundle `com.billbandit.app`, version 1.0, build 9.
 - Superseded install link: `https://build.sqim.dev/sqim/install/B_vEM6LJnert`.
-- Current install link: `https://build.sqim.dev/sqim/install/urGz0Jo5ZvLd`.
+- Superseded install link: `https://build.sqim.dev/sqim/install/urGz0Jo5ZvLd`.
+- Build 10 collaboration reliability fix: failed group/expense uploads remain in a
+  retry queue with bounded exponential backoff instead of being discarded; one
+  stale share or damaged zone no longer aborts the complete sync pass. While the
+  app is active it performs a serialized CloudKit reconciliation every four
+  seconds, in addition to silent-push, database-subscription, launch and
+  foreground triggers. Private/shared database subscriptions and background fetch
+  support are enabled. Groups now expose a branded sync-status row with a manual
+  retry action, and pull-to-refresh runs a full upload + download reconciliation.
+  Validation: all 45 unit/model tests passed on iPhone 17 Pro, including
+  bidirectional recipient routing and retry-backoff coverage. The complete UI
+  runner hit an iOS 26.5 simulator test-manager hang after three passing flows;
+  the signed device archive/export succeeded with CloudKit, push, and Sign in
+  with Apple entitlements. Sqim manifest confirms `com.billbandit.app`, build 10.
+- Current install link: `https://build.sqim.dev/sqim/install/0NsLm_m-6OB-`.

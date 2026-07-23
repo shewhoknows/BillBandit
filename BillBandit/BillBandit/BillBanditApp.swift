@@ -29,13 +29,24 @@ struct BillBanditApp: App {
         WindowGroup {
             AppRootView()
                 .preferredColorScheme(.light) // v1 is light-only (approved 2026-07-18)
-                .task { await CloudCollaborationService.shared.prepare() }
+                .task {
+                    await CloudCollaborationService.shared.prepare()
+                    if scenePhase == .active {
+                        CloudCollaborationService.shared.startForegroundSync()
+                    }
+                }
                 .onOpenURL { FriendInvitationService.shared.handle(url: $0) }
                 .onChange(of: scenePhase) { _, phase in
-                    guard phase == .active else { return }
-                    Task {
-                        await CloudCollaborationService.shared.synchronize()
-                        await FriendInvitationService.shared.refreshAcceptedInvites()
+                    if phase == .active {
+                        CloudCollaborationService.shared.startForegroundSync()
+                        Task {
+                            await CloudCollaborationService.shared.synchronize(
+                                promoteLocalChanges: true
+                            )
+                            await FriendInvitationService.shared.refreshAcceptedInvites()
+                        }
+                    } else {
+                        CloudCollaborationService.shared.stopForegroundSync()
                     }
                 }
         }

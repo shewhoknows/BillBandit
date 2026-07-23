@@ -3,6 +3,32 @@ import SwiftData
 @testable import BillBandit
 
 final class BalanceEngineTests: XCTestCase {
+    func testCollaborationRetryBackoffIsFastThenBounded() {
+        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 0), 0)
+        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 1), 1)
+        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 2), 2)
+        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 5), 16)
+        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 20), 30)
+    }
+
+    func testAutomaticGroupSharingRoutesBothFriendDirections() {
+        let esha = "cloud-user-esha"
+        let friend = "cloud-user-friend"
+
+        XCTAssertEqual(
+            AutomaticGroupShareRouting.recipients(
+                from: [esha, friend], currentUser: esha
+            ),
+            [friend]
+        )
+        XCTAssertEqual(
+            AutomaticGroupShareRouting.recipients(
+                from: [esha, friend], currentUser: friend
+            ),
+            [esha]
+        )
+    }
+
 
     private let you = UUID(), maya = UUID(), arjun = UUID()
 

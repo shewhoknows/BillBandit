@@ -7,12 +7,41 @@ struct GroupsScreen: View {
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var me: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var collaboration = CloudCollaborationService.shared
     @State private var showAdd = false
     @State private var path = NavigationPath()
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                if let issue = collaboration.lastIssue {
+                    Button {
+                        Task {
+                            await collaboration.synchronize(promoteLocalChanges: true)
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            BrandIconView(icon: .pulse, size: 18)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("sync retrying")
+                                    .font(BrandFont.display(12.5, weight: .semibold))
+                                Text(issue)
+                                    .font(BrandFont.type(8.5, bold: true))
+                                    .lineLimit(2)
+                                    .opacity(0.68)
+                            }
+                            Spacer()
+                            Text("retry now")
+                                .font(BrandFont.type(8.5, bold: true))
+                        }
+                        .foregroundStyle(Color.Brand.creamSoft)
+                        .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.Brand.cobalt)
+                    .listRowSeparator(.hidden)
+                    .accessibilityIdentifier("cloudSyncRetry")
+                }
                 if groups.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .neutral, size: 145)
@@ -76,6 +105,11 @@ struct GroupsScreen: View {
             .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: groups.map(\.id))
             .scrollContentBackground(.hidden)
             .background(Color.Brand.cobalt)
+            .refreshable {
+                await CloudCollaborationService.shared.synchronize(
+                    promoteLocalChanges: true
+                )
+            }
             .navigationTitle("Groups")
             .toolbar {
                 Button { showAdd = true } label: {
