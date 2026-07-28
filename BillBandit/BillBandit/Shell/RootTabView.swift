@@ -3,6 +3,94 @@ import SwiftData
 import UIKit
 import AuthenticationServices
 
+enum AppleCredentialGateDecision: Equatable {
+    case authorize
+    case preserveSession
+    case signOut
+}
+
+enum AppleCredentialGatePolicy {
+    static func shouldRequestCredentialState(
+        hasIdentifier: Bool,
+        accountOnboardingComplete: Bool,
+        deferNextCheck: Bool,
+        credentialStateChecksAreReliable: Bool = true
+    ) -> Bool {
+        hasIdentifier && accountOnboardingComplete && !deferNextCheck &&
+            credentialStateChecksAreReliable
+    }
+
+    static func decision(
+        for state: ASAuthorizationAppleIDProvider.CredentialState,
+        error: Error?
+    ) -> AppleCredentialGateDecision {
+        guard error == nil else { return .preserveSession }
+        switch state {
+        case .authorized:
+            return .authorize
+        case .revoked, .transferred:
+            return .signOut
+        case .notFound:
+            return .preserveSession
+        @unknown default:
+            return .preserveSession
+        }
+    }
+}
+
+struct AppleAccountBootstrapAccount: Equatable {
+    let identifier: String
+    let sessionIsActive: Bool?
+}
+
+enum AppleAccountBootstrapDecision: Equatable {
+    case authenticate(identifier: String, recoveredFromProfile: Bool)
+    case signedOut
+    case ambiguous
+}
+
+enum AppleAccountBootstrapPolicy {
+    static func decision(
+        storedIdentifier: String?,
+        currentAccounts: [AppleAccountBootstrapAccount]
+    ) -> AppleAccountBootstrapDecision {
+        let normalizedAccounts = currentAccounts.compactMap { account -> AppleAccountBootstrapAccount? in
+            let identifier = account.identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !identifier.isEmpty else { return nil }
+            return .init(identifier: identifier, sessionIsActive: account.sessionIsActive)
+        }
+        let distinctIdentifiers = Set(normalizedAccounts.map(\.identifier))
+        let stored = storedIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+
+        if let stored {
+            if normalizedAccounts.contains(where: {
+                $0.identifier == stored && $0.sessionIsActive == false
+            }) {
+                return .signedOut
+            }
+            return .authenticate(identifier: stored, recoveredFromProfile: false)
+        }
+
+        guard distinctIdentifiers.count <= 1 else { return .ambiguous }
+        guard let identifier = distinctIdentifiers.first else { return .signedOut }
+        guard normalizedAccounts.contains(where: {
+            $0.identifier == identifier && $0.sessionIsActive != false
+        }) else {
+            return .signedOut
+        }
+        return .authenticate(identifier: identifier, recoveredFromProfile: true)
+    }
+}
+
+enum AccountOnboardingAccessPolicy {
+    static func mayEnterApp(hasAppleIdentifier: Bool,
+                            accountOnboardingComplete: Bool) -> Bool {
+        hasAppleIdentifier && accountOnboardingComplete
+    }
+}
+
 struct AppRootView: View {
     private enum AccountGateState: Equatable { case checking, signedOut, authorized }
 
@@ -10,6 +98,8 @@ struct AppRootView: View {
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
+    @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
+    @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var accountGateState: AccountGateState = .checking
@@ -26,12 +116,28 @@ struct AppRootView: View {
         ProcessInfo.processInfo.arguments.contains("-forceSignedOutOnboarding")
     }
 
+    private var forceConnectedIncompleteOnboarding: Bool {
+        ProcessInfo.processInfo.arguments.contains("-onboardingConnectedIncomplete")
+    }
+
+    private var credentialStateChecksAreReliable: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
+    }
+
     var body: some View {
         SwiftUI.Group {
             if bypassOnboarding {
                 RootTabView()
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
-            } else if accountGateState == .authorized && accountOnboardingComplete {
+            } else if accountGateState == .authorized &&
+                        AccountOnboardingAccessPolicy.mayEnterApp(
+                            hasAppleIdentifier: !appleUserIdentifier.isEmpty,
+                            accountOnboardingComplete: accountOnboardingComplete
+                        ) && usernameHandleVerified {
                 RootTabView()
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             } else if accountGateState == .checking {
@@ -48,8 +154,7 @@ struct AppRootView: View {
                 .transition(.opacity)
             }
         }
-        .task { AppStore.seedIfNeeded(context: context) }
-        .task(id: appleUserIdentifier) { verifyAppleCredential() }
+        .task { await prepareAccountGate() }
     }
 
     private var accountCheckView: some View {
@@ -67,6 +172,109 @@ struct AppRootView: View {
         .accessibilityLabel("Checking Apple sign in")
     }
 
+    @MainActor
+    private func prepareAccountGate() async {
+        AppStore.seedIfNeeded(context: context)
+        if forceConnectedIncompleteOnboarding {
+            appleUserIdentifier = "ui-test-connected-apple-account"
+            accountOnboardingComplete = false
+            usernameHandleVerified = false
+            accountGateState = .signedOut
+            return
+        }
+        if forceSignedOutOnboarding || bypassOnboarding {
+            verifyAppleCredential()
+            return
+        }
+
+        let people = (try? context.fetch(
+            FetchDescriptor<Person>(predicate: #Predicate { $0.isCurrentUser })
+        )) ?? []
+        let currentAccounts = people.compactMap { person -> AppleAccountBootstrapAccount? in
+            guard let identifier = person.appleUserIdentifier else { return nil }
+            let sessionIsActive: Bool?
+            switch person.appleSessionStateRaw {
+            case "active": sessionIsActive = true
+            case "userSignedOut", "providerRevoked": sessionIsActive = false
+            default: sessionIsActive = nil
+            }
+            return .init(
+                identifier: identifier,
+                sessionIsActive: sessionIsActive
+            )
+        }
+        switch AppleAccountBootstrapPolicy.decision(
+            storedIdentifier: appleUserIdentifier,
+            currentAccounts: currentAccounts
+        ) {
+        case .authenticate(let identifier, _):
+            appleUserIdentifier = identifier
+            if AccountOnboardingAccessPolicy.mayEnterApp(
+                hasAppleIdentifier: true,
+                accountOnboardingComplete: accountOnboardingComplete
+            ) {
+                await reconcileUsernameAndVerifyAppleCredential()
+            } else {
+                accountGateState = .signedOut
+            }
+        case .signedOut, .ambiguous:
+            appleUserIdentifier = ""
+            applePrivateEmail = ""
+            accountOnboardingComplete = false
+            usernameHandleVerified = false
+            UsernameIdentityService.signOut()
+            accountGateState = .signedOut
+        }
+    }
+
+    @MainActor
+    private func reconcileUsernameAndVerifyAppleCredential() async {
+        guard UsernameIdentityService.hasStoredSession else {
+            usernameHandleVerified = false
+            accountGateState = .signedOut
+            return
+        }
+
+        do {
+            let remoteUser = try await UsernameIdentityService.currentUser()
+            switch UsernameAccountReconciliationPolicy.decision(
+                remoteUsername: remoteUser.username
+            ) {
+            case .verified(let username):
+                let current = AccountProfileIntegrity.canonicalize(
+                    appleUserIdentifier: appleUserIdentifier,
+                    cloudUserRecordName: nil,
+                    context: context
+                )
+                let nameChanged = current.name != username
+                if nameChanged {
+                    current.name = username
+                    current.profileUpdatedAt = .now
+                }
+                current.appleSessionStateRaw = "active"
+                try context.save()
+                usernameHandleVerified = true
+                if nameChanged {
+                    CloudCollaborationService.shared.currentPersonDidChange()
+                }
+                verifyAppleCredential()
+            case .requiresClaim:
+                usernameHandleVerified = false
+                accountGateState = .signedOut
+            }
+        } catch {
+            if UsernameIdentityService.hasStoredSession {
+                // A temporary backend outage must not lock a previously verified
+                // account out of its local ledger. The server remains the atomic
+                // authority for every new claim and rename.
+                verifyAppleCredential()
+            } else {
+                usernameHandleVerified = false
+                accountGateState = .signedOut
+            }
+        }
+    }
+
     private func verifyAppleCredential() {
         if forceSignedOutOnboarding {
             accountGateState = .signedOut
@@ -81,20 +289,55 @@ struct AppRootView: View {
             accountOnboardingComplete = false
             return
         }
+        guard AppleCredentialGatePolicy.shouldRequestCredentialState(
+            hasIdentifier: true,
+            accountOnboardingComplete: accountOnboardingComplete,
+            deferNextCheck: deferNextAppleCredentialStateCheck,
+            credentialStateChecksAreReliable: credentialStateChecksAreReliable
+        ) else {
+            if deferNextAppleCredentialStateCheck {
+                deferNextAppleCredentialStateCheck = false
+            }
+            persistSession(isActive: true, identifier: appleUserIdentifier)
+            accountGateState = .authorized
+            return
+        }
         accountGateState = .checking
-        ASAuthorizationAppleIDProvider().getCredentialState(forUserID: appleUserIdentifier) { state, _ in
+        ASAuthorizationAppleIDProvider().getCredentialState(forUserID: appleUserIdentifier) { state, error in
+            let decision = AppleCredentialGatePolicy.decision(for: state, error: error)
             DispatchQueue.main.async {
-                if state == .authorized {
+                switch decision {
+                case .authorize, .preserveSession:
+                    persistSession(isActive: true, identifier: appleUserIdentifier)
                     accountGateState = .authorized
-                } else {
+                case .signOut:
+                    persistSession(isActive: false, identifier: appleUserIdentifier)
                     appleUserIdentifier = ""
                     applePrivateEmail = ""
                     accountOnboardingComplete = false
+                    usernameHandleVerified = false
+                    UsernameIdentityService.signOut()
                     accountGateState = .signedOut
                 }
             }
         }
     }
+
+    private func persistSession(isActive: Bool, identifier: String) {
+        let normalizedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIdentifier.isEmpty else { return }
+        let people = (try? context.fetch(
+            FetchDescriptor<Person>(predicate: #Predicate { $0.isCurrentUser })
+        )) ?? []
+        for person in people where person.appleUserIdentifier == normalizedIdentifier {
+            person.appleSessionStateRaw = isActive ? "active" : "providerRevoked"
+        }
+        try? context.save()
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 /// App shell — cobalt tab bar with a raised cream FAB, mirroring the mockup board.

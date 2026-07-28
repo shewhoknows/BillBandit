@@ -1,14 +1,264 @@
 import XCTest
+import Testing
 import SwiftData
+import CloudKit
 @testable import BillBandit
 
 final class BalanceEngineTests: XCTestCase {
+    func testUsernameHandlesNormalizeAndRejectInvalidValues() throws {
+        XCTAssertEqual(try UsernameHandle("  @Bubby  ").value, "bubby")
+        XCTAssertEqual(try UsernameHandle("bubby_2").value, "bubby_2")
+        XCTAssertThrowsError(try UsernameHandle("ab"))
+        XCTAssertThrowsError(try UsernameHandle("2bandit"))
+        XCTAssertThrowsError(try UsernameHandle("bubby!"))
+        XCTAssertThrowsError(try UsernameHandle("bubby_"))
+        XCTAssertThrowsError(try UsernameHandle("support"))
+    }
+
+    @MainActor
+    func testDemoSeedGroupIDsAreStableAcrossFreshInstalls() throws {
+        func seededGroupIDs(storeName: String) throws -> [String: UUID] {
+            let configuration = ModelConfiguration(
+                storeName, schema: AppStore.schema, isStoredInMemoryOnly: true,
+                groupContainer: .none, cloudKitDatabase: .none
+            )
+            let container = try ModelContainer(
+                for: AppStore.schema, configurations: configuration
+            )
+            SeedData.seedIfEmpty(context: container.mainContext)
+            return Dictionary(uniqueKeysWithValues: try container.mainContext
+                .fetch(FetchDescriptor<Group>())
+                .map { ($0.name, $0.id) })
+        }
+
+        XCTAssertEqual(
+            try seededGroupIDs(storeName: "StableSeedIDs-A"),
+            try seededGroupIDs(storeName: "StableSeedIDs-B")
+        )
+    }
+
+    @MainActor
+    func testCloudSyncMessageNeverExposesCloudKitImplementationDetails() {
+        let internalError = NSError(
+            domain: "CloudKitInternal",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Error <CKDPResponseOperationResult: 0x7fa104f80> { internal payload }",
+            ]
+        )
+
+        let message = CloudCollaborationService.readable(internalError)
+
+        XCTAssertEqual(
+            message,
+            "Cloud sync hit a temporary problem. It will retry automatically."
+        )
+        XCTAssertFalse(message.contains("CKDP"))
+        XCTAssertFalse(message.contains("0x"))
+    }
+
+    func testStaleAutomaticInvitationDoesNotKeepLedgerSyncBannerVisible() {
+        let missingShare = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.unknownItem.rawValue
+        )
+        let networkFailure = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.networkFailure.rawValue
+        )
+
+        XCTAssertTrue(AutomaticInvitationFailurePolicy.isTerminal(missingShare))
+        XCTAssertFalse(AutomaticInvitationFailurePolicy.isTerminal(networkFailure))
+        XCTAssertNil(CloudSyncIssuePolicy.visibleError(from: [
+            CloudSyncIssue(source: .automaticInvitation, error: missingShare),
+        ]))
+
+        let visible = CloudSyncIssuePolicy.visibleError(from: [
+            CloudSyncIssue(source: .privateLedger, error: networkFailure),
+        ]) as NSError?
+        XCTAssertEqual(visible?.domain, CKError.errorDomain)
+        XCTAssertEqual(visible?.code, CKError.Code.networkFailure.rawValue)
+    }
+
+    @MainActor
+    func testDemoRepairRemovesOnlyExactDuplicateLedgers() throws {
+        let configuration = ModelConfiguration(
+            "DemoRepair", schema: AppStore.schema, isStoredInMemoryOnly: true,
+            groupContainer: .none, cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        SeedData.seedIfEmpty(context: context)
+
+        let seededPizza = try context.fetch(FetchDescriptor<Group>())
+            .first { $0.id == DemoDataIntegrity.Kind.pizza.stableID }!
+        let legacyDuplicate = Group(
+            name: "Friday Pizza", icon: .pizza,
+            createdAt: seededPizza.createdAt.addingTimeInterval(1),
+            members: seededPizza.members
+        )
+        let duplicateExpense = Expense(
+            title: "Pizza night", amount: 153, group: legacyDuplicate,
+            paidBy: seededPizza.members.first
+        )
+        let duplicateActivity = ActivityItem(
+            kind: .expenseAdded, summary: "Duplicate demo activity",
+            groupID: legacyDuplicate.id, groupName: legacyDuplicate.name
+        )
+        let realGroup = Group(name: "Friday Pizza", icon: .pizza,
+                              members: seededPizza.members)
+        let realExpense = Expense(title: "Birthday pizza", amount: 89,
+                                  group: realGroup,
+                                  paidBy: seededPizza.members.first)
+        for value in [legacyDuplicate, realGroup] { context.insert(value) }
+        for value in [duplicateExpense, realExpense] { context.insert(value) }
+        context.insert(duplicateActivity)
+        try context.save()
+
+        DemoDataIntegrity.repairDuplicateGroups(context: context)
+
+        let remainingGroups = try context.fetch(FetchDescriptor<Group>())
+        XCTAssertEqual(remainingGroups.filter {
+            DemoDataIntegrity.kind(of: $0) == .pizza
+        }.count, 1)
+        XCTAssertTrue(remainingGroups.contains { $0.id == realGroup.id })
+        XCTAssertFalse(try context.fetch(FetchDescriptor<ActivityItem>())
+            .contains { $0.id == duplicateActivity.id })
+    }
+
+    func testAutomaticShareDefersUntilEveryMemberHasCloudIdentity() {
+        let current = Person(name: "You", isCurrentUser: true)
+        let friend = Person(name: "Friend")
+        let group = Group(name: "Dinner", members: [current, friend])
+
+        XCTAssertEqual(
+            AutomaticShareDecision.forGroup(group),
+            .deferUntilMembersLinked
+        )
+
+        friend.cloudUserRecordName = "cloud-user-friend"
+        XCTAssertEqual(AutomaticShareDecision.forGroup(group), .ready)
+    }
+
+    func testStaleRemoteManifestCannotDeleteOrHideConcurrentExpenses() {
+        let localExpenseID = UUID()
+        let remoteExpenseID = UUID()
+        let staleRemoteManifest = Set<UUID>()
+
+        XCTAssertEqual(
+            CloudRecordMergePolicy.localRecordIDsToDelete(
+                local: [localExpenseID], remoteManifest: staleRemoteManifest
+            ),
+            []
+        )
+        XCTAssertTrue(
+            CloudRecordMergePolicy.shouldApplyIncomingRecord(
+                remoteExpenseID, remoteManifest: staleRemoteManifest
+            )
+        )
+    }
+
     func testCollaborationRetryBackoffIsFastThenBounded() {
         XCTAssertEqual(CollaborationRetryPolicy.delay(after: 0), 0)
         XCTAssertEqual(CollaborationRetryPolicy.delay(after: 1), 1)
         XCTAssertEqual(CollaborationRetryPolicy.delay(after: 2), 2)
         XCTAssertEqual(CollaborationRetryPolicy.delay(after: 5), 16)
         XCTAssertEqual(CollaborationRetryPolicy.delay(after: 20), 30)
+    }
+
+    func testCloudSyncGivesReadyLocalUploadsPriorityOverPulling() {
+        XCTAssertTrue(CloudSyncWorkPolicy.shouldYieldToPendingUpload(
+            hasPendingUploadReady: true
+        ))
+        XCTAssertFalse(CloudSyncWorkPolicy.shouldYieldToPendingUpload(
+            hasPendingUploadReady: false
+        ))
+    }
+
+    func testRecordZoneSubscriptionsArePrivateDatabaseOnly() {
+        XCTAssertTrue(CloudSubscriptionPolicy.shouldCreateRecordZoneSubscription(
+            scope: .private
+        ))
+        XCTAssertFalse(CloudSubscriptionPolicy.shouldCreateRecordZoneSubscription(
+            scope: .shared
+        ))
+    }
+
+    func testPersonUploadsDoNotWriteUndeployedProfileTimestamp() {
+        XCTAssertFalse(
+            CloudPersonRecordPolicy.writesProfileUpdatedAt,
+            "BBPerson.profileUpdatedAt is absent from the checked-in CloudKit schema"
+        )
+    }
+
+    func testPersonUploadPolicyMatchesCheckedInCloudKitSchema() throws {
+        let schemaURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("CloudKit/CloudKitSchema.ckdb")
+        let schema = try String(contentsOf: schemaURL, encoding: .utf8)
+        let personStart = try XCTUnwrap(schema.range(of: "RECORD TYPE BBPerson ("))
+        let following = schema[personStart.upperBound...]
+        let personEnd = try XCTUnwrap(following.range(of: ");"))
+        let personSchema = following[..<personEnd.lowerBound]
+
+        XCTAssertEqual(
+            personSchema.contains("profileUpdatedAt"),
+            CloudPersonRecordPolicy.writesProfileUpdatedAt
+        )
+    }
+
+    func testCloudUploadRetriesNetworkErrorsButStopsSchemaFailures() {
+        let network = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.networkFailure.rawValue
+        )
+        let invalidSchema = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.invalidArguments.rawValue
+        )
+
+        XCTAssertEqual(CloudUploadFailurePolicy.disposition(for: network), .retry)
+        XCTAssertEqual(
+            CloudUploadFailurePolicy.disposition(for: invalidSchema),
+            .needsAttention
+        )
+    }
+
+    func testPartialCloudFailureStopsWhenAnyRecordHasASchemaFailure() {
+        let recordID = CKRecord.ID(recordName: "person-test")
+        let invalidRecord = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.invalidArguments.rawValue
+        )
+        let partialFailure = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.partialFailure.rawValue,
+            userInfo: [CKPartialErrorsByItemIDKey: [recordID: invalidRecord]]
+        )
+
+        XCTAssertEqual(
+            CloudUploadFailurePolicy.disposition(for: partialFailure),
+            .needsAttention
+        )
+        XCTAssertEqual(
+            CloudUploadFailurePolicy.cloudCode(for: partialFailure),
+            .invalidArguments
+        )
+    }
+
+    func testCloudUploadHonorsServerRetryAfter() {
+        let busy = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.requestRateLimited.rawValue,
+            userInfo: [CKErrorRetryAfterKey: NSNumber(value: 12)]
+        )
+
+        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 2, error: busy), 12)
     }
 
     func testAutomaticGroupSharingRoutesBothFriendDirections() {
@@ -60,6 +310,288 @@ final class BalanceEngineTests: XCTestCase {
                                                      among: [legacy, first, second]).id,
             legacy.id
         )
+    }
+
+    @MainActor
+    func testFriendAccountRepairLeavesOneRowPerCloudAccountAndRetargetsLedger() throws {
+        let configuration = ModelConfiguration(
+            "FriendAccountIntegrity", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let current = Person(name: "Esha", isCurrentUser: true)
+        let oldConnected = Person(name: "Arjun Rao")
+        oldConnected.cloudUserRecordName = "cloud-arjun"
+        oldConnected.profileUpdatedAt = Date(timeIntervalSince1970: 100)
+        let newestConnected = Person(name: "Arjun Rao")
+        newestConnected.cloudUserRecordName = "cloud-arjun"
+        newestConnected.profileUpdatedAt = Date(timeIntervalSince1970: 200)
+        let group = Group(name: "Dinner", members: [current, oldConnected])
+        let expense = Expense(title: "Charmoula", amount: 500, group: group,
+                              paidBy: oldConnected)
+        let split = Split(value: 250, computedAmount: 250, person: oldConnected,
+                          expense: expense)
+        let settlement = Settlement(amount: 50, from: current, to: oldConnected,
+                                    group: group)
+        let activity = ActivityItem(kind: .expenseAdded, summary: "Added Charmoula",
+                                    actorID: oldConnected.id, groupID: group.id,
+                                    groupName: group.name)
+        [current, oldConnected, newestConnected].forEach(context.insert)
+        context.insert(group)
+        context.insert(expense)
+        context.insert(split)
+        context.insert(settlement)
+        context.insert(activity)
+        group.expenses.append(expense)
+        group.settlements.append(settlement)
+        expense.splits.append(split)
+        try context.save()
+
+        let affected = ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
+        try context.save()
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        let friends = people.filter { !$0.isCurrentUser }
+        XCTAssertEqual(friends.map(\.id), [newestConnected.id])
+        XCTAssertEqual(friends.first?.cloudUserRecordName, "cloud-arjun")
+        XCTAssertEqual(affected.map(\.id), [group.id])
+        let actualMemberIDs: [String] = group.members.map { $0.id.uuidString }.sorted()
+        let expectedMemberIDs: [String] = [current.id, newestConnected.id]
+            .map(\.uuidString).sorted()
+        XCTAssertEqual(actualMemberIDs, expectedMemberIDs)
+        XCTAssertEqual(expense.paidBy?.id, newestConnected.id)
+        XCTAssertEqual(expense.splits.first?.person?.id, newestConnected.id)
+        XCTAssertEqual(settlement.to?.id, newestConnected.id)
+        XCTAssertEqual(activity.actorID, newestConnected.id)
+        XCTAssertEqual(
+            ConnectedFriendIdentity.canonicalPeople(from: people)
+                .filter { !$0.isCurrentUser }.map(\.id),
+            [newestConnected.id]
+        )
+    }
+
+    @MainActor
+    func testDemoPersonRepairRemovesOnlyKnownSeedDuplicatesAndRetargetsLedger() throws {
+        let configuration = ModelConfiguration(
+            "DemoPersonIntegrity", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        SeedData.seedIfEmpty(context: context)
+
+        let canonical = try context.fetch(FetchDescriptor<Person>())
+            .first { $0.id == DemoDataIntegrity.PersonKind.maya.stableID }!
+        let duplicate = Person(name: "Maya Chen", avatar: .bows)
+        let duplicateArjun = Person(name: "Arjun Rao", avatar: .bucketHat)
+        let duplicateRiya = Person(name: "Riya Kapoor", avatar: .headphones)
+        let duplicateSam = Person(name: "Sam Ortiz", avatar: .messyTie)
+        let coincidentalRealPerson = Person(name: "Maya Chen", avatar: .headphones)
+        let current = try context.fetch(FetchDescriptor<Person>())
+            .first(where: \Person.isCurrentUser)!
+        let group = Group(name: "Real dinner", members: [current, duplicate])
+        let expense = Expense(title: "Dinner", amount: 500, group: group,
+                              paidBy: duplicate)
+        let split = Split(value: 250, computedAmount: 250, person: duplicate,
+                          expense: expense)
+        let settlement = Settlement(amount: 50, from: current, to: duplicate,
+                                    group: group)
+        let activity = ActivityItem(kind: .expenseAdded, summary: "Added dinner",
+                                    actorID: duplicate.id, groupID: group.id,
+                                    groupName: group.name)
+        [duplicate, duplicateArjun, duplicateRiya, duplicateSam,
+         coincidentalRealPerson].forEach(context.insert)
+        context.insert(group)
+        context.insert(expense)
+        context.insert(split)
+        context.insert(settlement)
+        context.insert(activity)
+        group.expenses.append(expense)
+        group.settlements.append(settlement)
+        expense.splits.append(split)
+        try context.save()
+
+        DemoDataIntegrity.repairDuplicatePeople(context: context)
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertFalse(people.contains { $0.id == duplicate.id })
+        XCTAssertTrue(people.contains { $0.id == canonical.id })
+        XCTAssertTrue(people.contains { $0.id == coincidentalRealPerson.id })
+        XCTAssertEqual(group.members.filter { $0.name == "Maya Chen" }.map(\.id),
+                       [canonical.id])
+        XCTAssertEqual(expense.paidBy?.id, canonical.id)
+        XCTAssertEqual(expense.splits.first?.person?.id, canonical.id)
+        XCTAssertEqual(settlement.to?.id, canonical.id)
+        XCTAssertEqual(activity.actorID, canonical.id)
+    }
+
+    @MainActor
+    func testDemoPersonRepairDoesNotGuessFromOneMatchingContact() throws {
+        let configuration = ModelConfiguration(
+            "DemoPersonConservativeRepair", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        SeedData.seedIfEmpty(context: context)
+        let sameNameAndAvatar = Person(name: "Maya Chen", avatar: .bows)
+        context.insert(sameNameAndAvatar)
+        try context.save()
+
+        DemoDataIntegrity.repairDuplicatePeople(context: context)
+
+        XCTAssertTrue(try context.fetch(FetchDescriptor<Person>())
+            .contains { $0.id == sameNameAndAvatar.id })
+    }
+
+    @MainActor
+    func testOrdinaryLaunchRetiresFixturesButPreservesRealConnectedData() throws {
+        let configuration = ModelConfiguration(
+            "DemoRetirement", schema: AppStore.schema, isStoredInMemoryOnly: true,
+            groupContainer: .none, cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        SeedData.seedIfEmpty(context: context)
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        let current = people.first(where: \.isCurrentUser)!
+        let maya = people.first { $0.id == DemoDataIntegrity.PersonKind.maya.stableID }!
+        let arjun = people.first { $0.id == DemoDataIntegrity.PersonKind.arjun.stableID }!
+        maya.cloudUserRecordName = "cloud-maya"
+        let realGroup = Group(name: "Real ledger", members: [current, arjun])
+        let realExpense = Expense(title: "Dinner", amount: 120, group: realGroup,
+                                  paidBy: current)
+        let realSplit = Split(value: 60, computedAmount: 60, person: arjun,
+                              expense: realExpense)
+        context.insert(realGroup)
+        context.insert(realExpense)
+        context.insert(realSplit)
+        realGroup.expenses.append(realExpense)
+        realExpense.splits.append(realSplit)
+        try context.save()
+
+        DemoDataIntegrity.retireFixtures(context: context)
+
+        let remainingGroups = try context.fetch(FetchDescriptor<Group>())
+        let remainingPeople = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(remainingGroups.map(\.id), [realGroup.id])
+        XCTAssertTrue(remainingPeople.contains { $0.id == maya.id })
+        XCTAssertTrue(remainingPeople.contains { $0.id == arjun.id })
+        XCTAssertEqual(
+            ConnectedFriendIdentity.actualFriends(from: remainingPeople).map(\.id),
+            [maya.id]
+        )
+        XCTAssertEqual(
+            Set(ConnectedFriendIdentity.groupMemberOptions(from: remainingPeople).map(\.id)),
+            Set([current.id, maya.id])
+        )
+    }
+
+    @MainActor
+    func testConnectedFriendSurvivesSaveAndFreshContext() throws {
+        let configuration = ModelConfiguration(
+            "ConnectedFriendPersistence", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let current = Person(name: "owner", isCurrentUser: true)
+        current.appleUserIdentifier = "apple-owner"
+        let friend = Person(name: "friend_handle")
+        friend.cloudUserRecordName = "cloud-friend"
+        container.mainContext.insert(current)
+        container.mainContext.insert(friend)
+        try container.mainContext.save()
+
+        let freshContext = ModelContext(container)
+        let reloaded = try freshContext.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(
+            ConnectedFriendIdentity.actualFriends(from: reloaded).map(\.id),
+            [friend.id]
+        )
+    }
+
+    @MainActor
+    func testAppleAccountCanonicalizationLeavesOneProfileAndRetargetsLedger() throws {
+        let configuration = ModelConfiguration(
+            "AccountProfileIntegrity", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let older = Person(name: "Old Name", isCurrentUser: true)
+        older.appleUserIdentifier = "apple-account-1"
+        older.cloudUserRecordName = "cloud-account-1"
+        older.profileUpdatedAt = Date(timeIntervalSince1970: 100)
+        let newer = Person(name: "Profile Name", isCurrentUser: true)
+        newer.appleUserIdentifier = "apple-account-1"
+        newer.cloudUserRecordName = "cloud-account-1"
+        newer.profileUpdatedAt = Date(timeIntervalSince1970: 200)
+        let friend = Person(name: "Friend")
+        let group = Group(name: "Dinner", members: [older, newer, friend])
+        let expense = Expense(title: "Charmoula", amount: 500, group: group,
+                              paidBy: older)
+        let split = Split(value: 250, computedAmount: 250, person: older,
+                          expense: expense)
+        let activity = ActivityItem(kind: .expenseAdded, summary: "Added Charmoula",
+                                    actorID: older.id, groupID: group.id,
+                                    groupName: group.name)
+        [older, newer, friend].forEach(context.insert)
+        context.insert(group)
+        context.insert(expense)
+        context.insert(split)
+        context.insert(activity)
+        group.expenses.append(expense)
+        expense.splits.append(split)
+        try context.save()
+
+        let canonical = AccountProfileIntegrity.canonicalize(
+            appleUserIdentifier: "apple-account-1",
+            cloudUserRecordName: "cloud-account-1",
+            context: context
+        )
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(canonical.id, newer.id)
+        XCTAssertEqual(canonical.name, "Profile Name")
+        XCTAssertEqual(people.filter(\.isCurrentUser).map(\.id), [newer.id])
+        XCTAssertEqual(people.filter {
+            $0.appleUserIdentifier == "apple-account-1"
+        }.map(\.id), [newer.id])
+        XCTAssertEqual(group.members.filter(\.isCurrentUser).map(\.id), [newer.id])
+        XCTAssertEqual(expense.paidBy?.id, newer.id)
+        XCTAssertEqual(expense.splits.first?.person?.id, newer.id)
+        XCTAssertEqual(activity.actorID, newer.id)
+    }
+
+    func testStaleRemoteProfileCannotOverwriteProfilePageUsername() {
+        XCTAssertFalse(AccountProfileMergePolicy.shouldApplyRemoteProfile(
+            remoteUpdatedAt: Date(timeIntervalSince1970: 100),
+            localUpdatedAt: Date(timeIntervalSince1970: 200),
+            isCurrentUser: true
+        ))
+        XCTAssertFalse(AccountProfileMergePolicy.shouldApplyRemoteProfile(
+            remoteUpdatedAt: nil,
+            localUpdatedAt: Date(timeIntervalSince1970: 200),
+            isCurrentUser: true
+        ))
+        XCTAssertTrue(AccountProfileMergePolicy.shouldApplyRemoteProfile(
+            remoteUpdatedAt: Date(timeIntervalSince1970: 300),
+            localUpdatedAt: Date(timeIntervalSince1970: 200),
+            isCurrentUser: true
+        ))
     }
 
     @MainActor
@@ -387,6 +919,29 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(groupItem.displaySummary, "Esha created “NYC Date”")
     }
 
+    func testActivitySectioningKeepsFiveNewestDatesThenEarlierActivity() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let newestDay = Date(timeIntervalSince1970: 2_000_000_000)
+        let items = (0..<7).map { offset in
+            ActivityItem(
+                kind: .expenseAdded,
+                summary: "day-\(offset)",
+                timestamp: calendar.date(byAdding: .day, value: -offset,
+                                         to: newestDay)!
+            )
+        }
+
+        let sections = ActivitySectioning.sections(
+            from: items, maximumDatedSections: 5, calendar: calendar
+        )
+
+        XCTAssertEqual(sections.count, 6)
+        XCTAssertEqual(sections.prefix(5).compactMap(\.date).count, 5)
+        XCTAssertEqual(sections.last?.kind, .earlier)
+        XCTAssertEqual(sections.last?.items.map(\.summary), ["day-5", "day-6"])
+    }
+
     func testUnreadActivityCountsOnlyNewActionsFromOtherPeople() {
         let currentUserID = UUID()
         let friendID = UUID()
@@ -456,5 +1011,177 @@ final class BalanceEngineTests: XCTestCase {
             groupContainer: .none, cloudKitDatabase: .none
         )
         return try ModelContainer(for: schema, configurations: configuration)
+    }
+}
+
+struct AppleCredentialGatePolicyTests {
+    @Test("A canonical server handle verifies the local account")
+    func serverHandleVerifiesLocalAccount() {
+        #expect(
+            UsernameAccountReconciliationPolicy.decision(remoteUsername: "Bubby") ==
+                .verified("bubby")
+        )
+    }
+
+    @Test("A missing server handle requires an atomic claim")
+    func missingServerHandleRequiresClaim() {
+        #expect(
+            UsernameAccountReconciliationPolicy.decision(remoteUsername: nil) ==
+                .requiresClaim
+        )
+        #expect(
+            UsernameAccountReconciliationPolicy.decision(remoteUsername: "") ==
+                .requiresClaim
+        )
+    }
+
+    @Test("Apple identity alone cannot complete a new account")
+    func appleIdentityAloneCannotCompleteOnboarding() {
+        #expect(
+            AccountOnboardingAccessPolicy.mayEnterApp(
+                hasAppleIdentifier: true,
+                accountOnboardingComplete: false
+            ) == false
+        )
+    }
+
+    @Test("Existing completed accounts retain app access")
+    func completedAccountRetainsAccess() {
+        #expect(
+            AccountOnboardingAccessPolicy.mayEnterApp(
+                hasAppleIdentifier: true,
+                accountOnboardingComplete: true
+            )
+        )
+    }
+
+    @Test("Missing defaults restore one persisted active Apple session")
+    func missingDefaultsRestorePersistedSession() {
+        let decision = AppleAccountBootstrapPolicy.decision(
+            storedIdentifier: nil,
+            currentAccounts: [
+                .init(identifier: "apple-account-1", sessionIsActive: true),
+            ]
+        )
+
+        #expect(
+            decision == .authenticate(
+                identifier: "apple-account-1",
+                recoveredFromProfile: true
+            )
+        )
+    }
+
+    @Test("Legacy persisted Apple session is recoverable after defaults loss")
+    func legacySessionRestoresAfterDefaultsLoss() {
+        let decision = AppleAccountBootstrapPolicy.decision(
+            storedIdentifier: "  ",
+            currentAccounts: [
+                .init(identifier: "apple-account-1", sessionIsActive: nil),
+            ]
+        )
+
+        #expect(
+            decision == .authenticate(
+                identifier: "apple-account-1",
+                recoveredFromProfile: true
+            )
+        )
+    }
+
+    @Test("Explicit sign out is never reversed from the persisted profile")
+    func explicitSignOutStaysSignedOut() {
+        let decision = AppleAccountBootstrapPolicy.decision(
+            storedIdentifier: nil,
+            currentAccounts: [
+                .init(identifier: "apple-account-1", sessionIsActive: false),
+            ]
+        )
+
+        #expect(decision == .signedOut)
+    }
+
+    @Test("Conflicting persisted accounts are never guessed")
+    func conflictingPersistedAccountsStaySignedOut() {
+        let decision = AppleAccountBootstrapPolicy.decision(
+            storedIdentifier: nil,
+            currentAccounts: [
+                .init(identifier: "apple-account-1", sessionIsActive: true),
+                .init(identifier: "apple-account-2", sessionIsActive: true),
+            ]
+        )
+
+        #expect(decision == .ambiguous)
+    }
+
+    @Test("Existing defaults remain the authoritative account")
+    func existingDefaultsRemainAuthoritative() {
+        let decision = AppleAccountBootstrapPolicy.decision(
+            storedIdentifier: " apple-account-1 ",
+            currentAccounts: [
+                .init(identifier: "apple-account-1", sessionIsActive: true),
+            ]
+        )
+
+        #expect(
+            decision == .authenticate(
+                identifier: "apple-account-1",
+                recoveredFromProfile: false
+            )
+        )
+    }
+
+    @Test("Fresh authorization is not immediately revalidated")
+    func freshAuthorizationSkipsCredentialStateCheck() {
+        #expect(
+            AppleCredentialGatePolicy.shouldRequestCredentialState(
+                hasIdentifier: true,
+                accountOnboardingComplete: true,
+                deferNextCheck: true
+            ) == false
+        )
+    }
+
+    @Test("Simulator launch skips unreliable Apple credential-state queries")
+    func simulatorLaunchSkipsCredentialStateCheck() {
+        #expect(
+            AppleCredentialGatePolicy.shouldRequestCredentialState(
+                hasIdentifier: true,
+                accountOnboardingComplete: true,
+                deferNextCheck: false,
+                credentialStateChecksAreReliable: false
+            ) == false
+        )
+    }
+
+    @Test("Credential-state errors preserve an authenticated session")
+    func credentialStateErrorPreservesSession() {
+        let simulatorAuthError = NSError(
+            domain: "AKAuthenticationError",
+            code: -7084
+        )
+
+        #expect(
+            AppleCredentialGatePolicy.decision(
+                for: .notFound,
+                error: simulatorAuthError
+            ) == .preserveSession
+        )
+    }
+
+    @Test("Missing credential state does not erase a persisted session")
+    func missingCredentialStatePreservesSession() {
+        #expect(
+            AppleCredentialGatePolicy.decision(for: .notFound, error: nil)
+                == .preserveSession
+        )
+    }
+
+    @Test("Confirmed revocation still signs the user out")
+    func confirmedRevocationSignsOut() {
+        #expect(
+            AppleCredentialGatePolicy.decision(for: .revoked, error: nil)
+                == .signOut
+        )
     }
 }

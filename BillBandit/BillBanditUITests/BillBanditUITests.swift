@@ -111,6 +111,33 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Home"].exists)
     }
 
+    func testConnectedAppleAccountRequiresUsernameBeforeCompletingOnboarding() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-onboardingConnectedIncomplete",
+            "-onboardingPage", "2",
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.descendants(matching: .any)["onboardingAppleConnected"].waitForExistence(timeout: 8))
+        let enter = app.buttons["onboardingEnterBillBanditButton"]
+        XCTAssertTrue(enter.waitForExistence(timeout: 4))
+        enter.tap()
+
+        let error = app.staticTexts["onboardingUsernameError"]
+        XCTAssertTrue(error.waitForExistence(timeout: 4))
+        XCTAssertEqual(error.label, "Username is required to complete onboarding.")
+        attachScreenshot(named: "onboarding-username-required")
+
+        let field = app.textFields["onboardingUsernameField"]
+        field.tap()
+        field.typeText("Bubby")
+        XCTAssertFalse(error.exists)
+        app.keyboards.buttons["Done"].tap()
+        enter.tap()
+        XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 6))
+    }
+
     func testOnboardingSlidesKeepTheirContentAligned() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-forceSignedOutOnboarding", "-onboardingPage", "0"]
@@ -260,6 +287,26 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(finalPin.waitForExistence(timeout: 4))
         XCTAssertTrue(finalPin.isHittable)
         attachScreenshot(named: "achievement-plain-row-end")
+    }
+
+    func testProfileNameHasAFullUnclippedLineBox() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetDemoData", "-showProfile", "-skipOnboarding"]
+        app.launch()
+
+        let name = app.buttons["profileNameButton"]
+        XCTAssertTrue(name.waitForExistence(timeout: 8))
+        XCTAssertGreaterThanOrEqual(name.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(name.frame.minX, 20)
+        XCTAssertLessThanOrEqual(name.frame.maxX, app.frame.maxX - 20)
+
+        name.tap()
+        let field = app.textFields["profileNameField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 20))
+        field.typeText("Bubby")
+        XCTAssertEqual(field.value as? String, "Bubby")
+        attachScreenshot(named: "profile-name-editing-caret-gap")
     }
 
     private func attachScreenshot(named name: String) {

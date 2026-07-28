@@ -218,6 +218,15 @@ final class Person {
     /// CloudKit's user-record name links the same person across invited devices.
     /// It stays optional so local-only profiles and existing stores remain valid.
     var cloudUserRecordName: String?
+    /// Stable Sign in with Apple subject for the local account. This is never
+    /// shared with collaborators; it only prevents duplicate local profiles.
+    var appleUserIdentifier: String?
+    /// Local durable session marker. `nil` preserves migration compatibility;
+    /// explicit user sign-out or provider revocation blocks recovery.
+    var appleSessionStateRaw: String?
+    /// Last explicit profile-page edit. CloudKit uses this to reject stale
+    /// copies of a person's display name or avatar.
+    var profileUpdatedAt: Date?
     @Relationship(inverse: \Group.members) var groups: [Group]
 
     init(id: UUID = UUID(), name: String, isCurrentUser: Bool = false,
@@ -227,6 +236,9 @@ final class Person {
         self.isCurrentUser = isCurrentUser
         self.avatarRaw = avatar?.rawValue
         self.cloudUserRecordName = nil
+        self.appleUserIdentifier = nil
+        self.appleSessionStateRaw = nil
+        self.profileUpdatedAt = nil
         self.groups = []
     }
 

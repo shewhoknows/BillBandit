@@ -36,6 +36,7 @@
 		1582D742CC939043F4E3B667 /* BalanceMath+SwiftData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05C1C8F5DBD5CCFA5AF5B7FC /* BalanceMath+SwiftData.swift */; };
 		C884A21DE149F2972F3A27FF /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BDBF2A788D6C3F807D7EC5 /* AppStore.swift */; };
 		B20000000000000000000001 /* CloudCollaboration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* CloudCollaboration.swift */; };
+		B40000000000000000000001 /* UsernameIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B40000000000000000000002 /* UsernameIdentity.swift */; };
 		90946E79CC442640640BAE54 /* FriendsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88E7D479C4469EEF07BC602A /* FriendsScreen.swift */; };
 		8BC6D65DACF59E5250FC9E62 /* GroupsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5174C531A7298F089484854 /* GroupsScreen.swift */; };
 		06AFE8F3048EA4ACF17FFE21 /* AddGroupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0E2618A3F50EAE1C6FAF0D /* AddGroupSheet.swift */; };
@@ -78,6 +79,7 @@
 		05C1C8F5DBD5CCFA5AF5B7FC /* BalanceMath+SwiftData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BalanceMath+SwiftData.swift"; sourceTree = "<group>"; };
 		16BDBF2A788D6C3F807D7EC5 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* CloudCollaboration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCollaboration.swift; sourceTree = "<group>"; };
+		B40000000000000000000002 /* UsernameIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsernameIdentity.swift; sourceTree = "<group>"; };
 		88E7D479C4469EEF07BC602A /* FriendsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsScreen.swift; sourceTree = "<group>"; };
 		A5174C531A7298F089484854 /* GroupsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsScreen.swift; sourceTree = "<group>"; };
 		3C0E2618A3F50EAE1C6FAF0D /* AddGroupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroupSheet.swift; sourceTree = "<group>"; };
@@ -175,6 +177,7 @@
 		0EF3488B72D5E7A95FABA496 /* Store */ = {isa = PBXGroup; children = (
 			16BDBF2A788D6C3F807D7EC5 /* AppStore.swift */,
 			B20000000000000000000002 /* CloudCollaboration.swift */,
+			B40000000000000000000002 /* UsernameIdentity.swift */,
 		);
 			path = Store;
 			sourceTree = "<group>";
@@ -388,6 +391,7 @@
 				1582D742CC939043F4E3B667 /* BalanceMath+SwiftData.swift in Sources */,
 				C884A21DE149F2972F3A27FF /* AppStore.swift in Sources */,
 				B20000000000000000000001 /* CloudCollaboration.swift in Sources */,
+				B40000000000000000000001 /* UsernameIdentity.swift in Sources */,
 				90946E79CC442640640BAE54 /* FriendsScreen.swift in Sources */,
 				8BC6D65DACF59E5250FC9E62 /* GroupsScreen.swift in Sources */,
 				06AFE8F3048EA4ACF17FFE21 /* AddGroupSheet.swift in Sources */,

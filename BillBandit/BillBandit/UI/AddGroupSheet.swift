@@ -14,7 +14,7 @@ struct AddGroupSheet: View {
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var memberOptions: [Person] {
-        ConnectedFriendIdentity.canonicalPeople(from: people)
+        ConnectedFriendIdentity.groupMemberOptions(from: people)
     }
 
     var body: some View {
@@ -124,7 +124,7 @@ struct AddGroupSheet: View {
 
     private func create() {
         var memberIDs = Set<UUID>()
-        let members = people.compactMap { person -> Person? in
+        let members = memberOptions.compactMap { person -> Person? in
             guard person.isCurrentUser || selected.contains(person.id) else { return nil }
             let preferred = ConnectedFriendIdentity.preferredPerson(for: person, among: people)
             return memberIDs.insert(preferred.id).inserted ? preferred : nil

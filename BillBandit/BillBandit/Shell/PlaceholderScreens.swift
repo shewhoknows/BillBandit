@@ -10,11 +10,16 @@ struct OnboardingScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
+    @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
+    @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
     @State private var page = 0
     @State private var name = ""
     @State private var mascotRaised = false
     @State private var authMessage: String?
+    @State private var usernameValidationMessage: String?
     @State private var isCompleting = false
+    @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
+    @FocusState private var usernameFocused: Bool
 
     private let pages: [(Mascot, String, String)] = [
         (.greeting, "split bills, not friendships.", "Keep every shared expense clear without making it awkward."),
@@ -28,6 +33,10 @@ struct OnboardingScreen: View {
 
     private var isForcedSignedOutPreview: Bool {
         ProcessInfo.processInfo.arguments.contains("-forceSignedOutOnboarding")
+    }
+
+    private var isForcedConnectedIncompletePreview: Bool {
+        ProcessInfo.processInfo.arguments.contains("-onboardingConnectedIncomplete")
     }
 
     init(startAtSignIn: Bool = false, onComplete: @escaping () -> Void) {
@@ -103,9 +112,15 @@ struct OnboardingScreen: View {
         .foregroundStyle(Color.Brand.creamSoft)
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .onAppear {
-            name = isDemo ? "Esha" : (currentUsers.first?.name == "You" ? "" : (currentUsers.first?.name ?? ""))
+            hasUsernameSession = UsernameIdentityService.hasStoredSession
+            name = if isForcedConnectedIncompletePreview {
+                ""
+            } else if isDemo {
+                "Esha"
+            } else {
+                currentUsers.first?.name == "You" ? "" : (currentUsers.first?.name ?? "")
+            }
             startMascotMotion()
-            if !appleUserIdentifier.isEmpty { completeOnboardingIfReady() }
         }
         .onChange(of: reduceMotion) { startMascotMotion() }
         .task {
@@ -140,11 +155,18 @@ struct OnboardingScreen: View {
                 .accessibilityIdentifier("onboardingDescription-\(index)")
             if index == 2 {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("What do your friends call you?")
+                    Text("Choose your unique handle")
                         .font(BrandFont.display(15, weight: .semibold))
-                    TextField("Your name", text: $name)
-                        .textInputAutocapitalization(.words)
+                    TextField("@username", text: $name)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                         .submitLabel(.done)
+                        .focused($usernameFocused)
+                        .onSubmit { usernameFocused = false }
+                        .onChange(of: name) {
+                            usernameValidationMessage = nil
+                        }
+                        .accessibilityIdentifier("onboardingUsernameField")
                         .font(BrandFont.body(17, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
                         .padding(.horizontal, 16)
@@ -155,7 +177,13 @@ struct OnboardingScreen: View {
                         .font(BrandFont.display(13.5, weight: .semibold))
                         .padding(.top, 3)
 
-                    if appleUserIdentifier.isEmpty || isForcedSignedOutPreview {
+                    if (appleUserIdentifier.isEmpty || !hasUsernameSession ||
+                        isForcedSignedOutPreview) && !isForcedConnectedIncompletePreview {
+                        if !appleUserIdentifier.isEmpty && !isForcedSignedOutPreview {
+                            Text("Reconnect Apple to verify your unique handle.")
+                                .font(BrandFont.type(9.5, bold: true))
+                                .opacity(0.72)
+                        }
                         SignInWithAppleButton(.continue) { request in
                             request.requestedScopes = [.fullName, .email]
                         } onCompletion: { result in
@@ -164,9 +192,8 @@ struct OnboardingScreen: View {
                         .signInWithAppleButtonStyle(.white)
                         .frame(height: 48)
                         .clipShape(Capsule())
-                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .opacity(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
                         .accessibilityIdentifier("onboardingSignInWithAppleButton")
+                        .allowsHitTesting(!isCompleting)
                     } else {
                         HStack(spacing: 10) {
                             Text("")
@@ -182,6 +209,27 @@ struct OnboardingScreen: View {
                         .frame(height: 48)
                         .background(Color.Brand.creamSoft, in: Capsule())
                         .accessibilityIdentifier("onboardingAppleConnected")
+
+                        Button {
+                            Task { await completeOnboardingIfReady() }
+                        } label: {
+                            Text(isCompleting ? "Checking handle…" : "Enter BillBandit")
+                                .font(BrandFont.display(15.5, weight: .bold))
+                                .foregroundStyle(Color.Brand.cobalt)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                                .background(Color.Brand.creamSoft, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("onboardingEnterBillBanditButton")
+                        .disabled(isCompleting)
+                    }
+
+                    if let usernameValidationMessage {
+                        Text(usernameValidationMessage)
+                            .font(BrandFont.type(9.5, bold: true))
+                            .foregroundStyle(Color.Brand.creamSoft)
+                            .accessibilityIdentifier("onboardingUsernameError")
                     }
 
                     if let authMessage {
@@ -191,10 +239,10 @@ struct OnboardingScreen: View {
                     }
                 }
                 .padding(.horizontal, 22)
-                .frame(height: 178, alignment: .top)
+                .frame(height: 246, alignment: .top)
             } else {
                 Color.clear
-                    .frame(height: 178)
+                    .frame(height: 246)
             }
             Spacer(minLength: 4)
         }
@@ -211,38 +259,103 @@ struct OnboardingScreen: View {
         reduceMotion ? .easeOut(duration: 0.16) : .easeInOut(duration: 0.46)
     }
 
-    private func completeOnboardingIfReady() {
+    @MainActor
+    private func completeOnboardingIfReady() async {
         guard !isCompleting else { return }
-        let finalName = name.trimmingCharacters(in: .whitespacesAndNewlines).capitalizingFirstLetter
-        guard !finalName.isEmpty, !appleUserIdentifier.isEmpty else { return }
-        isCompleting = true
-        if let current = currentUsers.first {
-            current.name = finalName
-        } else {
-            context.insert(Person(name: finalName, isCurrentUser: true))
+        guard !appleUserIdentifier.isEmpty else {
+            authMessage = "Connect your Apple account before entering BillBandit."
+            return
         }
-        try? context.save()
-        CloudCollaborationService.shared.currentPersonDidChange()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        onComplete()
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            usernameValidationMessage = "Username is required to complete onboarding."
+            return
+        }
+
+        let handle: UsernameHandle
+        do {
+            handle = try UsernameHandle(name)
+        } catch {
+            usernameValidationMessage = error.localizedDescription
+            return
+        }
+        guard hasUsernameSession || isForcedConnectedIncompletePreview else {
+            authMessage = "Reconnect your Apple account before entering BillBandit."
+            return
+        }
+
+        usernameValidationMessage = nil
+        isCompleting = true
+        defer { isCompleting = false }
+        do {
+            let confirmedHandle = if isForcedConnectedIncompletePreview {
+                handle.value
+            } else {
+                try await UsernameIdentityService.claim(handle)
+            }
+            let current = AccountProfileIntegrity.canonicalize(
+                appleUserIdentifier: appleUserIdentifier,
+                cloudUserRecordName: nil,
+                context: context
+            )
+            current.appleSessionStateRaw = "active"
+            if current.name != confirmedHandle {
+                current.name = confirmedHandle
+                current.profileUpdatedAt = .now
+            }
+            try context.save()
+            usernameHandleVerified = true
+            CloudCollaborationService.shared.currentPersonDidChange()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onComplete()
+        } catch {
+            usernameValidationMessage = error.localizedDescription
+        }
     }
 
     private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        Task { @MainActor in
+            await finishAppleSignIn(result)
+        }
+    }
+
+    @MainActor
+    private func finishAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
         switch result {
         case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let identityToken = credential.identityToken else {
                 authMessage = "Apple could not return an account credential."
                 return
             }
-            appleUserIdentifier = credential.user
-            if let email = credential.email { applePrivateEmail = email }
-            if let fullName = credential.fullName {
-                let appleName = PersonNameComponentsFormatter().string(from: fullName)
-                if !appleName.isEmpty && name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    name = appleName
-                }
+            let fullName = credential.fullName.flatMap {
+                let value = PersonNameComponentsFormatter().string(from: $0)
+                return value.isEmpty ? nil : value
             }
-            completeOnboardingIfReady()
+            isCompleting = true
+            defer { isCompleting = false }
+            do {
+                let remoteUser = try await UsernameIdentityService.authenticateWithApple(
+                    identityToken: identityToken,
+                    authorizationCode: credential.authorizationCode,
+                    name: fullName,
+                    email: credential.email
+                )
+                deferNextAppleCredentialStateCheck = true
+                appleUserIdentifier = credential.user
+                if let email = credential.email { applePrivateEmail = email }
+                hasUsernameSession = true
+                if let username = remoteUser.username, !username.isEmpty {
+                    name = username
+                } else if let fullName,
+                          name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    name = fullName
+                }
+                usernameValidationMessage = nil
+                authMessage = nil
+            } catch {
+                hasUsernameSession = false
+                authMessage = error.localizedDescription
+            }
         case .failure(let error):
             if (error as? ASAuthorizationError)?.code != .canceled {
                 authMessage = "Apple sign in could not be completed. Try again."
@@ -508,6 +621,75 @@ private struct VerticalCollapseLayout: Layout {
     }
 }
 
+private final class ProfileNameUITextField: UITextField {
+    override func caretRect(for position: UITextPosition) -> CGRect {
+        var rect = super.caretRect(for: position)
+        if offset(from: position, to: endOfDocument) == 0 {
+            rect.origin.x += 4
+        }
+        return rect
+    }
+}
+
+private struct ProfileNameTextField: UIViewRepresentable {
+    @Binding var text: String
+    let onSubmit: () -> Void
+    let onEditingEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIView(context: Context) -> ProfileNameUITextField {
+        let field = ProfileNameUITextField()
+        let baseFont = UIFont(name: "Caveat-Bold", size: 24 * BrandFont.scale)
+            ?? .systemFont(ofSize: 24 * BrandFont.scale, weight: .bold)
+        field.font = UIFontMetrics(forTextStyle: .title3).scaledFont(for: baseFont)
+        field.adjustsFontForContentSizeCategory = true
+        field.adjustsFontSizeToFitWidth = true
+        field.minimumFontSize = baseFont.pointSize * 0.65
+        field.textAlignment = .center
+        field.textColor = UIColor(Color.Brand.cobalt)
+        field.tintColor = UIColor(Color.Brand.cobalt)
+        field.autocapitalizationType = .none
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.returnKeyType = .done
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator,
+                        action: #selector(Coordinator.textChanged(_:)),
+                        for: .editingChanged)
+        field.accessibilityIdentifier = "profileNameField"
+        return field
+    }
+
+    func updateUIView(_ field: ProfileNameUITextField, context: Context) {
+        context.coordinator.parent = self
+        if field.text != text { field.text = text }
+        guard !field.isFirstResponder else { return }
+        DispatchQueue.main.async { field.becomeFirstResponder() }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: ProfileNameTextField
+
+        init(parent: ProfileNameTextField) {
+            self.parent = parent
+        }
+
+        @objc func textChanged(_ field: UITextField) {
+            parent.text = field.text ?? ""
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onSubmit()
+            return false
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            parent.onEditingEnded()
+        }
+    }
+}
+
 struct ProfileScreen: View {
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Query private var groups: [Group]
@@ -519,13 +701,16 @@ struct ProfileScreen: View {
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
+    @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
+    @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
     @State private var name: String
     @State private var selectedAvatar: ProfileAvatar
     @State private var authMessage: String?
     @State private var showAvatarPicker: Bool
     @State private var isEditingName = false
+    @State private var isSavingUsername = false
+    @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
     @State private var showSignOutConfirmation = false
-    @FocusState private var nameFocused: Bool
 
     init(presentAvatarPicker: Bool = false) {
         _name = State(initialValue: "")
@@ -577,21 +762,20 @@ struct ProfileScreen: View {
                         .accessibilityIdentifier("profileAvatarButton")
 
                         if isEditingName {
-                            TextField("Your name", text: $name)
-                                .font(BrandFont.hand(24, weight: .bold))
-                                .foregroundStyle(Color.Brand.cobalt)
-                                .multilineTextAlignment(.center)
-                                .textInputAutocapitalization(.words)
-                                .submitLabel(.done)
-                                .focused($nameFocused)
-                                .onSubmit { commitNameEdit() }
-                                .frame(maxWidth: 230)
+                            ProfileNameTextField(
+                                text: $name,
+                                onSubmit: { commitNameEdit() },
+                                onEditingEnded: {
+                                    if isEditingName { commitNameEdit() }
+                                }
+                            )
+                                .frame(maxWidth: 300, minHeight: 48)
+                                .padding(.horizontal, 12)
                                 .overlay(alignment: .bottom) {
                                     Rectangle()
                                         .fill(Color.Brand.cobalt)
                                         .frame(height: 2)
                                 }
-                                .accessibilityIdentifier("profileNameField")
                         } else {
                             Button {
                                 beginNameEdit()
@@ -599,15 +783,22 @@ struct ProfileScreen: View {
                                 Text(trimmedName.isEmpty ? "your profile" : trimmedName)
                                     .font(BrandFont.hand(24, weight: .bold))
                                     .foregroundStyle(Color.Brand.cobalt)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.65)
+                                    .frame(maxWidth: 300, minHeight: 48)
+                                    .padding(.horizontal, 12)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Edit profile name")
+                            .frame(maxWidth: 324, minHeight: 48)
+                            .contentShape(Rectangle())
+                            .accessibilityLabel("Edit username")
                             .accessibilityIdentifier("profileNameButton")
                         }
 
-                        Text(isEditingName ? "press done to save" :
+                        Text(isSavingUsername ? "reserving your handle…" :
+                             (isEditingName ? "press done to save" :
                              (showAvatarPicker ? "choose freely · tap big avatar to save" :
-                                "tap name to edit · tap avatar to change"))
+                                "tap username to edit · tap avatar to change")))
                             .font(BrandFont.type(9.5, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.58))
                     }
@@ -638,13 +829,10 @@ struct ProfileScreen: View {
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .onAppear {
+            hasUsernameSession = UsernameIdentityService.hasStoredSession
             loadCurrentProfileIfNeeded()
-            checkAppleCredential()
         }
         .onChange(of: currentUsers.count) { loadCurrentProfileIfNeeded() }
-        .onChange(of: nameFocused) {
-            if !nameFocused && isEditingName { commitNameEdit() }
-        }
         .alert("Sign out of BillBandit?", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { signOut() }
@@ -800,7 +988,12 @@ struct ProfileScreen: View {
     private var appleAccountSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             BrandSectionLabel("APPLE ACCOUNT")
-            if appleUserIdentifier.isEmpty {
+            if appleUserIdentifier.isEmpty || !hasUsernameSession {
+                if !appleUserIdentifier.isEmpty {
+                    Text("Reconnect Apple to verify your unique handle.")
+                        .font(BrandFont.type(9.5, bold: true))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+                }
                 SignInWithAppleButton(.continue) { request in
                     request.requestedScopes = [.fullName, .email]
                 } onCompletion: { result in
@@ -810,6 +1003,7 @@ struct ProfileScreen: View {
                 .frame(height: 52)
                 .clipShape(Capsule())
                 .accessibilityIdentifier("signInWithAppleButton")
+                .allowsHitTesting(!isSavingUsername)
             } else {
                 HStack(spacing: 12) {
                     Text("")
@@ -867,30 +1061,57 @@ struct ProfileScreen: View {
     }
 
     private func beginNameEdit() {
+        guard !isSavingUsername else { return }
         UISelectionFeedbackGenerator().selectionChanged()
+        authMessage = nil
         isEditingName = true
-        DispatchQueue.main.async { nameFocused = true }
     }
 
     private func commitNameEdit() {
         guard isEditingName else { return }
-        let finalName = trimmedName.capitalizingFirstLetter
-        if finalName.isEmpty {
-            name = currentUsers.first?.name ?? "You"
-        } else {
-            name = finalName
-            if let activePerson = currentUsers.first {
-                activePerson.name = finalName
-            } else {
-                context.insert(Person(name: finalName, isCurrentUser: true,
-                                      avatar: selectedAvatar))
-            }
-            try? context.save()
-            CloudCollaborationService.shared.currentPersonDidChange()
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-        }
         isEditingName = false
-        nameFocused = false
+        guard !trimmedName.isEmpty else {
+            name = currentUsers.first?.name ?? "You"
+            return
+        }
+        let handle: UsernameHandle
+        do {
+            handle = try UsernameHandle(trimmedName)
+        } catch {
+            name = currentUsers.first?.name ?? "You"
+            authMessage = error.localizedDescription
+            return
+        }
+        guard hasUsernameSession else {
+            name = currentUsers.first?.name ?? "You"
+            authMessage = "Reconnect your Apple account before changing your username."
+            return
+        }
+
+        isSavingUsername = true
+        Task { @MainActor in
+            defer { isSavingUsername = false }
+            do {
+                let confirmedHandle = try await UsernameIdentityService.rename(handle)
+                let activePerson = AccountProfileIntegrity.canonicalize(
+                    appleUserIdentifier: appleUserIdentifier,
+                    cloudUserRecordName: nil,
+                    context: context
+                )
+                activePerson.name = confirmedHandle
+                activePerson.profileUpdatedAt = .now
+                try context.save()
+                name = confirmedHandle
+                usernameHandleVerified = true
+                authMessage = nil
+                CloudCollaborationService.shared.currentPersonDidChange()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                name = currentUsers.first?.name ?? "You"
+                hasUsernameSession = UsernameIdentityService.hasStoredSession
+                authMessage = error.localizedDescription
+            }
+        }
     }
 
     private func loadCurrentProfileIfNeeded() {
@@ -907,8 +1128,13 @@ struct ProfileScreen: View {
     }
 
     private func confirmAvatarSelection() {
-        guard let activePerson = currentUsers.first else { return }
+        let activePerson = AccountProfileIntegrity.canonicalize(
+            appleUserIdentifier: appleUserIdentifier,
+            cloudUserRecordName: nil,
+            context: context
+        )
         activePerson.profileAvatar = selectedAvatar
+        activePerson.profileUpdatedAt = .now
         try? context.save()
         CloudCollaborationService.shared.currentPersonDidChange()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -918,21 +1144,61 @@ struct ProfileScreen: View {
     }
 
     private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        Task { @MainActor in
+            await finishAppleSignIn(result)
+        }
+    }
+
+    @MainActor
+    private func finishAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
         switch result {
         case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let identityToken = credential.identityToken else {
                 authMessage = "Apple could not return an account credential."
                 return
             }
-            appleUserIdentifier = credential.user
-            accountOnboardingComplete = true
-            if let email = credential.email { applePrivateEmail = email }
-            if let fullName = credential.fullName {
-                let appleName = PersonNameComponentsFormatter().string(from: fullName)
-                if !appleName.isEmpty { name = appleName }
+            let fullName = credential.fullName.flatMap {
+                let value = PersonNameComponentsFormatter().string(from: $0)
+                return value.isEmpty ? nil : value
             }
-            authMessage = "Apple account connected securely."
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            isSavingUsername = true
+            defer { isSavingUsername = false }
+            do {
+                let remoteUser = try await UsernameIdentityService.authenticateWithApple(
+                    identityToken: identityToken,
+                    authorizationCode: credential.authorizationCode,
+                    name: fullName,
+                    email: credential.email
+                )
+                deferNextAppleCredentialStateCheck = true
+                appleUserIdentifier = credential.user
+                accountOnboardingComplete = true
+                hasUsernameSession = true
+                if let email = credential.email { applePrivateEmail = email }
+                let profile = AccountProfileIntegrity.canonicalize(
+                    appleUserIdentifier: credential.user,
+                    cloudUserRecordName: nil,
+                    context: context
+                )
+                profile.appleSessionStateRaw = "active"
+                if let username = remoteUser.username, !username.isEmpty {
+                    profile.name = username
+                    profile.profileUpdatedAt = .now
+                    usernameHandleVerified = true
+                }
+                try context.save()
+                name = profile.name
+                selectedAvatar = profile.profileAvatar
+                authMessage = remoteUser.username == nil
+                    ? "Apple connected. Choose your unique username above."
+                    : "Apple account connected securely."
+                CloudCollaborationService.shared.currentPersonDidChange()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                hasUsernameSession = false
+                authMessage = error.localizedDescription
+            }
         case .failure(let error):
             if (error as? ASAuthorizationError)?.code != .canceled {
                 authMessage = "Apple sign in could not be completed."
@@ -940,23 +1206,17 @@ struct ProfileScreen: View {
         }
     }
 
-    private func checkAppleCredential() {
-        guard !appleUserIdentifier.isEmpty else { return }
-        ASAuthorizationAppleIDProvider().getCredentialState(forUserID: appleUserIdentifier) { state, _ in
-            guard state == .revoked || state == .notFound else { return }
-            DispatchQueue.main.async {
-                appleUserIdentifier = ""
-                applePrivateEmail = ""
-                accountOnboardingComplete = false
-                authMessage = "Apple sign in needs to be renewed."
-            }
-        }
-    }
-
     private func signOut() {
+        for person in currentUsers where person.appleUserIdentifier == appleUserIdentifier {
+            person.appleSessionStateRaw = "userSignedOut"
+        }
+        try? context.save()
         appleUserIdentifier = ""
         applePrivateEmail = ""
         accountOnboardingComplete = false
+        usernameHandleVerified = false
+        hasUsernameSession = false
+        UsernameIdentityService.signOut()
         authMessage = nil
     }
 }
@@ -1498,17 +1758,15 @@ private struct GroupCard: View {
 struct ActivityScreen: View {
     @Query(sort: \ActivityItem.timestamp, order: .reverse) private var items: [ActivityItem]
 
-    private var grouped: [(Date, [ActivityItem])] {
-        let calendar = Calendar.current
-        let dictionary = Dictionary(grouping: items) { calendar.startOfDay(for: $0.timestamp) }
-        return dictionary.keys.sorted(by: >).map { ($0, dictionary[$0] ?? []) }
+    private var sections: [ActivitySection] {
+        ActivitySectioning.sections(from: items)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    Text("this month")
+                    Text("recent activity")
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
                     if items.isEmpty {
@@ -1520,12 +1778,12 @@ struct ActivityScreen: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 80)
                     } else {
-                        ForEach(grouped, id: \.0) { day, dayItems in
+                        ForEach(sections) { section in
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(dayLabel(day))
+                                Text(section.date.map(dayLabel) ?? "Earlier activity")
                                     .font(BrandFont.display(13, weight: .bold))
                                     .padding(.bottom, 7)
-                                ForEach(dayItems) { ActivityLedgerRow(item: $0) }
+                                ForEach(section.items) { ActivityLedgerRow(item: $0) }
                             }
                         }
                     }

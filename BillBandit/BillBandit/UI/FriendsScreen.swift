@@ -9,7 +9,6 @@ struct FriendsScreen: View {
     @Query(sort: \Person.name) private var people: [Person]
     @Query private var expenses: [Expense]
     @Query private var settlements: [Settlement]
-    @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAdd = false
 
@@ -17,7 +16,9 @@ struct FriendsScreen: View {
         _showAdd = State(initialValue: ProcessInfo.processInfo.arguments.contains("-showAddFriend"))
     }
 
-    private var friends: [Person] { people.filter { !$0.isCurrentUser } }
+    private var friends: [Person] {
+        ConnectedFriendIdentity.actualFriends(from: people)
+    }
 
     /// Pairwise you↔friend balances (positive = they owe you).
     private var nets: [UUID: Decimal] {
@@ -65,16 +66,6 @@ struct FriendsScreen: View {
                         removal: .opacity
                     ))
                 }
-                .onDelete { idx in
-                    for i in idx {
-                        let f = friends[i]
-                        context.delete(f)
-                        let actor = people.first(where: \.isCurrentUser)
-                        context.insert(ActivityItem(kind: .friendAdded,
-                                                    summary: "\(actor?.name ?? "You") removed \(f.name)",
-                                                    actorID: actor?.id))
-                    }
-                }
             }
             .listStyle(.plain)
             .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: friends.map(\.id))
@@ -104,7 +95,9 @@ struct ProfileFriendsSection: View {
         _showAdd = State(initialValue: ProcessInfo.processInfo.arguments.contains("-showAddFriend"))
     }
 
-    private var friends: [Person] { people.filter { !$0.isCurrentUser } }
+    private var friends: [Person] {
+        ConnectedFriendIdentity.actualFriends(from: people)
+    }
 
     private var nets: [UUID: Decimal] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
