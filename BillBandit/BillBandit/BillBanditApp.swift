@@ -44,6 +44,7 @@ struct BillBanditApp: App {
                                 promoteLocalChanges: true
                             )
                             await FriendInvitationService.shared.refreshAcceptedInvites()
+                            await CloudCollaborationService.shared.refreshFriendProfiles()
                         }
                     } else {
                         CloudCollaborationService.shared.stopForegroundSync()

@@ -1,0 +1,19 @@
+{
+  "name": "billbandit-platform",
+  "private": true,
+  "workspaces": [
+    "apps/api"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/api run dev",
+    "build": "npm --workspace apps/api run build",
+    "start": "npm --workspace apps/api run start",
+    "lint": "npm --workspace apps/api run lint",
+    "typecheck": "npm --workspace apps/api run typecheck",
+    "db:migrate": "npm --workspace apps/api run db:migrate",
+    "db:generate": "npm --workspace apps/api run db:generate",
+    "db:push": "npm --workspace apps/api run db:push",
+    "db:seed": "npm --workspace apps/api run db:seed",
+    "db:studio": "npm --workspace apps/api run db:studio"
+  }
+}

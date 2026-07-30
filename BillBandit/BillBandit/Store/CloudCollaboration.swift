@@ -51,8 +51,23 @@ struct CloudSyncIssue {
 /// Friend-invitation discovery is background housekeeping. Its failures must
 /// not claim that existing ledgers failed to sync.
 enum CloudSyncIssuePolicy {
+    private static let attentionCodes: Set<CKError.Code> = [
+        .notAuthenticated,
+        .permissionFailure,
+        .quotaExceeded,
+        .invalidArguments,
+        .serverRejectedRequest,
+    ]
+
     static func visibleError(from issues: [CloudSyncIssue]) -> Error? {
         issues.first { $0.source != .automaticInvitation }?.error
+    }
+
+    /// Transient CloudKit throttling/network errors retry in the background.
+    /// Only surface a banner when the user can do something about it.
+    static func shouldSurfaceBanner(for error: Error) -> Bool {
+        guard let code = CloudUploadFailurePolicy.cloudCode(for: error) else { return false }
+        return attentionCodes.contains(code)
     }
 }
 
@@ -312,11 +327,22 @@ enum CloudSubscriptionPolicy {
     }
 }
 
-/// Explicit compatibility gate for fields that have not yet been proven in
-/// both CloudKit environments. Keep this false until the additive Production
-/// schema change has been reviewed and deployed separately.
 enum CloudPersonRecordPolicy {
-    static let writesProfileUpdatedAt = false
+    static let writesProfileUpdatedAt = true
+}
+
+/// Public friend-profile cards let connected friends refresh avatars even when
+/// they do not share a collaborative group ledger yet.
+enum FriendProfileSync {
+    static let recordType = "BBFriendProfile"
+    static let recordPrefix = "BBFriendProfile-"
+
+    static func recordID(for cloudUser: String) -> CKRecord.ID {
+        let digest = SHA256.hash(data: Data(cloudUser.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return CKRecord.ID(recordName: "\(recordPrefix)\(digest.prefix(32))")
+    }
 }
 
 /// CloudKit collaboration deliberately sits beside SwiftData instead of asking
@@ -340,6 +366,11 @@ final class CloudCollaborationService: ObservableObject {
 
         var isReady: Bool {
             if case .ready = self { return true }
+            return false
+        }
+
+        var isUnavailable: Bool {
+            if case .unavailable = self { return true }
             return false
         }
     }
@@ -369,6 +400,7 @@ final class CloudCollaborationService: ObservableObject {
     private var invitationRetryAfter: [CKRecord.ID: Date] = [:]
     private var discardedInvitationRecordIDs: Set<CKRecord.ID> = []
     private var subscribedZoneKeys: Set<String> = []
+    private var syncPausedUntil: Date?
 
     private init() {
         self.container = CKContainer(identifier: Self.containerIdentifier)
@@ -380,24 +412,27 @@ final class CloudCollaborationService: ObservableObject {
         do {
             let accountStatus = try await container.accountStatus()
             guard accountStatus == .available else {
-                state = .unavailable(Self.message(for: accountStatus))
+                let message = Self.message(for: accountStatus)
+                state = .unavailable(message)
+                lastIssue = message
                 return
             }
             currentUserRecordName = try await container.userRecordID().recordName
             linkCurrentPerson()
             await subscribeToAutomaticGroupInvitations()
             await subscribeToDatabaseChanges()
+            await publishFriendProfile()
             await synchronize(promoteLocalChanges: true)
         } catch {
             state = .unavailable(Self.readable(error))
-            lastIssue = Self.readable(error)
+            updateLastIssue(for: error)
         }
     }
 
     func startForegroundSync() {
         guard foregroundSyncWorker == nil else { return }
         foregroundSyncWorker = Task { [weak self] in
-            await self?.refreshWhileVisible(every: .seconds(4))
+            await self?.refreshWhileVisible(every: .seconds(30))
         }
     }
 
@@ -408,8 +443,17 @@ final class CloudCollaborationService: ObservableObject {
 
     /// An immediate pull followed by bounded polling for the single app-wide
     /// foreground worker. The task is cancelled when the scene backgrounds.
-    func refreshWhileVisible(every interval: Duration = .seconds(3)) async {
+    func refreshWhileVisible(every interval: Duration = .seconds(30)) async {
         while !Task.isCancelled {
+            if let pausedUntil = syncPausedUntil, pausedUntil > .now {
+                let wait = min(pausedUntil.timeIntervalSince(.now), 60)
+                do {
+                    try await Task.sleep(for: .seconds(max(wait, 1)))
+                } catch {
+                    return
+                }
+                continue
+            }
             await synchronize()
             guard !Task.isCancelled else { return }
             do {
@@ -424,6 +468,9 @@ final class CloudCollaborationService: ObservableObject {
         guard !isSynchronizing, !isUploading else {
             synchronizeRequested = true
             fullSynchronizationRequested = fullSynchronizationRequested || promoteLocalChanges
+            return
+        }
+        if let pausedUntil = syncPausedUntil, pausedUntil > .now {
             return
         }
         guard currentUserRecordName != nil else {
@@ -461,6 +508,7 @@ final class CloudCollaborationService: ObservableObject {
             CloudSyncIssue(source: .sharedLedger, error: $0)
         })
         resolveMembershipClaims()
+        await refreshFriendProfiles()
         if promoteLocalChanges {
             issues.append(contentsOf: await promoteLocalGroups().map {
                 CloudSyncIssue(source: .localPromotion, error: $0)
@@ -468,7 +516,8 @@ final class CloudCollaborationService: ObservableObject {
         }
         lastSync = .now
         if let issue = CloudSyncIssuePolicy.visibleError(from: issues) {
-            lastIssue = Self.readable(issue)
+            noteSyncBackoff(for: issue)
+            updateLastIssue(for: issue)
         } else if pendingUploadGroupIDs.isEmpty {
             lastIssue = nil
         }
@@ -516,11 +565,91 @@ final class CloudCollaborationService: ObservableObject {
 
     func currentPersonDidChange() {
         linkCurrentPerson()
+        Task { await publishFriendProfile() }
         let context = AppStore.container.mainContext
         let groups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
         for group in groups where group.members.contains(where: \.isCurrentUser) {
             groupDidChange(group)
         }
+    }
+
+    func refreshFriendProfiles() async {
+        guard currentUserRecordName != nil else { return }
+        let context = AppStore.container.mainContext
+        let friends = ConnectedFriendIdentity.actualFriends(
+            from: (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        )
+        let cloudUsers = friends.compactMap(\.cloudUserRecordName).filter { !$0.isEmpty }
+        guard !cloudUsers.isEmpty else { return }
+
+        let database = container.publicCloudDatabase
+        let recordIDs = cloudUsers.map { FriendProfileSync.recordID(for: $0) }
+        let outcome = try? await database.records(for: recordIDs)
+        guard let outcome else { return }
+
+        var changed = false
+        for cloudUser in cloudUsers {
+            let recordID = FriendProfileSync.recordID(for: cloudUser)
+            guard case .success(let record)? = outcome[recordID],
+                  record.recordType == FriendProfileSync.recordType,
+                  record.string(Field.cloudUser) == cloudUser,
+                  let name = record.string(Field.name) else { continue }
+            let avatarRaw = record.string(Field.avatar)
+            let profileUpdatedAt = record.date(Field.profileUpdatedAt)
+            if applyFriendProfile(name: name,
+                                  avatarRaw: avatarRaw,
+                                  profileUpdatedAt: profileUpdatedAt,
+                                  cloudUser: cloudUser) {
+                changed = true
+            }
+        }
+        if changed { try? context.save() }
+    }
+
+    private func publishFriendProfile() async {
+        guard let cloudUser = currentUserRecordName else { return }
+        let context = AppStore.container.mainContext
+        guard let profile = ((try? context.fetch(FetchDescriptor<Person>())) ?? [])
+            .first(where: \.isCurrentUser) else { return }
+
+        let record = CKRecord(recordType: FriendProfileSync.recordType,
+                              recordID: FriendProfileSync.recordID(for: cloudUser))
+        record[Field.cloudUser] = cloudUser as CKRecordValue
+        record[Field.name] = profile.name as CKRecordValue
+        record[Field.avatar] = profile.avatarRaw as CKRecordValue?
+        if let profileUpdatedAt = profile.profileUpdatedAt {
+            record[Field.profileUpdatedAt] = profileUpdatedAt as CKRecordValue
+        }
+        do {
+            _ = try await container.publicCloudDatabase.save(record)
+        } catch {
+            Self.logger.error(
+                "friend profile publish failed code=\(Self.diagnosticCode(error), privacy: .public)"
+            )
+        }
+    }
+
+    @discardableResult
+    private func applyFriendProfile(name: String,
+                                    avatarRaw: String?,
+                                    profileUpdatedAt: Date?,
+                                    cloudUser: String) -> Bool {
+        let context = AppStore.container.mainContext
+        ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
+        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        guard let existing = people.first(where: { $0.cloudUserRecordName == cloudUser }) else {
+            return false
+        }
+        guard AccountProfileMergePolicy.shouldApplyRemoteProfile(
+            remoteUpdatedAt: profileUpdatedAt,
+            localUpdatedAt: existing.profileUpdatedAt,
+            isCurrentUser: false
+        ) else { return false }
+
+        existing.name = name
+        existing.avatarRaw = avatarRaw
+        existing.profileUpdatedAt = profileUpdatedAt
+        return true
     }
 
     func prepareShare(for group: Group) async throws -> CKShare {
@@ -571,11 +700,16 @@ final class CloudCollaborationService: ObservableObject {
             resolveMembershipClaims()
             let promotionIssues = await promoteLocalGroups()
             lastSync = .now
-            lastIssue = (issues + promotionIssues).first.map(Self.readable)
+            if let issue = issues.first {
+                noteSyncBackoff(for: issue)
+                updateLastIssue(for: issue)
+            } else {
+                lastIssue = nil
+            }
             state = .ready
         } catch {
             state = .unavailable(Self.readable(error))
-            lastIssue = Self.readable(error)
+            updateLastIssue(for: error)
         }
     }
 
@@ -648,14 +782,15 @@ final class CloudCollaborationService: ObservableObject {
                             CollaborationRetryPolicy.delay(after: attempt, error: error)
                         )
                         self.pendingUploadGroupIDs.insert(groupID)
+                        self.noteSyncBackoff(for: error)
                     } else {
                         self.uploadRetryAfter[groupID] = nil
                         self.state = .unavailable(Self.readable(error))
+                        self.lastIssue = Self.readable(error)
                     }
                     Self.logger.error(
                         "upload failed group=\(Self.diagnosticID(groupID), privacy: .private(mask: .hash)) code=\(Self.diagnosticCode(error), privacy: .public) disposition=\(String(describing: disposition), privacy: .public) attempt=\(attempt, privacy: .public)"
                     )
-                    self.lastIssue = Self.readable(error)
                 }
                 self.isUploading = false
             }
@@ -1030,7 +1165,8 @@ final class CloudCollaborationService: ObservableObject {
             do {
                 _ = try await database.save(subscription)
             } catch {
-                lastIssue = Self.readable(error)
+                noteSyncBackoff(for: error)
+                updateLastIssue(for: error)
             }
         }
     }
@@ -1060,6 +1196,10 @@ final class CloudCollaborationService: ObservableObject {
             } catch {
                 // One damaged/deleted/busy zone must not block every other group.
                 issues.append(error)
+                if !CloudSyncIssuePolicy.shouldSurfaceBanner(for: error) {
+                    noteSyncBackoff(for: error)
+                    break
+                }
             }
         }
         return issues
@@ -1465,20 +1605,7 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     static func readable(_ error: Error) -> String {
-        let nsError = error as NSError
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
-           underlying !== nsError {
-            return readable(underlying)
-        }
-
-        let code: CKError.Code?
-        if let cloudError = error as? CKError {
-            code = cloudError.code
-        } else if nsError.domain == CKError.errorDomain {
-            code = CKError.Code(rawValue: nsError.code)
-        } else {
-            code = nil
-        }
+        let code = CloudUploadFailurePolicy.cloudCode(for: error)
 
         switch code {
         case .notAuthenticated:
@@ -1495,6 +1622,23 @@ final class CloudCollaborationService: ObservableObject {
             return "Cloud sync needs an app update. Your data is saved on this device."
         default:
             return "Cloud sync hit a temporary problem. It will retry automatically."
+        }
+    }
+
+    private func noteSyncBackoff(for error: Error) {
+        let delay = CollaborationRetryPolicy.delay(after: 1, error: error)
+        guard delay > 0 else { return }
+        let resumeAt = Date.now.addingTimeInterval(delay)
+        if syncPausedUntil.map({ $0 < resumeAt }) ?? true {
+            syncPausedUntil = resumeAt
+        }
+    }
+
+    private func updateLastIssue(for error: Error) {
+        if CloudSyncIssuePolicy.shouldSurfaceBanner(for: error) {
+            lastIssue = Self.readable(error)
+        } else if pendingUploadGroupIDs.isEmpty {
+            lastIssue = nil
         }
     }
 
@@ -1766,8 +1910,14 @@ final class FriendInvitationService: ObservableObject {
         ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
         if let existing = people.first(where: { $0.cloudUserRecordName == cloudUser }) {
-            existing.name = name
-            existing.avatarRaw = avatarRaw
+            if AccountProfileMergePolicy.shouldApplyRemoteProfile(
+                remoteUpdatedAt: nil,
+                localUpdatedAt: existing.profileUpdatedAt,
+                isCurrentUser: false
+            ) {
+                existing.name = name
+                existing.avatarRaw = avatarRaw
+            }
             let legacyMatches = people.filter {
                 !$0.isCurrentUser && $0.cloudUserRecordName == nil &&
                     ConnectedFriendIdentity.normalizedName($0.name) ==

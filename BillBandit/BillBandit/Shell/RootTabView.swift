@@ -438,7 +438,10 @@ struct RootTabView: View {
             FriendInvitationSheet(initialCode: friendInvitations.incomingCode)
         }
         .task { AppStore.seedIfNeeded(context: context) }
-        .task { await friendInvitations.refreshAcceptedInvites() }
+        .task {
+            await friendInvitations.refreshAcceptedInvites()
+            await CloudCollaborationService.shared.refreshFriendProfiles()
+        }
         .onAppear {
             if tab == .activity { markActivityRead() }
         }

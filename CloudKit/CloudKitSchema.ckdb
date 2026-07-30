@@ -20,6 +20,17 @@ RECORD TYPE BBPerson (
     name STRING,
     avatar STRING,
     cloudUser STRING,
+    profileUpdatedAt TIMESTAMP,
+    GRANT WRITE TO "_creator",
+    GRANT CREATE TO "_icloud",
+    GRANT READ TO "_world"
+);
+
+RECORD TYPE BBFriendProfile (
+    cloudUser STRING QUERYABLE,
+    name STRING,
+    avatar STRING,
+    profileUpdatedAt TIMESTAMP,
     GRANT WRITE TO "_creator",
     GRANT CREATE TO "_icloud",
     GRANT READ TO "_world"

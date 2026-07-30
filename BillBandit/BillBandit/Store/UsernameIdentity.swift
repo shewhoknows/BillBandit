@@ -108,7 +108,8 @@ enum UsernameIdentityService {
     private struct UserResponse: Decodable { let user: RemoteUser }
     private struct ErrorResponse: Decodable { let error: String? }
 
-    private static let baseURL = URL(string: "https://billbandit-api.contenthelper.in")!
+    // Same REST base as settle-up (Debug → local FairShare via API_BASE_URL in Info.plist).
+    private static var baseURL: URL { SettlementAPIConfiguration.baseURL }
 
     static var hasStoredSession: Bool { MobileTokenStore.read() != nil }
 

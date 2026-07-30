@@ -45,6 +45,16 @@
 		029E7DB2DF011CEFE3CA13F2 /* SplitEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */; };
 		6002A4BD33DB4A70DB970FE8 /* BalanceEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */; };
 		A10000000000000000000001 /* BillBanditUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* BillBanditUITests.swift */; };
+		B50000000000000000000001 /* SettlementModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000011 /* SettlementModels.swift */; };
+		B50000000000000000000002 /* SettlementStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000012 /* SettlementStore.swift */; };
+		B50000000000000000000003 /* SettlementRealtimeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000013 /* SettlementRealtimeClient.swift */; };
+		B50000000000000000000004 /* SettlementPusherRealtimeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000014 /* SettlementPusherRealtimeClient.swift */; };
+		B50000000000000000000005 /* SettlementAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000015 /* SettlementAPIClient.swift */; };
+		B50000000000000000000006 /* SettlementAPIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000016 /* SettlementAPIConfiguration.swift */; };
+		B50000000000000000000007 /* MockSettlementAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000017 /* MockSettlementAPI.swift */; };
+		B50000000000000000000008 /* SharedSettleUpScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000018 /* SharedSettleUpScreen.swift */; };
+		B50000000000000000000009 /* SettlementStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000019 /* SettlementStoreTests.swift */; };
+		B5000000000000000000000A /* PusherSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000021 /* PusherSwift */; };
 /* End PBXBuildFile section */
 
 
@@ -90,16 +100,35 @@
 		FBF3B0AA194414B1FC2A358C /* BillBanditTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BillBanditTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000002 /* BillBanditUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillBanditUITests.swift; sourceTree = "<group>"; };
 		A10000000000000000000003 /* BillBanditUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BillBanditUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B50000000000000000000011 /* SettlementModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementModels.swift; sourceTree = "<group>"; };
+		B50000000000000000000012 /* SettlementStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementStore.swift; sourceTree = "<group>"; };
+		B50000000000000000000013 /* SettlementRealtimeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementRealtimeClient.swift; sourceTree = "<group>"; };
+		B50000000000000000000014 /* SettlementPusherRealtimeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementPusherRealtimeClient.swift; sourceTree = "<group>"; };
+		B50000000000000000000015 /* SettlementAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementAPIClient.swift; sourceTree = "<group>"; };
+		B50000000000000000000016 /* SettlementAPIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementAPIConfiguration.swift; sourceTree = "<group>"; };
+		B50000000000000000000017 /* MockSettlementAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockSettlementAPI.swift; sourceTree = "<group>"; };
+		B50000000000000000000018 /* SharedSettleUpScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSettleUpScreen.swift; sourceTree = "<group>"; };
+		B50000000000000000000019 /* SettlementStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementStoreTests.swift; sourceTree = "<group>"; };
+		B60000000000000000000001 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		B60000000000000000000002 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 
 /* Begin PBXGroup section */
 		2CDAFEEF30A7A30AB93D8144 = {isa = PBXGroup; children = (
 			AB353B3FDE6CFA023251764A /* BillBandit */,
+			B60000000000000000000003 /* Config */,
 			95E940FD9835AE2219E25A6E /* BillBanditTests */,
 			A10000000000000000000004 /* BillBanditUITests */,
 			44CD98B39D880D85DB8BB1D1 /* Products */,
 		);
+			sourceTree = "<group>";
+		};
+		B60000000000000000000003 /* Config */ = {isa = PBXGroup; children = (
+			B60000000000000000000001 /* Debug.xcconfig */,
+			B60000000000000000000002 /* Release.xcconfig */,
+		);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		44CD98B39D880D85DB8BB1D1 /* Products */ = {isa = PBXGroup; children = (
@@ -117,6 +146,7 @@
 			C86656FBE9CB0A29E6A4099A /* Models */,
 			C420085E2C143A6B7887685A /* Engine */,
 			0EF3488B72D5E7A95FABA496 /* Store */,
+			B50000000000000000000010 /* Settlement */,
 			3D2FE69411ED53F8C2C3E412 /* UI */,
 			5B3D1405594584938FE667FD /* Fonts */,
 			DAC78D39681CC2CC76F4F501 /* Assets.xcassets */,
@@ -182,11 +212,24 @@
 			path = Store;
 			sourceTree = "<group>";
 		};
+		B50000000000000000000010 /* Settlement */ = {isa = PBXGroup; children = (
+			B50000000000000000000011 /* SettlementModels.swift */,
+			B50000000000000000000012 /* SettlementStore.swift */,
+			B50000000000000000000013 /* SettlementRealtimeClient.swift */,
+			B50000000000000000000014 /* SettlementPusherRealtimeClient.swift */,
+			B50000000000000000000015 /* SettlementAPIClient.swift */,
+			B50000000000000000000016 /* SettlementAPIConfiguration.swift */,
+			B50000000000000000000017 /* MockSettlementAPI.swift */,
+		);
+			path = Settlement;
+			sourceTree = "<group>";
+		};
 		3D2FE69411ED53F8C2C3E412 /* UI */ = {isa = PBXGroup; children = (
 			88E7D479C4469EEF07BC602A /* FriendsScreen.swift */,
 			A5174C531A7298F089484854 /* GroupsScreen.swift */,
 			3C0E2618A3F50EAE1C6FAF0D /* AddGroupSheet.swift */,
 			5512CAF5917FB2127AD85186 /* GroupDetailScreen.swift */,
+			B50000000000000000000018 /* SharedSettleUpScreen.swift */,
 			AD0DE75597C3CF7F9FAC917E /* AddExpenseSheet.swift */,
 		);
 			path = UI;
@@ -195,6 +238,7 @@
 		95E940FD9835AE2219E25A6E /* BillBanditTests */ = {isa = PBXGroup; children = (
 			70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */,
 			77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */,
+			B50000000000000000000019 /* SettlementStoreTests.swift */,
 		);
 			path = BillBanditTests;
 			sourceTree = "<group>";
@@ -223,6 +267,9 @@
 			dependencies = (
 			);
 			name = BillBandit;
+			packageProductDependencies = (
+				B50000000000000000000021 /* PusherSwift */,
+			);
 			productName = BillBandit;
 			productReference = 078AB8ADBD9B1EFBFEF1AF76 /* BillBandit.app */;
 			productType = "com.apple.product-type.application";
@@ -336,6 +383,9 @@
 			productRefGroup = 44CD98B39D880D85DB8BB1D1 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				B50000000000000000000020 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */,
+			);
 			targets = (
 				30A9B2E69474EF68D53B5EBE /* BillBandit */,
 				C96E2EE35D7A1580464BB84C /* BillBanditTests */,
@@ -396,6 +446,14 @@
 				8BC6D65DACF59E5250FC9E62 /* GroupsScreen.swift in Sources */,
 				06AFE8F3048EA4ACF17FFE21 /* AddGroupSheet.swift in Sources */,
 				002687977B28F5DAAA090C20 /* GroupDetailScreen.swift in Sources */,
+				B50000000000000000000008 /* SharedSettleUpScreen.swift in Sources */,
+				B50000000000000000000001 /* SettlementModels.swift in Sources */,
+				B50000000000000000000002 /* SettlementStore.swift in Sources */,
+				B50000000000000000000003 /* SettlementRealtimeClient.swift in Sources */,
+				B50000000000000000000004 /* SettlementPusherRealtimeClient.swift in Sources */,
+				B50000000000000000000005 /* SettlementAPIClient.swift in Sources */,
+				B50000000000000000000006 /* SettlementAPIConfiguration.swift in Sources */,
+				B50000000000000000000007 /* MockSettlementAPI.swift in Sources */,
 				AFA9DEAA878B374CD9301DEB /* AddExpenseSheet.swift in Sources */,
 		);
 		runOnlyForDeploymentPostprocessing = 0;
@@ -403,6 +461,7 @@
 		FFD365512EC1A979DE9592EA /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 				029E7DB2DF011CEFE3CA13F2 /* SplitEngineTests.swift in Sources */,
 				6002A4BD33DB4A70DB970FE8 /* BalanceEngineTests.swift in Sources */,
+				B50000000000000000000009 /* SettlementStoreTests.swift in Sources */,
 		);
 		runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -416,6 +475,7 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		FFC0A3C5DFFF037FE7947FA4 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (
+				B5000000000000000000000A /* PusherSwift in Frameworks */,
 		);
 		runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -525,6 +585,7 @@
 		};
 		EBAC17A95EFD142CD219A7E1 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B60000000000000000000001 /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = BillBandit/BillBandit.entitlements;
@@ -556,6 +617,7 @@
 		};
 		27BC405797E654D77EEBDF1C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B60000000000000000000002 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = BillBandit/BillBandit.entitlements;
@@ -719,6 +781,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B50000000000000000000020 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pusher/pusher-websocket-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 10.1.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B50000000000000000000021 /* PusherSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B50000000000000000000020 /* XCRemoteSwiftPackageReference "pusher-websocket-swift" */;
+			productName = PusherSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 	};
 	rootObject = ADC7ECAE2DCA761B8354BB50 /* Project object */;

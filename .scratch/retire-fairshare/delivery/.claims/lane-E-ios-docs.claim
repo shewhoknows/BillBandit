@@ -1,0 +1,9 @@
+agent=Lane-E-ios-docs
+lane=E
+scope=ios-layout-and-docs
+primary_paths=BillBandit/,apps/ios/README.md,.scratch/retire-fairshare/monorepo-layout.md,README.md,BillBandit/BillBandit/Settlement/SettlementAPIConfiguration.swift,.scratch/retire-fairshare/issues/10-execution-checklist.md
+timestamp=2026-07-30T22:50:00+05:30
+status=complete
+ios_moved=false
+ios_canonical_path=BillBandit/
+prod_api_url=https://billbandit-api.contenthelper.in

@@ -1,0 +1,70 @@
+# Lane A — API scaffold (foundation)
+
+**Status:** complete  
+**Completed:** 2026-07-30  
+**Updated:** 2026-07-30 — merged Lane B/C deps; instrumentation wired to `bootstrapSettlementOutbox()`; webpack externals for `pusher`  
+**Owner:** Lane A  
+
+## Paths claimed and delivered
+
+```
+apps/api/
+  package.json
+  tsconfig.json
+  next.config.js
+  next-env.d.ts
+  .eslintrc.json
+  .env.example
+  DEPS_NEEDED.md
+  instrumentation.ts
+  lib/prisma.ts
+  prisma/                    # schema + 6 migrations copied from FairShare apps/web/prisma
+  app/
+    layout.tsx               # minimal root layout (API-only)
+    api/health/route.ts
+  public/.gitkeep
+
+package.json                 # root workspace (apps/api)
+Dockerfile
+railway.toml
+.github/workflows/deploy.yml
+.github/scripts/write-deploy-info.js
+.github/scripts/wait-for-deploy.js
+```
+
+## Dependencies merged (Lane A owns package.json)
+
+| Package | Version | Source lane |
+|---------|---------|-------------|
+| `jose` | `^5.10.0` | B |
+| `zod` | `^3.23.8` | B |
+| `pusher` | `^5.2.0` | C |
+| `bcryptjs` | `^2.4.3` (dev) | A (prisma seed) |
+
+## Not in Lane A scope (other lanes)
+
+- `apps/api/app/api/mobile/**` — Lane B (auth) ✓ delivered
+- `apps/api/app/api/groups/**` — Lane C (settlement routes) ✓ delivered
+- `apps/api/lib/settlement/**` — Lane C ✓ delivered
+- `apps/api/lib/mobile-*.ts`, `apple-id-token.ts`, etc. — Lane B ✓ delivered
+- Mobile group/expense API routes — Lane D
+- `apps/api/middleware.ts` — add only if needed after routes land
+
+## Verification
+
+```bash
+cd /Users/prateekranka/Cowork/BillBandit-published
+npm install
+npm run db:generate
+npm run typecheck
+npm run build
+npm run dev   # GET http://localhost:3000/api/health → 200
+```
+
+## Railway cutover (human ops — do not run from Lane A)
+
+1. Add GitHub secrets to `shewhoknows/BillBandit`: `RAILWAY_TOKEN`, `RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT`, `RAILWAY_PROJECT_ID` (copy from FairShare repo settings).
+2. In Railway dashboard: point the existing `billbandit-api` service source repo to `shewhoknows/BillBandit` / `main` (same project, DB, custom domain `billbandit-api.contenthelper.in`).
+3. Confirm env vars: `DATABASE_URL`, `MOBILE_JWT_SECRET`, `IOS_BUNDLE_ID`, Pusher vars.
+4. Disable FairShare repo deploy workflow or disconnect Railway from FairShare `main`.
+5. Push to BillBandit `main` and verify `/api/health` commit SHA matches GHA run.
