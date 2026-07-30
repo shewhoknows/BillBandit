@@ -47,6 +47,20 @@ struct GroupDetailScreen: View {
         return Money.cents(group.expenses.flatMap(\.splits).filter { $0.person?.id == me.id }.reduce(0) { $0 + $1.computedAmount })
     }
 
+    private var prefersSharedSettleUp: Bool {
+        SettlementAPIConfiguration.prefersSharedSettleUp
+    }
+
+    private var settleButtonDisabled: Bool {
+        if prefersSharedSettleUp { return false }
+        return settlementPlan.isEmpty
+    }
+
+    private var settleButtonTitle: String {
+        if prefersSharedSettleUp { return "Settle up" }
+        return settlementPlan.isEmpty ? "All square" : "Settle up"
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
@@ -63,15 +77,16 @@ struct GroupDetailScreen: View {
                     }
                     .accessibilityIdentifier("groupAddExpenseButton")
                     Button { showSettle = true } label: {
-                        Text(settlementPlan.isEmpty ? "All square" : "Settle up")
+                        Text(settleButtonTitle)
                             .font(BrandFont.display(15, weight: .bold))
                             .foregroundStyle(Color.Brand.creamSoft)
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
                             .overlay(Capsule().stroke(Color.Brand.creamSoft, lineWidth: 2))
                     }
-                    .disabled(settlementPlan.isEmpty)
-                    .opacity(settlementPlan.isEmpty ? 0.55 : 1)
+                    .disabled(settleButtonDisabled)
+                    .opacity(settleButtonDisabled ? 0.55 : 1)
+                    .accessibilityIdentifier("groupSettleUpButton")
                 }
                 .padding(.top, 18)
 
@@ -89,8 +104,16 @@ struct GroupDetailScreen: View {
             AddExpenseSheet(initialGroup: group)
         }
         .fullScreenCover(isPresented: $showSettle) {
-            RecordPaymentSheet(group: group) { result in
-                celebration = result
+            if prefersSharedSettleUp {
+                SharedSettleUpScreen(
+                    group: group,
+                    currentUserName: currentUsers.first?.name ?? "You",
+                    onDismiss: { showSettle = false }
+                )
+            } else {
+                RecordPaymentSheet(group: group) { result in
+                    celebration = result
+                }
             }
         }
         .fullScreenCover(item: $celebration) { result in

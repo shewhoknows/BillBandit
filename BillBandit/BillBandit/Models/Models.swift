@@ -263,12 +263,14 @@ final class Group {
     var cloudZoneName: String?
     var cloudZoneOwnerName: String?
     var cloudDatabaseScopeRaw: String?
+    /// FairShare REST group id when this invoice syncs through the shared settlement API.
+    var serverGroupId: String?
     var members: [Person]
     @Relationship(deleteRule: .cascade, inverse: \Expense.group) var expenses: [Expense]
     @Relationship(deleteRule: .cascade, inverse: \Settlement.group) var settlements: [Settlement]
 
     init(id: UUID = UUID(), name: String, icon: GroupIcon = .users, simplifyDebts: Bool = true,
-         createdAt: Date = .now, members: [Person] = []) {
+         createdAt: Date = .now, members: [Person] = [], serverGroupId: String? = nil) {
         self.id = id
         self.name = name
         self.iconRaw = icon.rawValue
@@ -277,6 +279,7 @@ final class Group {
         self.cloudZoneName = nil
         self.cloudZoneOwnerName = nil
         self.cloudDatabaseScopeRaw = nil
+        self.serverGroupId = serverGroupId
         self.members = members
         self.expenses = []
         self.settlements = []
