@@ -1,8 +1,12 @@
 import Foundation
 import Security
 
-/// Shared REST configuration for the FairShare settlement API.
+/// Shared REST configuration for BillBandit settlement / mobile auth APIs.
+///
+/// Production (Release builds): `https://billbandit-api.contenthelper.in`
+/// — same Railway hostname before and after FairShare → BillBandit repo cutover.
 enum SettlementAPIConfiguration {
+    /// Prod API base URL; override in Debug via `API_BASE_URL` or local `apps/api` on :3000.
     private static let productionHost = "https://billbandit-api.contenthelper.in"
     private static let debugLocalHost = "http://127.0.0.1:3000"
 

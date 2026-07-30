@@ -1,0 +1,15 @@
+lane: B
+scope: mobile-auth
+owner: lane-B-agent
+claimed_at: 2026-07-30T22:45:00+05:30
+paths:
+  - apps/api/app/api/mobile/auth/**
+  - apps/api/lib/mobile-auth.ts
+  - apps/api/lib/mobile-dto.ts
+  - apps/api/lib/apple-id-token.ts
+  - apps/api/lib/username-handle.ts
+  - apps/api/lib/mobile-auth-identifiers.ts
+  - apps/api/lib/validations-mobile-auth.ts
+  - apps/api/DEPS_NEEDED.md
+source: FairShare/apps/web (SIWA + username only)
+status: delivered

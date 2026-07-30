@@ -1,0 +1,21 @@
+lane: C
+name: settlement
+owner: lane-C-settlement
+claimed_at: 2026-07-30T22:47:00+05:30
+status: delivered
+
+paths:
+  - apps/api/lib/settlement/**
+  - apps/api/app/api/groups/[id]/settle-up/**
+  - apps/api/app/api/groups/[id]/settlements/**
+  - apps/api/app/api/groups/[id]/settlement-settings/**
+  - apps/api/app/api/groups/[id]/realtime/**
+
+excluded:
+  - apps/api/lib/settlement/legacy/adapter.ts
+  - apps/api/lib/settlement/money/backfill.ts
+  - apps/api/app/api/groups/[id]/settle-up/transfers/*/explanation (stub later)
+
+notes:
+  - Mobile Bearer session only; NextAuth web fallback removed
+  - Transfer explanation endpoint intentionally not implemented

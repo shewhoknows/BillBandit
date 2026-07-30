@@ -67,6 +67,10 @@ final class BalanceEngineTests: XCTestCase {
             domain: CKError.errorDomain,
             code: CKError.Code.networkFailure.rawValue
         )
+        let rateLimited = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.requestRateLimited.rawValue
+        )
 
         XCTAssertTrue(AutomaticInvitationFailurePolicy.isTerminal(missingShare))
         XCTAssertFalse(AutomaticInvitationFailurePolicy.isTerminal(networkFailure))
@@ -79,6 +83,34 @@ final class BalanceEngineTests: XCTestCase {
         ]) as NSError?
         XCTAssertEqual(visible?.domain, CKError.errorDomain)
         XCTAssertEqual(visible?.code, CKError.Code.networkFailure.rawValue)
+
+        XCTAssertFalse(CloudSyncIssuePolicy.shouldSurfaceBanner(for: rateLimited))
+        XCTAssertFalse(CloudSyncIssuePolicy.shouldSurfaceBanner(for: networkFailure))
+        XCTAssertTrue(CloudSyncIssuePolicy.shouldSurfaceBanner(for: NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.notAuthenticated.rawValue
+        )))
+    }
+
+    @MainActor
+    func testReadableUnwrapsPartialFailureCloudCodes() {
+        let partialFailure = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.Code.partialFailure.rawValue,
+            userInfo: [
+                CKPartialErrorsByItemIDKey: [
+                    "share": NSError(
+                        domain: CKError.errorDomain,
+                        code: CKError.Code.serverRejectedRequest.rawValue
+                    ) as Any,
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            CloudCollaborationService.readable(partialFailure),
+            "Cloud sync needs an app update. Your data is saved on this device."
+        )
     }
 
     @MainActor
@@ -187,10 +219,10 @@ final class BalanceEngineTests: XCTestCase {
         ))
     }
 
-    func testPersonUploadsDoNotWriteUndeployedProfileTimestamp() {
-        XCTAssertFalse(
+    func testPersonUploadsWriteProfileTimestamp() {
+        XCTAssertTrue(
             CloudPersonRecordPolicy.writesProfileUpdatedAt,
-            "BBPerson.profileUpdatedAt is absent from the checked-in CloudKit schema"
+            "BBPerson.profileUpdatedAt must be deployed in the checked-in CloudKit schema"
         )
     }
 

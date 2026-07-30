@@ -23,3 +23,9 @@ build/
 
 # Separate project that is not part of BillBandit
 Daud/
+
+# Node / Next.js API (apps/api)
+node_modules/
+.next/
+*.tsbuildinfo
+npm-debug.log*

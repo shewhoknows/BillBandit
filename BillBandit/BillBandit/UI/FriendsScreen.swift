@@ -167,7 +167,10 @@ struct ProfileFriendsSection: View {
         }
         .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: friends.map(\.id))
         .fullScreenCover(isPresented: $showAdd) { FriendInvitationSheet() }
-        .task { await FriendInvitationService.shared.refreshAcceptedInvites() }
+        .task {
+            await FriendInvitationService.shared.refreshAcceptedInvites()
+            await CloudCollaborationService.shared.refreshFriendProfiles()
+        }
     }
 }
 

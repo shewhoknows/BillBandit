@@ -23,12 +23,20 @@ struct GroupsScreen: View {
                         HStack(spacing: 10) {
                             BrandIconView(icon: .pulse, size: 18)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("sync retrying")
+                                Text(collaboration.state.isUnavailable
+                                     ? "icloud needed to share"
+                                     : "sync needs attention")
                                     .font(BrandFont.display(12.5, weight: .semibold))
                                 Text(issue)
                                     .font(BrandFont.type(8.5, bold: true))
-                                    .lineLimit(2)
+                                    .lineLimit(3)
                                     .opacity(0.68)
+                                if collaboration.state.isUnavailable {
+                                    Text("You can still create and use groups on this device.")
+                                        .font(BrandFont.type(8.5, bold: true))
+                                        .lineLimit(2)
+                                        .opacity(0.55)
+                                }
                             }
                             Spacer()
                             Text("retry now")

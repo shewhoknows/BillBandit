@@ -1,0 +1,14 @@
+lane: D
+scope: ledger-population
+owner: lane-D-agent
+claimed_at: 2026-07-30T22:50:00+05:30
+paths:
+  - apps/api/app/api/mobile/groups/**
+  - apps/api/app/api/mobile/expenses/**
+  - apps/api/lib/mobile-groups.ts
+  - apps/api/lib/mobile-expenses.ts
+  - apps/api/lib/validations-mobile-ledger.ts
+  - apps/api/lib/mobile-dto.ts
+  - apps/api/DEPS_NEEDED.md
+source: FairShare/apps/web (mobile groups + expenses only)
+status: delivered

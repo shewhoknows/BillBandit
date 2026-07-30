@@ -1,0 +1,511 @@
+// This is your Prisma schema file
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth (NextAuth adapter) ───────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Core Models ──────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  username      String?   @unique
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String? // bcrypt hash – null for OAuth users
+  phone         String?   @unique
+  preferredName String?
+  upiID         String?
+
+  accounts Account[]
+  sessions Session[]
+
+  groupMemberships GroupMember[]
+  finalizedGroups  Group[]        @relation("GroupFinalizedBy")
+  paidExpenses     Expense[]      @relation("PaidBy")
+  expenseSplits    ExpenseSplit[]
+
+  sentTransactions     Transaction[] @relation("Sender")
+  receivedTransactions Transaction[] @relation("Receiver")
+  settlementActions    Transaction[] @relation("SettlementActor")
+  groupParticipants    GroupParticipant[]
+  settlementReversals    SettlementReversal[]
+  settlementSettingAudits SettlementSettingAudit[]
+
+  friendshipsInitiated Friendship[] @relation("FriendFrom")
+  friendshipsReceived  Friendship[] @relation("FriendTo")
+
+  activityLogs ActivityLog[]
+  comments     Comment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([phone])
+}
+
+model MobileOTPChallenge {
+  id             String    @id @default(cuid())
+  identifier     String
+  identifierType String
+  codeHash       String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  attempts       Int       @default(0)
+  createdAt      DateTime  @default(now())
+
+  @@index([identifier])
+  @@index([expiresAt])
+}
+
+model Group {
+  id            String        @id @default(cuid())
+  name          String
+  description   String?
+  image         String?
+  currency      String        @default("USD")
+  category      GroupCategory @default(OTHER)
+  isArchived    Boolean       @default(false)
+  finalizedAt   DateTime?
+  finalizedById String?
+
+  simplifyDebts           Boolean   @default(true)
+  settlementVersion       Int       @default(0)
+  hadOpenTransfers        Boolean   @default(false)
+  settlementCompletedAt   DateTime?
+
+  members                  GroupMember[]
+  participants             GroupParticipant[]
+  expenses                 Expense[]
+  transactions             Transaction[]
+  settlementAllocations    SettlementAllocation[]
+  settlementReversals      SettlementReversal[]
+  settlementSettingAudits  SettlementSettingAudit[]
+  settlementVersionJournal SettlementVersionJournal[]
+  settlementOutbox         SettlementOutbox[]
+  idempotentOperations     IdempotentOperation[]
+  finalizedBy              User?         @relation("GroupFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([finalizedById])
+}
+
+enum GroupCategory {
+  HOME
+  TRIP
+  COUPLE
+  WORK
+  OTHER
+}
+
+model GroupMember {
+  id      String    @id @default(cuid())
+  groupId String
+  userId  String
+  role    GroupRole @default(MEMBER)
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  joinedAt DateTime @default(now())
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+enum GroupRole {
+  ADMIN
+  MEMBER
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  description String
+  amount      Float
+  amountMinorUnits BigInt?
+  currencyExponent Int?
+  currency    String   @default("USD")
+  date        DateTime @default(now())
+  category    String   @default("general")
+
+  groupId String?
+  group   Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  paidById String
+  paidBy   User   @relation("PaidBy", fields: [paidById], references: [id])
+
+  splits    ExpenseSplit[]
+  splitType SplitType      @default(EQUAL)
+
+  receiptUrl String?
+  notes      String?
+
+  isRecurring       Boolean            @default(false)
+  recurringInterval RecurringInterval?
+  recurringEndDate  DateTime?
+
+  isDeleted Boolean   @default(false)
+  comments  Comment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId])
+  @@index([paidById])
+  @@index([date])
+}
+
+enum SplitType {
+  EQUAL
+  EXACT
+  PERCENTAGE
+  SHARES
+}
+
+enum RecurringInterval {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+model ExpenseSplit {
+  id        String @id @default(cuid())
+  expenseId String
+  userId    String
+
+  amount     Float // actual dollar amount this user owes
+  amountMinorUnits BigInt?
+  currencyExponent Int?
+  percentage Float? // original percentage if PERCENTAGE split
+  shares     Int? // original shares if SHARES split
+  isPaid     Boolean @default(false)
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([expenseId, userId])
+  @@index([userId])
+}
+
+model Transaction {
+  id         String  @id @default(cuid())
+  senderId   String // person who paid
+  receiverId String // person who received
+  amount     Float
+  amountMinorUnits BigInt?
+  currencyExponent Int?
+  currency   String  @default("USD")
+  note       String?
+
+  groupId String?
+  group   Group?  @relation(fields: [groupId], references: [id])
+
+  payerParticipantId     String?
+  recipientParticipantId String?
+  actorUserId            String?
+  settlementMode         SettlementMode?
+  settlementGroupVersion Int?
+
+  sender   User @relation("Sender", fields: [senderId], references: [id])
+  receiver User @relation("Receiver", fields: [receiverId], references: [id])
+  payerParticipant     GroupParticipant? @relation("PayerParticipant", fields: [payerParticipantId], references: [id], onDelete: Restrict)
+  recipientParticipant GroupParticipant? @relation("RecipientParticipant", fields: [recipientParticipantId], references: [id], onDelete: Restrict)
+  actor                User? @relation("SettlementActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  allocation           SettlementAllocation?
+  reversal             SettlementReversal?
+
+  createdAt DateTime @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([groupId])
+  @@index([payerParticipantId])
+  @@index([recipientParticipantId])
+}
+
+enum SettlementMode {
+  DIRECT
+  SIMPLIFIED
+}
+
+enum ParticipantStatus {
+  ACTIVE
+  DEPARTED
+}
+
+model CurrencyExponentRegistry {
+  id        String @id @default(cuid())
+  version   Int
+  code      String
+  exponent  Int
+  createdAt DateTime @default(now())
+
+  @@unique([version, code])
+  @@index([code])
+}
+
+model MoneyMigrationIssue {
+  id           String @id @default(cuid())
+  tableName    String
+  recordId     String
+  groupId      String?
+  currencyCode String?
+  reason       String
+  floatValue   String?
+  createdAt    DateTime @default(now())
+
+  @@index([groupId])
+  @@index([tableName, recordId])
+}
+
+model GroupParticipant {
+  id          String            @id @default(cuid())
+  groupId     String
+  userId      String
+  displayName String
+  status      ParticipantStatus @default(ACTIVE)
+  joinedAt    DateTime          @default(now())
+  departedAt  DateTime?
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  payerTransactions     Transaction[] @relation("PayerParticipant")
+  recipientTransactions Transaction[] @relation("RecipientParticipant")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+model SettlementAllocation {
+  id                 String         @id @default(cuid())
+  groupId            String
+  transactionId      String         @unique
+  settlementVersion  Int
+  mode               SettlementMode
+  algorithmVersion   Int            @default(1)
+  currencyCode       String
+  currencyExponent   Int
+  amountMinorUnits   BigInt
+  createdAt          DateTime       @default(now())
+
+  group       Group                      @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  transaction Transaction                @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  paths       SettlementAllocationPath[]
+
+  @@index([groupId])
+}
+
+model SettlementAllocationPath {
+  id                       String @id @default(cuid())
+  allocationId             String
+  sequence                 Int
+  flowMinorUnits           BigInt
+  obligationComponentKey   String
+  payerParticipantId       String
+  recipientParticipantId   String
+
+  allocation SettlementAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+
+  @@index([allocationId])
+}
+
+model SettlementReversal {
+  id            String   @id @default(cuid())
+  groupId       String
+  transactionId String   @unique
+  actorUserId   String?
+  createdAt     DateTime @default(now())
+
+  group       Group       @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  actor       User?       @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
+}
+
+model SettlementSettingAudit {
+  id            String   @id @default(cuid())
+  groupId       String
+  actorUserId   String
+  simplifyDebts Boolean
+  createdAt     DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  actor User  @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([groupId, createdAt])
+}
+
+model IdempotentOperation {
+  id             String   @id @default(cuid())
+  groupId        String
+  operationKey   String
+  requestHash    String
+  resultVersion  Int
+  resultRecordId String?
+  createdAt      DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, operationKey])
+  @@index([groupId])
+}
+
+model SettlementVersionJournal {
+  id        String   @id @default(cuid())
+  groupId   String
+  version   Int
+  recordId  String?
+  eventType String
+  createdAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, version])
+  @@index([groupId, version])
+}
+
+enum SettlementOutboxState {
+  PENDING
+  LEASED
+  PUBLISHED
+  FAILED
+}
+
+model SettlementOutbox {
+  id            String                @id @default(cuid())
+  groupId       String
+  recordId      String
+  eventType     String
+  version       Int
+  state         SettlementOutboxState @default(PENDING)
+  attemptCount  Int                   @default(0)
+  nextAttemptAt DateTime              @default(now())
+  leaseOwner    String?
+  leaseExpiresAt DateTime?
+  publishedAt   DateTime?
+  failureCode   String?
+  createdAt     DateTime              @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, version])
+  @@index([state, nextAttemptAt])
+  @@index([groupId])
+}
+
+model Friendship {
+  id     String           @id @default(cuid())
+  fromId String
+  toId   String
+  status FriendshipStatus @default(PENDING)
+
+  from User @relation("FriendFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   User @relation("FriendTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([fromId, toId])
+  @@index([fromId])
+  @@index([toId])
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model Comment {
+  id        String @id @default(cuid())
+  content   String @db.Text
+  expenseId String
+  userId    String
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([expenseId])
+}
+
+model ActivityLog {
+  id          String       @id @default(cuid())
+  userId      String
+  type        ActivityType
+  description String
+  metadata    Json?
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+enum ActivityType {
+  EXPENSE_CREATED
+  EXPENSE_UPDATED
+  EXPENSE_DELETED
+  PAYMENT_MADE
+  GROUP_CREATED
+  GROUP_JOINED
+  FRIEND_ADDED
+  COMMENT_ADDED
+}
