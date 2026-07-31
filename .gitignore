@@ -8,6 +8,10 @@ DerivedData/
 build/
 *.xcarchive
 *.ipa
+*.xcresult
+
+# XcodeGen output is regenerated from project.yml (historical scaffold at repo root)
+BillBandit.xcodeproj/
 
 # Swift Package Manager
 .build/
@@ -20,6 +24,9 @@ build/
 *.mobileprovision
 .env
 .env.*
+
+# Secrets / local overrides
+*.local.xcconfig
 
 # Separate project that is not part of BillBandit
 Daud/

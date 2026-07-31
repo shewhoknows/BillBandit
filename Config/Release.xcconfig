@@ -1,0 +1,3 @@
+// Release builds may override the API host at archive time:
+//   BILLBANDIT_API_BASE_URL=https://... xcodebuild archive ...
+API_BASE_URL = $(BILLBANDIT_API_BASE_URL:default=https:/$()/billbandit-api.contenthelper.in)
