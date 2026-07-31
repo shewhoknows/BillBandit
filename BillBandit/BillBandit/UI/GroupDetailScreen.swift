@@ -100,6 +100,11 @@ struct GroupDetailScreen: View {
         }
         .background(Color.Brand.cobalt)
         .navigationTitle(group.name)
+        .navigationDestination(for: UUID.self) { expenseID in
+            if let expense = group.expenses.first(where: { $0.id == expenseID }) {
+                ExpenseDetailScreen(expense: expense)
+            }
+        }
         .fullScreenCover(isPresented: $showAddExpense, onDismiss: revealNewExpense) {
             AddExpenseSheet(initialGroup: group)
         }
@@ -126,7 +131,7 @@ struct GroupDetailScreen: View {
 
     private var groupMeta: some View {
         HStack {
-            Text("\(group.members.count) members · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
+            Text("\(GroupCopy.memberCount(group.members.count)) · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
                 .font(BrandFont.type(10))
                 .opacity(0.65)
             Spacer()
@@ -159,14 +164,14 @@ struct GroupDetailScreen: View {
                         .padding(.vertical, 10)
                     } else {
                         ForEach(sortedExpenses) { expense in
-                            NavigationLink {
-                                ExpenseDetailScreen(expense: expense)
-                            } label: {
+                            NavigationLink(value: expense.id) {
                                 InvoiceExpenseRow(expense: expense)
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("invoiceExpense-\(expense.title)")
                             .opacity(freshExpenseID == expense.id && !revealFreshExpense ? 0 : 1)
                             .scaleEffect(freshExpenseID == expense.id && !revealFreshExpense ? 0.96 : 1,
                                          anchor: .top)
@@ -213,6 +218,8 @@ struct GroupDetailScreen: View {
             if !sortedExpenses.isEmpty {
                 MascotView(mascot: myNet < 0 ? .grumpy : (myNet == 0 ? .neutral : .confused), size: 66)
                     .offset(x: 8, y: -42)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.top, 46)

@@ -141,3 +141,9 @@ extension String {
         return first.uppercased() + dropFirst()
     }
 }
+
+enum GroupCopy {
+    static func memberCount(_ count: Int) -> String {
+        count == 1 ? "1 member" : "\(count) members"
+    }
+}

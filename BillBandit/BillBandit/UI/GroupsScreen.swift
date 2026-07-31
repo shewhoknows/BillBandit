@@ -83,7 +83,7 @@ struct GroupsScreen: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(group.name)
                                     .font(BrandFont.display(13.5))
-                                Text("\(group.members.count) members")
+                                Text(GroupCopy.memberCount(group.members.count))
                                     .font(BrandFont.type(9.5))
                                     .opacity(0.65)
                             }
