@@ -55,6 +55,17 @@
 		B50000000000000000000008 /* SharedSettleUpScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000018 /* SharedSettleUpScreen.swift */; };
 		B50000000000000000000009 /* SettlementStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000019 /* SettlementStoreTests.swift */; };
 		B5000000000000000000000A /* PusherSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000021 /* PusherSwift */; };
+		D10000000000000000000001 /* CacheModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* CacheModels.swift */; };
+		D10000000000000000000002 /* PendingLedgerOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* PendingLedgerOperation.swift */; };
+		D10000000000000000000003 /* LedgerScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000003 /* LedgerScope.swift */; };
+		D10000000000000000000004 /* LocalOnlyPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000004 /* LocalOnlyPolicy.swift */; };
+		D10000000000000000000005 /* ServerLedgerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000005 /* ServerLedgerSnapshot.swift */; };
+		D10000000000000000000006 /* ServerLedgerAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000006 /* ServerLedgerAPIClient.swift */; };
+		D10000000000000000000007 /* ServerLedgerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000007 /* ServerLedgerStore.swift */; };
+		D10000000000000000000008 /* ServerLedgerSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000008 /* ServerLedgerSync.swift */; };
+		D10000000000000000000009 /* ServerLedgerMutationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000009 /* ServerLedgerMutationCoordinator.swift */; };
+		D1000000000000000000000A /* ServerLedgerCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000000A /* ServerLedgerCacheTests.swift */; };
+		D1000000000000000000000B /* ServerAuthorityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000000B /* ServerAuthorityUITests.swift */; };
 /* End PBXBuildFile section */
 
 
@@ -111,6 +122,17 @@
 		B50000000000000000000019 /* SettlementStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementStoreTests.swift; sourceTree = "<group>"; };
 		B60000000000000000000001 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		B60000000000000000000002 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		D20000000000000000000001 /* CacheModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheModels.swift; sourceTree = "<group>"; };
+		D20000000000000000000002 /* PendingLedgerOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingLedgerOperation.swift; sourceTree = "<group>"; };
+		D20000000000000000000003 /* LedgerScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerScope.swift; sourceTree = "<group>"; };
+		D20000000000000000000004 /* LocalOnlyPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOnlyPolicy.swift; sourceTree = "<group>"; };
+		D20000000000000000000005 /* ServerLedgerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerSnapshot.swift; sourceTree = "<group>"; };
+		D20000000000000000000006 /* ServerLedgerAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerAPIClient.swift; sourceTree = "<group>"; };
+		D20000000000000000000007 /* ServerLedgerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerStore.swift; sourceTree = "<group>"; };
+		D20000000000000000000008 /* ServerLedgerSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerSync.swift; sourceTree = "<group>"; };
+		D20000000000000000000009 /* ServerLedgerMutationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerMutationCoordinator.swift; sourceTree = "<group>"; };
+		D2000000000000000000000A /* ServerLedgerCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerCacheTests.swift; sourceTree = "<group>"; };
+		D2000000000000000000000B /* ServerAuthorityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAuthorityUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 
@@ -147,6 +169,7 @@
 			C420085E2C143A6B7887685A /* Engine */,
 			0EF3488B72D5E7A95FABA496 /* Store */,
 			B50000000000000000000010 /* Settlement */,
+			D30000000000000000000001 /* ServerLedger */,
 			3D2FE69411ED53F8C2C3E412 /* UI */,
 			5B3D1405594584938FE667FD /* Fonts */,
 			DAC78D39681CC2CC76F4F501 /* Assets.xcassets */,
@@ -224,6 +247,20 @@
 			path = Settlement;
 			sourceTree = "<group>";
 		};
+		D30000000000000000000001 /* ServerLedger */ = {isa = PBXGroup; children = (
+			D20000000000000000000001 /* CacheModels.swift */,
+			D20000000000000000000002 /* PendingLedgerOperation.swift */,
+			D20000000000000000000003 /* LedgerScope.swift */,
+			D20000000000000000000004 /* LocalOnlyPolicy.swift */,
+			D20000000000000000000005 /* ServerLedgerSnapshot.swift */,
+			D20000000000000000000006 /* ServerLedgerAPIClient.swift */,
+			D20000000000000000000007 /* ServerLedgerStore.swift */,
+			D20000000000000000000008 /* ServerLedgerSync.swift */,
+			D20000000000000000000009 /* ServerLedgerMutationCoordinator.swift */,
+		);
+			path = ServerLedger;
+			sourceTree = "<group>";
+		};
 		3D2FE69411ED53F8C2C3E412 /* UI */ = {isa = PBXGroup; children = (
 			88E7D479C4469EEF07BC602A /* FriendsScreen.swift */,
 			A5174C531A7298F089484854 /* GroupsScreen.swift */,
@@ -239,12 +276,14 @@
 			70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */,
 			77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */,
 			B50000000000000000000019 /* SettlementStoreTests.swift */,
+			D2000000000000000000000A /* ServerLedgerCacheTests.swift */,
 		);
 			path = BillBanditTests;
 			sourceTree = "<group>";
 		};
 		A10000000000000000000004 /* BillBanditUITests */ = {isa = PBXGroup; children = (
 			A10000000000000000000002 /* BillBanditUITests.swift */,
+			D2000000000000000000000B /* ServerAuthorityUITests.swift */,
 		);
 			path = BillBanditUITests;
 			sourceTree = "<group>";
@@ -439,6 +478,15 @@
 				A18A786B47F3AE6F26A56933 /* SplitEngine.swift in Sources */,
 				8C1364D487A9E68C103E9412 /* BalanceEngine.swift in Sources */,
 				1582D742CC939043F4E3B667 /* BalanceMath+SwiftData.swift in Sources */,
+				D10000000000000000000001 /* CacheModels.swift in Sources */,
+				D10000000000000000000002 /* PendingLedgerOperation.swift in Sources */,
+				D10000000000000000000003 /* LedgerScope.swift in Sources */,
+				D10000000000000000000004 /* LocalOnlyPolicy.swift in Sources */,
+				D10000000000000000000005 /* ServerLedgerSnapshot.swift in Sources */,
+				D10000000000000000000006 /* ServerLedgerAPIClient.swift in Sources */,
+				D10000000000000000000007 /* ServerLedgerStore.swift in Sources */,
+				D10000000000000000000008 /* ServerLedgerSync.swift in Sources */,
+				D10000000000000000000009 /* ServerLedgerMutationCoordinator.swift in Sources */,
 				C884A21DE149F2972F3A27FF /* AppStore.swift in Sources */,
 				B20000000000000000000001 /* CloudCollaboration.swift in Sources */,
 				B40000000000000000000001 /* UsernameIdentity.swift in Sources */,
@@ -462,11 +510,13 @@
 				029E7DB2DF011CEFE3CA13F2 /* SplitEngineTests.swift in Sources */,
 				6002A4BD33DB4A70DB970FE8 /* BalanceEngineTests.swift in Sources */,
 				B50000000000000000000009 /* SettlementStoreTests.swift in Sources */,
+				D1000000000000000000000A /* ServerLedgerCacheTests.swift in Sources */,
 		);
 		runOnlyForDeploymentPostprocessing = 0;
 		};
 		A10000000000000000000007 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 			A10000000000000000000001 /* BillBanditUITests.swift in Sources */,
+			D1000000000000000000000B /* ServerAuthorityUITests.swift in Sources */,
 		);
 		runOnlyForDeploymentPostprocessing = 0;
 		};
