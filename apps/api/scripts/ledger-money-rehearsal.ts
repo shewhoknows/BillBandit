@@ -203,15 +203,29 @@ function addRegistryValue(registry: Registry, value: unknown): void {
 
 function rowFromObject(tableName: TableName, value: unknown, index: number): LegacyRow | null {
   if (!isObject(value)) return null
-  const id = stringOrNull(valueFor(value, ['id', 'recordId', 'legacyId'])) ?? `${tableName.toLowerCase()}-${index + 1}`
+  const idNames =
+    tableName === 'Expense'
+      ? ['id', 'expenseId', 'recordId', 'legacyId']
+      : tableName === 'ExpenseSplit'
+        ? ['id', 'splitId', 'recordId', 'legacyId']
+        : ['id', 'transactionId', 'settlementId', 'recordId', 'legacyId']
+  const id = stringOrNull(valueFor(value, idNames)) ?? `${tableName.toLowerCase()}-${index + 1}`
+  const amountValue = valueFor(value, ['amount', 'legacyAmount', 'legacyValue', 'amountFloat', 'floatValue', 'value'])
+  const canonicalMoney = isObject(amountValue) ? amountValue : null
   return {
     tableName,
     id,
-    amount: valueFor(value, ['amount', 'legacyAmount', 'legacyValue', 'amountFloat', 'floatValue', 'value']),
-    currency: valueFor(value, ['currency', 'currencyCode', 'currency_code']),
+    amount: canonicalMoney === null ? amountValue : valueFor(canonicalMoney, ['majorUnits', 'decimalAmount']),
+    currency:
+      valueFor(value, ['currency', 'currencyCode', 'currency_code']) ??
+      (canonicalMoney === null ? undefined : valueFor(canonicalMoney, ['currency', 'currencyCode'])),
     groupId: valueFor(value, ['groupId', 'group_id']),
-    amountMinorUnits: valueFor(value, ['amountMinorUnits', 'minorUnits', 'minor_units']),
-    currencyExponent: valueFor(value, ['currencyExponent', 'currency_exponent']),
+    amountMinorUnits:
+      valueFor(value, ['amountMinorUnits', 'minorUnits', 'minor_units']) ??
+      (canonicalMoney === null ? undefined : valueFor(canonicalMoney, ['amountMinorUnits', 'minorUnits'])),
+    currencyExponent:
+      valueFor(value, ['currencyExponent', 'currency_exponent']) ??
+      (canonicalMoney === null ? undefined : valueFor(canonicalMoney, ['currencyExponent'])),
     expenseId: valueFor(value, ['expenseId', 'expense_id']),
   }
 }
@@ -225,7 +239,33 @@ function addRows(collector: FixtureCollector, tableName: TableName, value: unkno
   const values = Array.isArray(value) ? value : [value]
   values.forEach((item, index) => {
     const row = rowFromObject(tableName, item, index)
-    if (row !== null) collector.rows.set(`${row.tableName}:${row.id}`, row)
+    if (row === null) return
+
+    collector.rows.set(`${row.tableName}:${row.id}`, row)
+
+    const currencyCode = normalizeCode(row.currency)
+    const minorUnits = exactMinor(row.amountMinorUnits)
+    const currencyExponent = exactExponent(row.currencyExponent)
+    if (currencyCode !== null && minorUnits !== null && currencyExponent !== null) {
+      addRegistryEntry(collector.registry, { code: currencyCode, exponent: currencyExponent, version: 1 })
+    }
+
+    if (tableName !== 'Expense' || !isObject(item)) return
+    const splits = valueFor(item, ['splits', 'expenseSplits'])
+    if (!Array.isArray(splits)) return
+    addRows(
+      collector,
+      'ExpenseSplit',
+      splits.map((split) =>
+        isObject(split)
+          ? {
+              ...split,
+              expenseId: valueFor(split, ['expenseId', 'expense_id']) ?? row.id,
+              groupId: valueFor(split, ['groupId', 'group_id']) ?? row.groupId,
+            }
+          : split
+      )
+    )
   })
 }
 
