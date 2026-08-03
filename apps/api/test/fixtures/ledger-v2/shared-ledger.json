@@ -1,0 +1,781 @@
+{
+  "fixtureId": "shared-ledger-v2-comprehensive",
+  "contractVersion": 2,
+  "kind": "shared_ledger_fixture",
+  "excludedLocalOnlyGroupIds": [
+    "local-only-001"
+  ],
+  "read": {
+    "contractVersion": 2,
+    "kind": "read",
+    "scope": {
+      "kind": "shared",
+      "accountId": "acct-alex-001",
+      "groupId": "grp-goa-001",
+      "localOnly": false
+    },
+    "revision": 7,
+    "readRevision": 7,
+    "pendingOperationIds": [
+      "op-expense-retry-001"
+    ],
+    "migration": {
+      "status": "complete",
+      "source": "cloudkit",
+      "migrationId": "migration-goa-001",
+      "importedAt": "2026-08-01T08:00:00.000Z",
+      "dualWriteEnabled": false,
+      "recoveryReadOnly": true
+    },
+    "stale": {
+      "isStale": false,
+      "reason": "none",
+      "observedAt": "2026-08-03T10:00:00.000Z",
+      "readRevision": 7,
+      "serverRevision": 7
+    },
+    "authority": {
+      "serverAuthoritative": true,
+      "source": "server",
+      "readModel": "server",
+      "ledger": "server",
+      "balances": "server",
+      "settlementPlan": "server",
+      "settlementHistory": "server",
+      "identity": "server",
+      "cacheRole": "offline-cache"
+    },
+    "data": {
+      "account": {
+        "accountId": "acct-alex-001",
+        "currentMemberId": "mem-alex-001",
+        "readRevision": 7,
+        "sharedGroups": [
+          {
+            "groupId": "grp-goa-001",
+            "name": "Goa Monsoon",
+            "baseCurrency": {
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "revision": 7,
+            "localOnly": false,
+            "balanceByCurrency": [
+              {
+                "minorUnits": "-4500",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              {
+                "minorUnits": "-500",
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              },
+              {
+                "minorUnits": "822",
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              }
+            ]
+          }
+        ],
+        "balance": {
+          "accountId": "acct-alex-001",
+          "memberId": "mem-alex-001",
+          "byCurrency": [
+            {
+              "minorUnits": "-4500",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            {
+              "minorUnits": "-500",
+              "currencyCode": "JPY",
+              "currencyExponent": 0
+            },
+            {
+              "minorUnits": "822",
+              "currencyCode": "KWD",
+              "currencyExponent": 3
+            }
+          ]
+        },
+        "pendingOperations": [
+          {
+            "operationId": "op-expense-retry-001",
+            "idempotencyKey": "idem-expense-retry-001",
+            "kind": "expense.create",
+            "expectedRevision": 7,
+            "status": "queued",
+            "createdAt": "2026-08-03T09:58:00.000Z",
+            "requestHash": "d3b4abdf0e8ed7f92d66c5c3e9e87c80b626515d3a6bb425f5f0f26fcbbc7af1"
+          }
+        ],
+        "migration": {
+          "status": "complete",
+          "source": "cloudkit",
+          "migrationId": "migration-goa-001",
+          "importedAt": "2026-08-01T08:00:00.000Z",
+          "dualWriteEnabled": false,
+          "recoveryReadOnly": true
+        },
+        "stale": {
+          "isStale": false,
+          "reason": "none",
+          "observedAt": "2026-08-03T10:00:00.000Z",
+          "readRevision": 7,
+          "serverRevision": 7
+        },
+        "authority": {
+          "serverAuthoritative": true,
+          "source": "server",
+          "readModel": "server",
+          "ledger": "server",
+          "balances": "server",
+          "settlementPlan": "server",
+          "settlementHistory": "server",
+          "identity": "server",
+          "cacheRole": "offline-cache"
+        }
+      },
+      "group": {
+        "groupId": "grp-goa-001",
+        "accountId": "acct-alex-001",
+        "name": "Goa Monsoon",
+        "baseCurrency": {
+          "currencyCode": "INR",
+          "currencyExponent": 2
+        },
+        "scope": "shared",
+        "localOnly": false,
+        "revision": 7,
+        "readRevision": 7,
+        "members": [
+          {
+            "memberId": "mem-alex-001",
+            "accountId": "acct-alex-001",
+            "localIdentityId": "swift-alex-001",
+            "displayName": "Alex Rao",
+            "email": "alex@example.test",
+            "role": "owner",
+            "status": "active"
+          },
+          {
+            "memberId": "mem-bea-001",
+            "accountId": "acct-bea-001",
+            "localIdentityId": "swift-bea-001",
+            "displayName": "Bea Sen",
+            "email": "bea@example.test",
+            "role": "member",
+            "status": "active"
+          },
+          {
+            "memberId": "mem-cleo-001",
+            "accountId": "acct-cleo-001",
+            "localIdentityId": null,
+            "displayName": "Cleo Das",
+            "email": null,
+            "role": "member",
+            "status": "active"
+          }
+        ],
+        "expenses": [
+          {
+            "expenseId": "exp-inr-equal-001",
+            "description": "Beach house",
+            "paidByMemberId": "mem-alex-001",
+            "amount": {
+              "minorUnits": "10000",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "splitMethod": "EQUAL",
+            "splits": [
+              {
+                "splitId": "split-inr-equal-alex",
+                "memberId": "mem-alex-001",
+                "amount": {
+                  "minorUnits": "5000",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                "percentage": null,
+                "shares": null
+              },
+              {
+                "splitId": "split-inr-equal-bea",
+                "memberId": "mem-bea-001",
+                "amount": {
+                  "minorUnits": "5000",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                "percentage": null,
+                "shares": null
+              }
+            ],
+            "status": "active",
+            "createdAt": "2026-07-20T10:00:00.000Z",
+            "updatedAt": "2026-07-20T10:00:00.000Z"
+          },
+          {
+            "expenseId": "exp-inr-exact-001",
+            "description": "Taxi and tolls",
+            "paidByMemberId": "mem-bea-001",
+            "amount": {
+              "minorUnits": "12345",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "splitMethod": "EXACT",
+            "splits": [
+              {
+                "splitId": "split-inr-exact-bea",
+                "memberId": "mem-bea-001",
+                "amount": {
+                  "minorUnits": "2345",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                "percentage": null,
+                "shares": null
+              },
+              {
+                "splitId": "split-inr-exact-alex",
+                "memberId": "mem-alex-001",
+                "amount": {
+                  "minorUnits": "10000",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                "percentage": null,
+                "shares": null
+              }
+            ],
+            "status": "active",
+            "createdAt": "2026-07-21T10:00:00.000Z",
+            "updatedAt": "2026-07-21T10:00:00.000Z"
+          },
+          {
+            "expenseId": "exp-jpy-percent-001",
+            "description": "Rail pass",
+            "paidByMemberId": "mem-cleo-001",
+            "amount": {
+              "minorUnits": "1000",
+              "currencyCode": "JPY",
+              "currencyExponent": 0
+            },
+            "splitMethod": "PERCENTAGE",
+            "splits": [
+              {
+                "splitId": "split-jpy-percent-alex",
+                "memberId": "mem-alex-001",
+                "amount": {
+                  "minorUnits": "500",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                "percentage": "50",
+                "shares": null
+              },
+              {
+                "splitId": "split-jpy-percent-cleo",
+                "memberId": "mem-cleo-001",
+                "amount": {
+                  "minorUnits": "500",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                "percentage": "50",
+                "shares": null
+              }
+            ],
+            "status": "active",
+            "createdAt": "2026-07-22T10:00:00.000Z",
+            "updatedAt": "2026-07-22T10:00:00.000Z"
+          },
+          {
+            "expenseId": "exp-kwd-shares-001",
+            "description": "Dhow dinner",
+            "paidByMemberId": "mem-alex-001",
+            "amount": {
+              "minorUnits": "1234",
+              "currencyCode": "KWD",
+              "currencyExponent": 3
+            },
+            "splitMethod": "SHARES",
+            "splits": [
+              {
+                "splitId": "split-kwd-shares-bea",
+                "memberId": "mem-bea-001",
+                "amount": {
+                  "minorUnits": "412",
+                  "currencyCode": "KWD",
+                  "currencyExponent": 3
+                },
+                "percentage": null,
+                "shares": 1
+              },
+              {
+                "splitId": "split-kwd-shares-cleo",
+                "memberId": "mem-cleo-001",
+                "amount": {
+                  "minorUnits": "822",
+                  "currencyCode": "KWD",
+                  "currencyExponent": 3
+                },
+                "percentage": null,
+                "shares": 2
+              }
+            ],
+            "status": "active",
+            "createdAt": "2026-07-23T10:00:00.000Z",
+            "updatedAt": "2026-07-23T10:00:00.000Z"
+          },
+          {
+            "expenseId": "exp-inr-negative-001",
+            "description": "Refund adjustment",
+            "paidByMemberId": "mem-cleo-001",
+            "amount": {
+              "minorUnits": "-500",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "splitMethod": "EXACT",
+            "splits": [
+              {
+                "splitId": "split-inr-negative-alex",
+                "memberId": "mem-alex-001",
+                "amount": {
+                  "minorUnits": "-500",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                "percentage": null,
+                "shares": null
+              }
+            ],
+            "status": "active",
+            "createdAt": "2026-07-24T10:00:00.000Z",
+            "updatedAt": "2026-07-24T10:00:00.000Z"
+          },
+          {
+            "expenseId": "exp-jpy-zero-001",
+            "description": "Complimentary ticket",
+            "paidByMemberId": "mem-bea-001",
+            "amount": {
+              "minorUnits": "0",
+              "currencyCode": "JPY",
+              "currencyExponent": 0
+            },
+            "splitMethod": "EQUAL",
+            "splits": [
+              {
+                "splitId": "split-jpy-zero-alex",
+                "memberId": "mem-alex-001",
+                "amount": {
+                  "minorUnits": "0",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                "percentage": null,
+                "shares": null
+              },
+              {
+                "splitId": "split-jpy-zero-bea",
+                "memberId": "mem-bea-001",
+                "amount": {
+                  "minorUnits": "0",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                "percentage": null,
+                "shares": null
+              }
+            ],
+            "status": "active",
+            "createdAt": "2026-07-25T10:00:00.000Z",
+            "updatedAt": "2026-07-25T10:00:00.000Z"
+          }
+        ],
+        "balances": {
+          "byMember": [
+            {
+              "memberId": "mem-alex-001",
+              "byCurrency": [
+                {
+                  "minorUnits": "-4500",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                {
+                  "minorUnits": "-500",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                {
+                  "minorUnits": "822",
+                  "currencyCode": "KWD",
+                  "currencyExponent": 3
+                }
+              ]
+            },
+            {
+              "memberId": "mem-bea-001",
+              "byCurrency": [
+                {
+                  "minorUnits": "5000",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                {
+                  "minorUnits": "0",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                {
+                  "minorUnits": "0",
+                  "currencyCode": "KWD",
+                  "currencyExponent": 3
+                }
+              ]
+            },
+            {
+              "memberId": "mem-cleo-001",
+              "byCurrency": [
+                {
+                  "minorUnits": "-500",
+                  "currencyCode": "INR",
+                  "currencyExponent": 2
+                },
+                {
+                  "minorUnits": "500",
+                  "currencyCode": "JPY",
+                  "currencyExponent": 0
+                },
+                {
+                  "minorUnits": "-822",
+                  "currencyCode": "KWD",
+                  "currencyExponent": 3
+                }
+              ]
+            }
+          ],
+          "byCurrency": [
+            {
+              "currency": {
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              "totalPositive": {
+                "minorUnits": "5000",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              "totalNegative": {
+                "minorUnits": "-5000",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              "net": {
+                "minorUnits": "0",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              }
+            },
+            {
+              "currency": {
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              },
+              "totalPositive": {
+                "minorUnits": "500",
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              },
+              "totalNegative": {
+                "minorUnits": "-500",
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              },
+              "net": {
+                "minorUnits": "0",
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              }
+            },
+            {
+              "currency": {
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              },
+              "totalPositive": {
+                "minorUnits": "822",
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              },
+              "totalNegative": {
+                "minorUnits": "-822",
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              },
+              "net": {
+                "minorUnits": "0",
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              }
+            }
+          ],
+          "currentAccount": {
+            "accountId": "acct-alex-001",
+            "memberId": "mem-alex-001",
+            "byCurrency": [
+              {
+                "minorUnits": "-4500",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              {
+                "minorUnits": "-500",
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              },
+              {
+                "minorUnits": "822",
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              }
+            ]
+          }
+        },
+        "settlementPlan": {
+          "revision": 7,
+          "mode": "SIMPLIFIED",
+          "transfers": [
+            {
+              "planTransferId": "plan-inr-alex-bea-4500",
+              "payerMemberId": "mem-alex-001",
+              "recipientMemberId": "mem-bea-001",
+              "amount": {
+                "minorUnits": "4500",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              "mode": "SIMPLIFIED",
+              "obligationComponentIds": [
+                "exp-inr-equal-001:split-inr-equal-bea",
+                "exp-inr-exact-001:split-inr-exact-alex"
+              ]
+            },
+            {
+              "planTransferId": "plan-inr-cleo-bea-500",
+              "payerMemberId": "mem-cleo-001",
+              "recipientMemberId": "mem-bea-001",
+              "amount": {
+                "minorUnits": "500",
+                "currencyCode": "INR",
+                "currencyExponent": 2
+              },
+              "mode": "SIMPLIFIED",
+              "obligationComponentIds": [
+                "exp-inr-negative-001:split-inr-negative-alex"
+              ]
+            },
+            {
+              "planTransferId": "plan-jpy-alex-cleo-500",
+              "payerMemberId": "mem-alex-001",
+              "recipientMemberId": "mem-cleo-001",
+              "amount": {
+                "minorUnits": "500",
+                "currencyCode": "JPY",
+                "currencyExponent": 0
+              },
+              "mode": "SIMPLIFIED",
+              "obligationComponentIds": [
+                "exp-jpy-percent-001:split-jpy-percent-alex"
+              ]
+            },
+            {
+              "planTransferId": "plan-kwd-cleo-alex-822",
+              "payerMemberId": "mem-cleo-001",
+              "recipientMemberId": "mem-alex-001",
+              "amount": {
+                "minorUnits": "822",
+                "currencyCode": "KWD",
+                "currencyExponent": 3
+              },
+              "mode": "SIMPLIFIED",
+              "obligationComponentIds": [
+                "exp-kwd-shares-001:split-kwd-shares-cleo"
+              ]
+            }
+          ]
+        },
+        "settlementHistory": [
+          {
+            "type": "settlement",
+            "settlementId": "set-inr-reversed-001",
+            "payerMemberId": "mem-alex-001",
+            "recipientMemberId": "mem-bea-001",
+            "amount": {
+              "minorUnits": "1000",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "status": "reversed",
+            "reversalId": "rev-inr-001",
+            "actorMemberId": "mem-alex-001",
+            "createdAt": "2026-07-30T10:00:00.000Z"
+          },
+          {
+            "type": "reversal",
+            "reversalId": "rev-inr-001",
+            "settlementId": "set-inr-reversed-001",
+            "amount": {
+              "minorUnits": "1000",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "actorMemberId": "mem-alex-001",
+            "createdAt": "2026-07-30T10:05:00.000Z"
+          },
+          {
+            "type": "settlement",
+            "settlementId": "set-kwd-active-001",
+            "payerMemberId": "mem-bea-001",
+            "recipientMemberId": "mem-alex-001",
+            "amount": {
+              "minorUnits": "412",
+              "currencyCode": "KWD",
+              "currencyExponent": 3
+            },
+            "status": "active",
+            "reversalId": null,
+            "actorMemberId": "mem-bea-001",
+            "createdAt": "2026-07-31T10:00:00.000Z"
+          }
+        ],
+        "activity": [
+          {
+            "activityId": "activity-exp-inr-equal-001",
+            "type": "expense",
+            "expenseId": "exp-inr-equal-001",
+            "amount": {
+              "minorUnits": "10000",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "at": "2026-07-20T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-exp-inr-exact-001",
+            "type": "expense",
+            "expenseId": "exp-inr-exact-001",
+            "amount": {
+              "minorUnits": "12345",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "at": "2026-07-21T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-exp-jpy-percent-001",
+            "type": "expense",
+            "expenseId": "exp-jpy-percent-001",
+            "amount": {
+              "minorUnits": "1000",
+              "currencyCode": "JPY",
+              "currencyExponent": 0
+            },
+            "at": "2026-07-22T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-exp-kwd-shares-001",
+            "type": "expense",
+            "expenseId": "exp-kwd-shares-001",
+            "amount": {
+              "minorUnits": "1234",
+              "currencyCode": "KWD",
+              "currencyExponent": 3
+            },
+            "at": "2026-07-23T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-exp-inr-negative-001",
+            "type": "expense",
+            "expenseId": "exp-inr-negative-001",
+            "amount": {
+              "minorUnits": "-500",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "at": "2026-07-24T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-exp-jpy-zero-001",
+            "type": "expense",
+            "expenseId": "exp-jpy-zero-001",
+            "amount": {
+              "minorUnits": "0",
+              "currencyCode": "JPY",
+              "currencyExponent": 0
+            },
+            "at": "2026-07-25T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-set-kwd-active-001",
+            "type": "settlement",
+            "settlementId": "set-kwd-active-001",
+            "amount": {
+              "minorUnits": "412",
+              "currencyCode": "KWD",
+              "currencyExponent": 3
+            },
+            "at": "2026-07-31T10:00:00.000Z"
+          },
+          {
+            "activityId": "activity-rev-inr-001",
+            "type": "reversal",
+            "reversalId": "rev-inr-001",
+            "settlementId": "set-inr-reversed-001",
+            "amount": {
+              "minorUnits": "1000",
+              "currencyCode": "INR",
+              "currencyExponent": 2
+            },
+            "at": "2026-07-30T10:05:00.000Z"
+          }
+        ],
+        "pendingOperationIds": [
+          "op-expense-retry-001"
+        ],
+        "migration": {
+          "status": "complete",
+          "source": "cloudkit",
+          "migrationId": "migration-goa-001",
+          "importedAt": "2026-08-01T08:00:00.000Z",
+          "dualWriteEnabled": false,
+          "recoveryReadOnly": true
+        },
+        "stale": {
+          "isStale": false,
+          "reason": "none",
+          "observedAt": "2026-08-03T10:00:00.000Z",
+          "readRevision": 7,
+          "serverRevision": 7
+        },
+        "authority": {
+          "serverAuthoritative": true,
+          "source": "server",
+          "readModel": "server",
+          "ledger": "server",
+          "balances": "server",
+          "settlementPlan": "server",
+          "settlementHistory": "server",
+          "identity": "server",
+          "cacheRole": "offline-cache"
+        }
+      }
+    }
+  }
+}
