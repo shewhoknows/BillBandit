@@ -355,6 +355,7 @@ struct OnboardingScreen: View {
                     name: fullName,
                     email: credential.email
                 )
+                ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
                 deferNextAppleCredentialStateCheck = true
                 appleUserIdentifier = credential.user
                 if let email = credential.email { applePrivateEmail = email }
@@ -407,6 +408,7 @@ struct HomeScreen: View {
     @Query(sort: \ActivityItem.timestamp, order: .reverse) private var activity: [ActivityItem]
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAddGroup = false
     @State private var showMotionLab = false
 
@@ -421,20 +423,39 @@ struct HomeScreen: View {
         _showMotionLab = State(initialValue: ProcessInfo.processInfo.arguments.contains("-showMotionLab"))
     }
 
-    private var groupNets: [(Group, Decimal)] {
+    private var sharedGroups: [Group] {
+        groups.filter { $0.serverLedgerGroupID != nil }
+    }
+
+    private var localGroups: [Group] {
+        groups.filter { $0.serverLedgerGroupID == nil }
+    }
+
+    private var localGroupNets: [(Group, Decimal)] {
         guard let me = currentUsers.first else { return [] }
-        return groups.map { ($0, BalanceMath.nets(in: $0)[me.id] ?? 0) }
+        return localGroups.map { ($0, BalanceMath.nets(in: $0)[me.id] ?? 0) }
     }
 
-    private var owed: Decimal {
-        Money.cents(groupNets.reduce(0) { $0 + max($1.1, 0) })
+    private var localOwed: Decimal {
+        Money.cents(localGroupNets.reduce(0) { $0 + max($1.1, 0) })
     }
 
-    private var owe: Decimal {
-        Money.cents(groupNets.reduce(0) { $0 + max(-$1.1, 0) })
+    private var localOwe: Decimal {
+        Money.cents(localGroupNets.reduce(0) { $0 + max(-$1.1, 0) })
     }
 
-    private var net: Decimal { Money.cents(owed - owe) }
+    private var localNet: Decimal { Money.cents(localOwed - localOwe) }
+
+    private var localActivity: [ActivityItem] {
+        activity.filter { item in
+            guard let groupID = item.groupID else { return true }
+            return groups.first(where: { $0.id == groupID })?.serverLedgerGroupID == nil
+        }
+    }
+
+    private var sharedActivity: [ServerLedgerSurfaceActivityItem] {
+        serverLedger.snapshot?.activity ?? []
+    }
 
     var body: some View {
         NavigationStack {
@@ -455,6 +476,9 @@ struct HomeScreen: View {
             }
             .navigationDestination(for: Group.self) { group in
                 GroupDetailScreen(group: group)
+            }
+            .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+                await serverLedger.refresh(groups: groups)
             }
         }
     }
@@ -512,24 +536,49 @@ struct HomeScreen: View {
     }
 
     private var balanceHeader: some View {
-        VStack(alignment: .center, spacing: 5) {
-            Text((net >= 0 ? "you're owed overall" : "you owe overall") + "\u{00A0}")
-                .font(BrandFont.hand(20, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .allowsTightening(true)
-                .fixedSize(horizontal: true, vertical: true)
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity, alignment: .center)
-            AnimatedCurrencyText(amount: abs(net), font: BrandFont.display(43, weight: .bold))
-            Squiggle()
-                .stroke(Color.Brand.creamSoft, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                .frame(width: 122, height: 12)
-            HStack(spacing: 8) {
-                BalancePill(text: "you owe \(Money.currency(owe))", filled: false,
-                            onDark: true, animationValue: owe)
-                BalancePill(text: "owed \(Money.currency(owed))", filled: false,
-                            onDark: true, animationValue: owed)
+        VStack(spacing: 16) {
+            if !sharedGroups.isEmpty {
+                VStack(alignment: .center, spacing: 7) {
+                    Text("shared ledger")
+                        .font(BrandFont.hand(20, weight: .semibold))
+                    if let presentation = serverLedger.accountBalancePresentation() {
+                        ServerLedgerBalanceChip(presentation: presentation)
+                    } else {
+                        Text(serverLedger.status.label)
+                            .font(BrandFont.type(11, bold: true))
+                            .multilineTextAlignment(.center)
+                            .opacity(0.78)
+                    }
+                    ServerLedgerSurfaceStatusView(ledger: serverLedger)
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            if !localGroups.isEmpty {
+                VStack(alignment: .center, spacing: 5) {
+                    Text("on-device ledger")
+                        .font(BrandFont.hand(19, weight: .semibold))
+                    Text(localNet >= 0 ? "you're owed overall" : "you owe overall")
+                        .font(BrandFont.type(11, bold: true))
+                        .opacity(0.86)
+                    AnimatedCurrencyText(amount: abs(localNet), font: BrandFont.display(39, weight: .bold))
+                    Squiggle()
+                        .stroke(Color.Brand.creamSoft, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .frame(width: 112, height: 10)
+                    HStack(spacing: 8) {
+                        BalancePill(text: "you owe \(Money.currency(localOwe))", filled: false,
+                                    onDark: true, animationValue: localOwe)
+                        BalancePill(text: "owed \(Money.currency(localOwed))", filled: false,
+                                    onDark: true, animationValue: localOwed)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            if groups.isEmpty {
+                Text("no groups yet")
+                    .font(BrandFont.hand(20, weight: .semibold))
+                    .opacity(0.75)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -553,33 +602,79 @@ struct HomeScreen: View {
             .foregroundStyle(Color.Brand.creamSoft)
             .padding(.top, 15)
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
-                ForEach(groupNets.prefix(3), id: \.0.id) { group, net in
-                    NavigationLink(value: group) {
-                        GroupCard(group: group, net: net)
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.92).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-                }
-                Button { showAddGroup = true } label: {
-                    VStack(spacing: 8) {
-                        BrandIconView(icon: .plus, size: 23)
-                        Text("New group")
-                            .font(BrandFont.display(13, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.Brand.creamSoft)
-                    .frame(maxWidth: .infinity, minHeight: 112)
-                    .background(RoundedRectangle(cornerRadius: 14).stroke(
-                        Color.Brand.creamSoft.opacity(0.65),
-                        style: StrokeStyle(lineWidth: 1.8, dash: [6, 5])
-                    ))
-                }
+            if !sharedGroups.isEmpty {
+                Text("shared groups")
+                    .font(BrandFont.type(10, bold: true))
+                    .foregroundStyle(Color.Brand.creamSoft.opacity(0.68))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                groupCards(for: sharedGroups)
             }
-            .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: groups.map(\.id))
+            if !localGroups.isEmpty {
+                Text("on-device groups")
+                    .font(BrandFont.type(10, bold: true))
+                    .foregroundStyle(Color.Brand.creamSoft.opacity(0.68))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                groupCards(for: localGroups)
+            }
+            if groups.isEmpty || (sharedGroups.count < 3 && localGroups.count < 3) {
+                newGroupButton
+            }
         }
+    }
+
+    @ViewBuilder
+    private func groupCards(for sourceGroups: [Group]) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+            ForEach(sourceGroups.prefix(3), id: \.id) { group in
+                groupCard(for: group)
+            }
+        }
+        .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: sourceGroups.map(\.id))
+    }
+
+    private var newGroupButton: some View {
+        Button { showAddGroup = true } label: {
+            VStack(spacing: 8) {
+                BrandIconView(icon: .plus, size: 23)
+                Text("New group")
+                    .font(BrandFont.display(13, weight: .semibold))
+            }
+            .foregroundStyle(Color.Brand.creamSoft)
+            .frame(maxWidth: .infinity, minHeight: 112)
+            .background(RoundedRectangle(cornerRadius: 14).stroke(
+                Color.Brand.creamSoft.opacity(0.65),
+                style: StrokeStyle(lineWidth: 1.8, dash: [6, 5])
+            ))
+        }
+    }
+
+    @ViewBuilder
+    private func groupCard(for group: Group) -> some View {
+        let serverGroupID = group.serverLedgerGroupID
+        let canonicalGroup = serverGroupID.flatMap { serverLedger.snapshot?.group(for: $0) }
+        let presentation = serverGroupID.flatMap { serverLedger.groupBalancePresentation(for: $0) }
+        let localNet: Decimal?
+        if serverGroupID == nil {
+            localNet = currentUsers.first.map { BalanceMath.nets(in: group)[$0.id] ?? 0 }
+        } else {
+            localNet = nil
+        }
+        NavigationLink(value: group) {
+            GroupCard(
+                group: group,
+                balanceText: presentation?.label ?? (serverGroupID == nil
+                    ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0))" : "owe \(Money.currency(-$0))" }
+                    : nil),
+                balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
+                sourceLabel: canonicalGroup.map { "shared · read rev \($0.readRevision)" }
+                    ?? (serverGroupID == nil ? "on this device" : "shared balance pending")
+            )
+        }
+        .buttonStyle(.plain)
+        .transition(.asymmetric(
+            insertion: .scale(scale: 0.92).combined(with: .opacity),
+            removal: .opacity
+        ))
     }
 
     private var recentActivity: some View {
@@ -588,15 +683,41 @@ struct HomeScreen: View {
                 Text("Recent activity")
                     .font(BrandFont.display(14, weight: .semibold))
                     .padding(.bottom, 4)
-                if activity.isEmpty {
+                if !sharedGroups.isEmpty {
+                    Text("shared ledger")
+                        .font(BrandFont.type(9, bold: true))
+                        .opacity(0.58)
+                        .padding(.top, 4)
+                    if sharedActivity.isEmpty {
+                        if serverLedger.snapshot == nil {
+                            ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                                .padding(.vertical, 7)
+                        } else {
+                            Text("No shared activity yet")
+                                .font(BrandFont.type(11))
+                                .opacity(0.55)
+                                .padding(.vertical, 8)
+                        }
+                    } else {
+                        ForEach(Array(sharedActivity.prefix(3))) { item in
+                            ServerLedgerActivityRow(item: item, compact: true)
+                        }
+                    }
+                }
+                if !localActivity.isEmpty {
+                    Text("on-device activity")
+                        .font(BrandFont.type(9, bold: true))
+                        .opacity(0.58)
+                        .padding(.top, 7)
+                    ForEach(Array(localActivity.prefix(3))) { item in
+                        ActivityLedgerRow(item: item, compact: true)
+                    }
+                }
+                if sharedGroups.isEmpty && localActivity.isEmpty {
                     Text("No sightings yet")
                         .font(BrandFont.type(11))
                         .opacity(0.55)
                         .padding(.vertical, 12)
-                } else {
-                    ForEach(Array(activity.prefix(3))) { item in
-                        ActivityLedgerRow(item: item, compact: true)
-                    }
                 }
             }
             .foregroundStyle(Color.Brand.cobalt)
@@ -720,6 +841,7 @@ struct ProfileScreen: View {
     @Query private var achievementUnlocks: [AchievementUnlock]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
@@ -753,6 +875,14 @@ struct ProfileScreen: View {
 
     private var progressEnabled: Bool { currentProgress?.isEnabled ?? true }
     private var lifetimeXP: Int { currentProgress?.lifetimeXP ?? 0 }
+
+    private var sharedGroups: [Group] {
+        groups.filter { $0.serverLedgerGroupID != nil }
+    }
+
+    private var localGroups: [Group] {
+        groups.filter { $0.serverLedgerGroupID == nil }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -834,6 +964,9 @@ struct ProfileScreen: View {
                         gamificationSection
                         ProfileFriendsSection()
                     }
+                    if !sharedGroups.isEmpty {
+                        sharedLedgerSection
+                    }
                     appleAccountSection
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -855,11 +988,40 @@ struct ProfileScreen: View {
             loadCurrentProfileIfNeeded()
         }
         .onChange(of: currentUsers.count) { loadCurrentProfileIfNeeded() }
+        .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+            await serverLedger.refresh(groups: groups)
+        }
         .alert("Sign out of BillBandit?", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { signOut() }
         } message: {
             Text("You will need to sign in with Apple again before using the app.")
+        }
+    }
+
+    private var sharedLedgerSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            BrandSectionLabel("SHARED LEDGER")
+            if let presentation = serverLedger.accountBalancePresentation(),
+               let revision = serverLedger.snapshot?.readRevision {
+                profileRow(
+                    leading: "↗",
+                    title: presentation.label,
+                    detail: "read revision \(revision)"
+                )
+                ServerLedgerSurfaceStatusView(ledger: serverLedger, onLight: true)
+            } else {
+                HStack(spacing: 9) {
+                    ServerLedgerUnavailableChip(onLight: true)
+                    Spacer(minLength: 0)
+                }
+                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true)
+            }
+            if !localGroups.isEmpty {
+                Text("On-device-only groups remain separate from the shared ledger.")
+                    .font(BrandFont.type(9.5, bold: true))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+            }
         }
     }
 
@@ -1193,6 +1355,7 @@ struct ProfileScreen: View {
                     name: fullName,
                     email: credential.email
                 )
+                ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
                 deferNextAppleCredentialStateCheck = true
                 appleUserIdentifier = credential.user
                 accountOnboardingComplete = true
@@ -1229,6 +1392,7 @@ struct ProfileScreen: View {
     }
 
     private func signOut() {
+        ServerLedgerSurfaceStore.shared.accountDidSignOut()
         for person in currentUsers where person.appleUserIdentifier == appleUserIdentifier {
             person.appleSessionStateRaw = "userSignedOut"
         }
@@ -1752,7 +1916,9 @@ private struct MotionPrototypeStage: View {
 
 private struct GroupCard: View {
     let group: Group
-    let net: Decimal
+    let balanceText: String?
+    let balanceIsPositive: Bool
+    let sourceLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1765,11 +1931,17 @@ private struct GroupCard: View {
                 .font(BrandFont.display(13.5, weight: .semibold))
                 .lineLimit(2)
             Spacer(minLength: 2)
-            BalancePill(
-                text: net >= 0 ? "owed \(Money.currency(net))" : "owe \(Money.currency(-net))",
-                filled: net >= 0,
-                animationValue: abs(net)
-            )
+            if let balanceText {
+                BalancePill(
+                    text: balanceText,
+                    filled: balanceIsPositive
+                )
+            } else {
+                ServerLedgerUnavailableChip(onLight: true)
+            }
+            Text(sourceLabel)
+                .font(BrandFont.type(8.5, bold: true))
+                .opacity(0.56)
         }
         .foregroundStyle(Color.Brand.cobalt)
         .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
@@ -1778,11 +1950,59 @@ private struct GroupCard: View {
     }
 }
 
+struct ServerLedgerActivityRow: View {
+    let item: ServerLedgerSurfaceActivityItem
+    var compact = false
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Circle()
+                .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
+                .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(item.type) in \(item.groupName)")
+                    .font(BrandFont.type(compact ? 10.5 : 12, bold: true))
+                    .lineLimit(compact ? 1 : 2)
+                if !compact {
+                    Text(item.at.formatted(date: .omitted, time: .shortened))
+                        .font(BrandFont.type(9))
+                        .opacity(0.55)
+                }
+            }
+            Spacer(minLength: 4)
+            Text(item.amount.absoluteDisplayText)
+                .font(BrandFont.type(compact ? 9.5 : 10.5, bold: true))
+                .lineLimit(1)
+        }
+        .padding(.vertical, compact ? 6 : 10)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill((compact ? Color.Brand.cobalt : Color.Brand.creamSoft).opacity(0.14)).frame(height: 1)
+        }
+    }
+}
+
 struct ActivityScreen: View {
     @Query(sort: \ActivityItem.timestamp, order: .reverse) private var items: [ActivityItem]
+    @Query private var groups: [Group]
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
 
-    private var sections: [ActivitySection] {
-        ActivitySectioning.sections(from: items)
+    private var sharedGroups: [Group] {
+        groups.filter { $0.serverLedgerGroupID != nil }
+    }
+
+    private var localItems: [ActivityItem] {
+        items.filter { item in
+            guard let groupID = item.groupID else { return true }
+            return groups.first(where: { $0.id == groupID })?.serverLedgerGroupID == nil
+        }
+    }
+
+    private var localSections: [ActivitySection] {
+        ActivitySectioning.sections(from: localItems)
+    }
+
+    private var sharedItems: [ServerLedgerSurfaceActivityItem] {
+        serverLedger.snapshot?.activity ?? []
     }
 
     var body: some View {
@@ -1792,16 +2012,31 @@ struct ActivityScreen: View {
                     Text("recent activity")
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
-                    if items.isEmpty {
-                        VStack(spacing: 10) {
-                            MascotView(mascot: .neutral, size: 160)
-                            Text("nothing in the ledger yet")
-                                .font(BrandFont.hand(22, weight: .bold))
+                    if !sharedGroups.isEmpty {
+                        Text("shared ledger")
+                            .font(BrandFont.type(10, bold: true))
+                            .opacity(0.68)
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger)
+                        if sharedItems.isEmpty {
+                            if serverLedger.snapshot == nil {
+                                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                            } else {
+                                Text("no shared activity yet")
+                                    .font(BrandFont.type(11))
+                                    .opacity(0.62)
+                            }
+                        } else {
+                            ForEach(Array(sharedItems.prefix(20))) { item in
+                                ServerLedgerActivityRow(item: item)
+                            }
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 80)
-                    } else {
-                        ForEach(sections) { section in
+                    }
+                    if !localItems.isEmpty {
+                        Text("on-device activity")
+                            .font(BrandFont.type(10, bold: true))
+                            .opacity(0.68)
+                            .padding(.top, 8)
+                        ForEach(localSections) { section in
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(section.date.map(dayLabel) ?? "Earlier activity")
                                     .font(BrandFont.display(13, weight: .bold))
@@ -1810,6 +2045,15 @@ struct ActivityScreen: View {
                             }
                         }
                     }
+                    if sharedGroups.isEmpty && localItems.isEmpty {
+                        VStack(spacing: 10) {
+                            MascotView(mascot: .neutral, size: 160)
+                            Text("nothing in the ledger yet")
+                                .font(BrandFont.hand(22, weight: .bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 80)
+                    }
                 }
                 .foregroundStyle(Color.Brand.creamSoft)
                 .padding(.horizontal, 18)
@@ -1817,6 +2061,9 @@ struct ActivityScreen: View {
             }
             .background(Color.Brand.cobalt)
             .navigationTitle("Activity")
+            .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+                await serverLedger.refresh(groups: groups)
+            }
         }
     }
 

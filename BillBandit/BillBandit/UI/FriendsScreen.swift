@@ -9,7 +9,9 @@ struct FriendsScreen: View {
     @Query(sort: \Person.name) private var people: [Person]
     @Query private var expenses: [Expense]
     @Query private var settlements: [Settlement]
+    @Query private var groups: [Group]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAdd = false
 
     init() {
@@ -21,14 +23,49 @@ struct FriendsScreen: View {
     }
 
     /// Pairwise you↔friend balances (positive = they owe you).
-    private var nets: [UUID: Decimal] {
+    private var localNets: [UUID: Decimal] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
-        return BalanceMath.pairwiseNets(you: you, expenses: expenses, settlements: settlements)
+        let localExpenses = expenses.filter { $0.group?.serverLedgerGroupID == nil }
+        let localSettlements = settlements.filter { $0.group?.serverLedgerGroupID == nil }
+        return BalanceMath.pairwiseNets(you: you, expenses: localExpenses, settlements: localSettlements)
+    }
+
+    private var localFriendIDs: Set<UUID> {
+        guard let you = people.first(where: { $0.isCurrentUser }) else { return [] }
+        var ids = Set<UUID>()
+        for expense in expenses where expense.group?.serverLedgerGroupID == nil {
+            if let paidBy = expense.paidBy, paidBy.id != you.id { ids.insert(paidBy.id) }
+            for split in expense.splits {
+                if let person = split.person, person.id != you.id { ids.insert(person.id) }
+            }
+        }
+        for settlement in settlements where settlement.group?.serverLedgerGroupID == nil {
+            if let from = settlement.from, from.id != you.id { ids.insert(from.id) }
+            if let to = settlement.to, to.id != you.id { ids.insert(to.id) }
+        }
+        return ids
+    }
+
+    private func usesSharedLedger(_ friend: Person) -> Bool {
+        groups.contains { group in
+            group.serverLedgerGroupID != nil && group.members.contains { $0.id == friend.id }
+        } || serverLedger.hasCanonicalMembership(for: friend.id)
     }
 
     var body: some View {
         NavigationStack {
             List {
+                if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("canonical shared balances")
+                            .font(BrandFont.type(9, bold: true))
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                    }
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    .padding(.vertical, 5)
+                    .listRowBackground(Color.Brand.cobalt)
+                    .listRowSeparator(.hidden)
+                }
                 if friends.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .greeting, size: 145)
@@ -57,7 +94,7 @@ struct FriendsScreen: View {
                             .font(BrandFont.display(13.5))
                             .foregroundStyle(Color.Brand.creamSoft)
                         Spacer()
-                        NetChip(net: nets[friend.id] ?? 0, style: .friend)
+                        friendBalance(for: friend)
                     }
                     .listRowBackground(Color.Brand.cobalt)
                     .listRowSeparator(.hidden)
@@ -78,6 +115,32 @@ struct FriendsScreen: View {
                 }
             }
             .fullScreenCover(isPresented: $showAdd) { FriendInvitationSheet() }
+            .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+                await serverLedger.refresh(groups: groups)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func friendBalance(for friend: Person) -> some View {
+        if usesSharedLedger(friend) {
+            VStack(alignment: .trailing, spacing: 3) {
+                if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
+                    ServerLedgerBalanceChip(presentation: presentation)
+                } else {
+                    ServerLedgerUnavailableChip()
+                }
+                if localFriendIDs.contains(friend.id) {
+                    HStack(spacing: 4) {
+                        Text("on-device")
+                            .font(BrandFont.type(8, bold: true))
+                            .opacity(0.62)
+                        NetChip(net: localNets[friend.id] ?? 0, style: .friend)
+                    }
+                }
+            }
+        } else {
+            NetChip(net: localNets[friend.id] ?? 0, style: .friend)
         }
     }
 }
@@ -88,7 +151,9 @@ struct ProfileFriendsSection: View {
     @Query(sort: \Person.name) private var people: [Person]
     @Query private var expenses: [Expense]
     @Query private var settlements: [Settlement]
+    @Query private var groups: [Group]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAdd: Bool
 
     init() {
@@ -99,9 +164,33 @@ struct ProfileFriendsSection: View {
         ConnectedFriendIdentity.actualFriends(from: people)
     }
 
-    private var nets: [UUID: Decimal] {
+    private var localNets: [UUID: Decimal] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
-        return BalanceMath.pairwiseNets(you: you, expenses: expenses, settlements: settlements)
+        let localExpenses = expenses.filter { $0.group?.serverLedgerGroupID == nil }
+        let localSettlements = settlements.filter { $0.group?.serverLedgerGroupID == nil }
+        return BalanceMath.pairwiseNets(you: you, expenses: localExpenses, settlements: localSettlements)
+    }
+
+    private var localFriendIDs: Set<UUID> {
+        guard let you = people.first(where: { $0.isCurrentUser }) else { return [] }
+        var ids = Set<UUID>()
+        for expense in expenses where expense.group?.serverLedgerGroupID == nil {
+            if let paidBy = expense.paidBy, paidBy.id != you.id { ids.insert(paidBy.id) }
+            for split in expense.splits {
+                if let person = split.person, person.id != you.id { ids.insert(person.id) }
+            }
+        }
+        for settlement in settlements where settlement.group?.serverLedgerGroupID == nil {
+            if let from = settlement.from, from.id != you.id { ids.insert(from.id) }
+            if let to = settlement.to, to.id != you.id { ids.insert(to.id) }
+        }
+        return ids
+    }
+
+    private func usesSharedLedger(_ friend: Person) -> Bool {
+        groups.contains { group in
+            group.serverLedgerGroupID != nil && group.members.contains { $0.id == friend.id }
+        } || serverLedger.hasCanonicalMembership(for: friend.id)
     }
 
     var body: some View {
@@ -128,6 +217,10 @@ struct ProfileFriendsSection: View {
                 .accessibilityIdentifier("profileAddFriendButton")
             }
 
+            if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
+                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true)
+            }
+
             if friends.isEmpty {
                 VStack(spacing: 6) {
                     MascotView(mascot: .greeting, size: 94)
@@ -152,7 +245,7 @@ struct ProfileFriendsSection: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
                         Spacer(minLength: 5)
-                        NetChip(net: nets[friend.id] ?? 0, style: .friend, onLight: true)
+                        friendBalance(for: friend)
                     }
                     .padding(.horizontal, 12)
                     .frame(height: 62)
@@ -170,6 +263,32 @@ struct ProfileFriendsSection: View {
         .task {
             await FriendInvitationService.shared.refreshAcceptedInvites()
             await CloudCollaborationService.shared.refreshFriendProfiles()
+        }
+        .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+            await serverLedger.refresh(groups: groups)
+        }
+    }
+
+    @ViewBuilder
+    private func friendBalance(for friend: Person) -> some View {
+        if usesSharedLedger(friend) {
+            VStack(alignment: .trailing, spacing: 3) {
+                if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
+                    ServerLedgerBalanceChip(presentation: presentation, onLight: true)
+                } else {
+                    ServerLedgerUnavailableChip(onLight: true)
+                }
+                if localFriendIDs.contains(friend.id) {
+                    HStack(spacing: 4) {
+                        Text("on-device")
+                            .font(BrandFont.type(8, bold: true))
+                            .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+                        NetChip(net: localNets[friend.id] ?? 0, style: .friend, onLight: true)
+                    }
+                }
+            }
+        } else {
+            NetChip(net: localNets[friend.id] ?? 0, style: .friend, onLight: true)
         }
     }
 }

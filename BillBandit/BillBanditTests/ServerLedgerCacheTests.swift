@@ -231,6 +231,115 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertEqual(sync.activeAccountID, "account-b")
     }
 
+    func testSurfaceProjectionRequiresOneCanonicalReadRevision() throws {
+        let owed = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "900", currencyCode: "INR", currencyExponent: 2)
+        )
+        let owe = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "-100", currencyCode: "INR", currencyExponent: 2)
+        )
+        let first = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-a",
+            accountID: "account-a",
+            name: "A",
+            readRevision: 12,
+            currentMemberID: "member-a",
+            currentAccount: [owed]
+        )
+        let second = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-b",
+            accountID: "account-a",
+            name: "B",
+            readRevision: 12,
+            currentMemberID: "member-a",
+            currentAccount: [owe]
+        )
+
+        guard case let .ready(snapshot) = ServerLedgerSurfaceProjection.project(
+            accountID: "account-a",
+            groups: [first, second]
+        ) else {
+            return XCTFail("Groups with one canonical revision should project")
+        }
+        XCTAssertEqual(snapshot.readRevision, 12)
+        XCTAssertEqual(snapshot.balanceByCurrency.first?.minorUnits, "800")
+        XCTAssertTrue(ServerLedgerSurfaceStatus(phase: .ready, readRevision: 12).label.contains("12"))
+
+        let inconsistent = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-c",
+            accountID: "account-a",
+            name: "C",
+            readRevision: 13,
+            currentMemberID: "member-a",
+            currentAccount: [owed]
+        )
+        guard case let .inconsistent(revisions) = ServerLedgerSurfaceProjection.project(
+            accountID: "account-a",
+            groups: [first, inconsistent]
+        ) else {
+            return XCTFail("Different read revisions must not be blended")
+        }
+        XCTAssertEqual(revisions, Set([12, 13]))
+    }
+
+    func testSurfaceScopePolicySeparatesLocalOnlyAndSharedGroups() {
+        XCTAssertEqual(ServerLedgerSurfaceScopePolicy.kind(serverGroupID: nil), .localOnly)
+        XCTAssertEqual(ServerLedgerSurfaceScopePolicy.kind(serverGroupID: " server-group "), .shared)
+        XCTAssertNil(ServerLedgerSurfaceScopePolicy.normalizedServerGroupID("  "))
+
+        let localGroup = Group(name: "local")
+        let sharedGroup = Group(name: "shared", serverGroupId: "server-group")
+        XCTAssertNil(localGroup.serverLedgerGroupID)
+        XCTAssertEqual(sharedGroup.serverLedgerGroupID, "server-group")
+    }
+
+    func testSurfaceSnapshotCannotCrossAccountOrGroupScopes() throws {
+        let snapshot = ServerLedgerSnapshot(
+            accountID: "account-a",
+            groupID: "group-a",
+            revision: 7,
+            payload: Data("canonical-a".utf8)
+        )
+
+        XCTAssertTrue(
+            ServerLedgerSurfaceScopePolicy.accepts(
+                snapshot: snapshot,
+                accountID: "account-a",
+                groupID: "group-a"
+            )
+        )
+        XCTAssertFalse(
+            ServerLedgerSurfaceScopePolicy.accepts(
+                snapshot: snapshot,
+                accountID: "account-b",
+                groupID: "group-a"
+            )
+        )
+        XCTAssertFalse(
+            ServerLedgerSurfaceScopePolicy.accepts(
+                snapshot: snapshot,
+                accountID: "account-a",
+                groupID: "group-b"
+            )
+        )
+
+        let groupForOtherAccount = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-b",
+            accountID: "account-b",
+            name: "B",
+            readRevision: 7,
+            currentMemberID: "member-b",
+            currentAccount: []
+        )
+        XCTAssertEqual(
+            ServerLedgerSurfaceProjection.project(
+                accountID: "account-a",
+                groups: [groupForOtherAccount]
+            ),
+            .invalidScope
+        )
+    }
+
     private func makeStore() throws -> ServerLedgerStore {
         let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
         let configuration = ModelConfiguration(
