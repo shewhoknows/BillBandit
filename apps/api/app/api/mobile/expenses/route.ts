@@ -1,18 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { createExpenseSchema } from '@/lib/validations-mobile-ledger'
 import { requireMobileSession } from '@/lib/mobile-auth'
-import { mobileExpense } from '@/lib/mobile-dto'
+import { loadAccountReadModel, loadGroupReadModel } from '@/lib/ledger/read-model/loader'
+import { executeMutation } from '@/lib/ledger/mutation'
+import { mobileExpenseV2Schema } from '@/lib/validations-mobile-ledger'
 import {
-  assertGroupExpenseAccess,
-  buildExpenseSplitCreates,
-  expenseInclude,
+  canonicalGroupIsReadOnly,
+  findLedgerExpense,
+  mobileExpenseFromLedger,
+  readModelErrorResponse,
+} from '@/lib/mobile-groups'
+import { legacyAmount } from '@/lib/mobile-dto'
+import {
   formatCurrency,
-  roundAmount,
-  validateExpenseMembers,
-  validateSplitTotal,
+  legacySharedLedgerWriteResponse,
+  migrationReadOnlyResponse,
+  mutationErrorResponse,
+  readMutationMetadata,
+  toKernelExpensePayload,
 } from '@/lib/mobile-expenses'
-import { dualWriteExpenseAmount, onGroupExpenseMutation } from '@/lib/settlement/version/sources'
+
+function finiteLimit(value: string | null): number {
+  const parsed = Number.parseInt(value ?? '50', 10)
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 50
+}
 
 export async function GET(req: NextRequest) {
   const { session, response } = await requireMobileSession(req)
@@ -20,105 +31,116 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const groupId = searchParams.get('groupId')
-  const limit = parseInt(searchParams.get('limit') ?? '50')
+  const limit = finiteLimit(searchParams.get('limit'))
 
-  const where: {
-    isDeleted: boolean
-    OR?: Array<
-      | { paidById: string }
-      | { splits: { some: { userId: string } } }
-    >
-    groupId?: string
-  } = {
-    isDeleted: false,
-    OR: [
-      { paidById: session.user.id },
-      { splits: { some: { userId: session.user.id } } },
-    ],
-  }
+  try {
+    const models = groupId
+      ? [(await loadGroupReadModel(groupId, session.user.id)).group]
+      : (await loadAccountReadModel(session.user.id)).groups.map((projection) => projection.model)
 
-  if (groupId) {
-    const membership = await prisma.groupMember.findUnique({
-      where: { groupId_userId: { groupId, userId: session.user.id } },
+    const expenses = models.flatMap((model) => {
+      const currentMember = model.members.find((member) => member.accountId === session.user.id)
+      return model.expenses
+        .filter((expense) => {
+          if (groupId) return expense.status === 'active'
+          if (expense.status !== 'active') return false
+          return (
+            expense.paidByMemberId === currentMember?.memberId ||
+            expense.splits.some((split) => split.memberId === currentMember?.memberId)
+          )
+        })
+        .map((expense) => mobileExpenseFromLedger(model, expense.expenseId)!)
     })
-    if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    where.groupId = groupId
-    delete where.OR
+
+    const sorted = expenses
+      .sort((left, right) => String(right.date).localeCompare(String(left.date)) || left.id.localeCompare(right.id))
+      .slice(0, limit)
+    return NextResponse.json(
+      {
+        expenses: sorted,
+        readRevision: models.reduce((max, model) => Math.max(max, model.readRevision), 0),
+        readOnly: models.some(canonicalGroupIsReadOnly),
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
+  } catch (error) {
+    const errorResponse = readModelErrorResponse(error, groupId ?? undefined)
+    if (errorResponse) return errorResponse
+    console.error('[MOBILE GET /expenses]', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
-
-  const expenses = await prisma.expense.findMany({
-    where,
-    include: expenseInclude,
-    orderBy: { date: 'desc' },
-    take: Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 100) : 50,
-  })
-
-  return NextResponse.json({ expenses: expenses.map(mobileExpense) })
 }
 
 export async function POST(req: NextRequest) {
   const { session, response } = await requireMobileSession(req)
   if (!session) return response
 
+  let body: unknown
   try {
-    const body = await req.json()
-    const parsed = createExpenseSchema.safeParse(body)
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.errors[0].message }, { status: 400 })
-    }
+    body = await req.json()
+  } catch {
+    return legacySharedLedgerWriteResponse(req, 'A canonical v2 expense body is required')
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'A JSON object is required' }, { status: 400 })
+  }
+  const record = body as Record<string, unknown>
+  if (!record.groupId || typeof record.amount !== 'object' || Array.isArray(record.amount)) {
+    return legacySharedLedgerWriteResponse(req, 'Shared-ledger expenses require exact-money v2 fields')
+  }
 
-    const data = parsed.data
-    if (data.groupId) {
-      const access = await assertGroupExpenseAccess(data.groupId, session.user.id)
-      if (!access.ok) return access.response
+  const parsed = mobileExpenseV2Schema.safeParse(record)
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.errors[0].message }, { status: 400 })
+  }
+  const metadataResult = readMutationMetadata(req, record)
+  if ('response' in metadataResult) return metadataResult.response
 
-      const members = await validateExpenseMembers(data.groupId, data)
-      if (!members.ok) return members.response
-    }
+  try {
+    const groupRead = await loadGroupReadModel(parsed.data.groupId, session.user.id)
+    if (canonicalGroupIsReadOnly(groupRead.group)) return migrationReadOnlyResponse(groupRead.group)
 
-    const splitCheck = validateSplitTotal(data)
-    if (!splitCheck.ok) return splitCheck.response
+    const payload = toKernelExpensePayload(parsed.data, groupRead.group, 'expense.create')
+    const result = await executeMutation({
+      groupId: parsed.data.groupId,
+      operationId: metadataResult.metadata.operationId,
+      expectedRevision: metadataResult.metadata.expectedRevision,
+      kind: 'expense.create',
+      accountId: session.user.id,
+      actorUserId: session.user.id,
+      payload,
+    })
 
-    const canonical = await dualWriteExpenseAmount(roundAmount(data.amount), data.currency)
-
-    const expense = await prisma.expense.create({
-      data: {
-        description: data.description,
-        amount: roundAmount(data.amount),
-        amountMinorUnits: canonical?.amountMinorUnits,
-        currencyExponent: canonical?.currencyExponent,
-        currency: data.currency,
-        date: new Date(data.date),
-        category: data.category,
-        groupId: data.groupId,
-        paidById: data.paidById,
-        splitType: data.splitType,
-        notes: data.notes,
-        isRecurring: data.isRecurring,
-        recurringInterval: data.recurringInterval,
-        splits: {
-          create: await buildExpenseSplitCreates(data.splits, data.currency),
+    if (result.outcome === 'applied') {
+      const amount = legacyAmount(parsed.data.amount) ?? 0
+      await prisma.activityLog.create({
+        data: {
+          userId: session.user.id,
+          type: 'EXPENSE_CREATED',
+          description: `${session.user.name ?? 'Someone'} added "${parsed.data.description}" (${formatCurrency(amount, parsed.data.amount.currencyCode)})`,
+          metadata: {
+            expenseId: result.recordId,
+            groupId: parsed.data.groupId,
+            operationId: result.operationId,
+          },
         },
-      },
-      include: expenseInclude,
-    })
-
-    if (data.groupId) {
-      await onGroupExpenseMutation(data.groupId, expense.id, 'expense_created')
+      })
     }
 
-    await prisma.activityLog.create({
-      data: {
-        userId: session.user.id,
-        type: 'EXPENSE_CREATED',
-        description: `${session.user.name} added "${data.description}" (${formatCurrency(data.amount, data.currency)})`,
-        metadata: { expenseId: expense.id, groupId: data.groupId },
+    const after = await loadGroupReadModel(parsed.data.groupId, session.user.id)
+    const expense = findLedgerExpense(after.group, result.recordId)
+    return NextResponse.json(
+      {
+        expense: expense ? mobileExpenseFromLedger(after.group, expense.expenseId) : null,
+        mutation: result,
+        revision: result.revision,
+        readModel: after.envelope,
       },
-    })
-
-    return NextResponse.json({ expense: mobileExpense(expense) }, { status: 201 })
+      { status: result.replayed ? 200 : 201 }
+    )
   } catch (error) {
-    console.error('[MOBILE POST /expenses]', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    const errorResponse = readModelErrorResponse(error, parsed.data.groupId)
+    if (errorResponse) return errorResponse
+    return mutationErrorResponse(error, '[MOBILE POST /expenses]')
   }
 }
