@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import Foundation
 
 struct AddGroupSheet: View {
     @Query(sort: \Person.name) private var people: [Person]
@@ -10,6 +11,11 @@ struct AddGroupSheet: View {
     @State private var icon: GroupIcon = .house
     @State private var selected = Set<UUID>()
     @State private var simplify = true
+    @State private var errorMessage: String?
+    @State private var statusMessage: String?
+    @State private var isSubmitting = false
+    @State private var activeOperationID: UUID?
+    @State private var requiresReconfirmation = false
     @FocusState private var nameFocused: Bool
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
@@ -94,8 +100,24 @@ struct AddGroupSheet: View {
                     .buttonStyle(.plain)
                     .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
 
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(BrandFont.type(10, bold: true))
+                            .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("groupMutationStatus")
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(BrandFont.type(10, bold: true))
+                            .foregroundStyle(Color.red.opacity(0.85))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("groupMutationError")
+                    }
+
                     Button(action: create) {
-                        Text("Create group")
+                        Text(isSubmitting ? "Creating…" : "Create group")
                             .font(BrandFont.display(15.5, weight: .bold))
                             .foregroundStyle(Color.Brand.creamSoft)
                             .frame(maxWidth: .infinity, minHeight: 52)
@@ -103,8 +125,8 @@ struct AddGroupSheet: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("createGroupButton")
-                    .disabled(trimmedName.isEmpty)
-                    .opacity(trimmedName.isEmpty ? 0.45 : 1)
+                    .disabled(trimmedName.isEmpty || isSubmitting || requiresReconfirmation)
+                    .opacity(trimmedName.isEmpty || isSubmitting || requiresReconfirmation ? 0.45 : 1)
                 }
                 .padding(18)
             }
@@ -123,14 +145,43 @@ struct AddGroupSheet: View {
     }
 
     private func create() {
+        let finalName = trimmedName.capitalizingFirstLetter
+        guard !finalName.isEmpty else { return }
+
+        guard !isSubmitting, !requiresReconfirmation else { return }
+        if UsernameIdentityService.hasStoredSession {
+            guard selected.isEmpty else {
+                errorMessage = "Shared groups can only use canonical server members. Create the group first, then add members from the shared group."
+                statusMessage = nil
+                return
+            }
+
+            let operationID = activeOperationID ?? UUID()
+            activeOperationID = operationID
+            isSubmitting = true
+            errorMessage = nil
+            statusMessage = "Creating shared group…"
+            Task { @MainActor in
+                await createServerGroup(
+                    name: finalName,
+                    icon: icon,
+                    simplifyDebts: simplify,
+                    operationID: operationID
+                )
+            }
+            return
+        }
+
+        createLocalGroup(named: finalName)
+    }
+
+    private func createLocalGroup(named finalName: String) {
         var memberIDs = Set<UUID>()
         let members = memberOptions.compactMap { person -> Person? in
             guard person.isCurrentUser || selected.contains(person.id) else { return nil }
             let preferred = ConnectedFriendIdentity.preferredPerson(for: person, among: people)
             return memberIDs.insert(preferred.id).inserted ? preferred : nil
         }
-        let finalName = trimmedName.capitalizingFirstLetter
-        guard !finalName.isEmpty else { return }
         let group = Group(name: finalName, icon: icon, simplifyDebts: simplify, members: members)
         context.insert(group)
         let currentUser = people.first(where: \.isCurrentUser)
@@ -154,6 +205,130 @@ struct AddGroupSheet: View {
             return
         }
     }
+
+    @MainActor
+    private func createServerGroup(
+        name: String,
+        icon: GroupIcon,
+        simplifyDebts: Bool,
+        operationID: UUID
+    ) async {
+        let runtime = T15CanonicalLedgerRuntime.shared
+        do {
+            let remoteUser = try await runtime.authenticatedUser()
+            let response: T15GroupCreateEnvelope = try await APIClient.live().post(
+                "/api/mobile/groups",
+                body: T15GroupCreateRequest(
+                    name: name,
+                    description: nil,
+                    currency: Money.currentCurrency.rawValue,
+                    category: "OTHER"
+                ),
+                idempotencyKey: operationID.uuidString
+            )
+            let serverGroupID = response.group.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !serverGroupID.isEmpty else { throw T15LedgerUIError.groupResponseMissingID }
+
+            let scope = ServerBackedLedgerScope(
+                accountID: remoteUser.id,
+                groupID: serverGroupID
+            )
+            let canonicalGroup: SettlementCanonicalLedgerGroup?
+            do {
+                let snapshot = try await runtime.refresh(scope: scope)
+                canonicalGroup = try runtime.validatedGroup(from: snapshot, scope: scope)
+            } catch {
+                // The POST has already been acknowledged. Keep only the
+                // server identity locally; the canonical read model will be
+                // refreshed by the shared surfaces when transport returns.
+                canonicalGroup = nil
+                statusMessage = "Group created. Shared details are waiting for a canonical refresh."
+            }
+
+            var newlyCreatedPeople = [Person]()
+            let members = localPeople(
+                for: canonicalGroup,
+                accountID: remoteUser.id,
+                newlyCreatedPeople: &newlyCreatedPeople
+            )
+            let localGroup = Group(
+                id: operationID,
+                name: canonicalGroup?.name ?? name,
+                icon: icon,
+                simplifyDebts: simplifyDebts,
+                members: members,
+                serverGroupId: serverGroupID
+            )
+            for person in newlyCreatedPeople { context.insert(person) }
+            context.insert(localGroup)
+
+            // A shared group is represented locally only as a routing/index
+            // projection after server acknowledgement. Its ledger and
+            // activity remain canonical server data.
+            if let currentUser = members.first(where: \.isCurrentUser) {
+                _ = try? RewardEngine.award(
+                    action: .groupCreated,
+                    eventID: localGroup.id,
+                    personID: currentUser.id,
+                    context: context
+                )
+            }
+            try context.save()
+            await ServerLedgerSurfaceStore.shared.refresh(groups: [localGroup])
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            isSubmitting = false
+            activeOperationID = nil
+            dismiss()
+        } catch {
+            isSubmitting = false
+            requiresReconfirmation = true
+            errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not create the shared group.")
+            statusMessage = "The server did not confirm this operation. Refresh before trying again."
+        }
+    }
+
+    private func localPeople(
+        for canonicalGroup: SettlementCanonicalLedgerGroup?,
+        accountID: String,
+        newlyCreatedPeople: inout [Person]
+    ) -> [Person] {
+        guard let canonicalGroup else {
+            if let current = people.first(where: \.isCurrentUser) { return [current] }
+            let current = Person(name: "You", isCurrentUser: true)
+            newlyCreatedPeople.append(current)
+            return [current]
+        }
+
+        var result = [Person]()
+        var seen = Set<UUID>()
+        for member in canonicalGroup.members {
+            let localIdentityID = member.localIdentityID.flatMap(UUID.init(uuidString:))
+            let existing = localIdentityID.flatMap { id in people.first(where: { $0.id == id }) }
+                ?? (member.accountID == accountID ? people.first(where: \.isCurrentUser) : nil)
+            let person: Person
+            if let existing {
+                person = existing
+            } else if let localIdentityID {
+                person = Person(id: localIdentityID,
+                                name: member.displayName,
+                                isCurrentUser: member.accountID == accountID)
+                newlyCreatedPeople.append(person)
+            } else {
+                // There is no safe local identity for this server member.
+                // Do not invent a local UUID that could later enter a shared
+                // mutation as if it were a canonical member.
+                continue
+            }
+            guard seen.insert(person.id).inserted else { continue }
+            result.append(person)
+        }
+
+        if !result.contains(where: \.isCurrentUser),
+           let current = people.first(where: \.isCurrentUser) {
+            result.insert(current, at: 0)
+        }
+        return result
+    }
 }
 
 struct BrandCheckmark: View {
@@ -172,5 +347,239 @@ struct BrandCheckmark: View {
         }
         .frame(width: 28, height: 28)
         .accessibilityLabel(isOn ? "Selected" : "Not selected")
+    }
+}
+
+private struct T15GroupCreateRequest: Encodable {
+    let name: String
+    let description: String?
+    let currency: String
+    let category: String
+}
+
+private struct T15GroupCreateEnvelope: Decodable {
+    let group: T15GroupCreateResponse
+}
+
+private struct T15GroupCreateResponse: Decodable {
+    let id: String
+}
+
+enum T15LedgerUIError: LocalizedError {
+    case unauthenticated
+    case groupResponseMissingID
+    case canonicalSnapshotUnavailable
+    case canonicalReadOnly
+    case canonicalConflict
+    case memberIdentityUnavailable(String)
+    case expenseNotInCanonicalSnapshot
+    case unsupportedSharedCurrency(String)
+    case nonIntegralShares
+
+    var errorDescription: String? {
+        switch self {
+        case .unauthenticated:
+            return "Sign in before changing the shared ledger."
+        case .groupResponseMissingID:
+            return "The server created no usable group identity."
+        case .canonicalSnapshotUnavailable:
+            return "The shared ledger is not ready yet. Refresh and try again."
+        case .canonicalReadOnly:
+            return "The shared ledger is read-only while it refreshes."
+        case .canonicalConflict:
+            return "The shared ledger changed. Refresh and confirm this action again."
+        case let .memberIdentityUnavailable(name):
+            return "The server has no canonical member identity for \(name). Refresh the group before saving."
+        case .expenseNotInCanonicalSnapshot:
+            return "This expense has no canonical server identity yet. Refresh before editing it."
+        case let .unsupportedSharedCurrency(code):
+            return "This shared group uses \(code). Change the app currency before saving."
+        case .nonIntegralShares:
+            return "Shared-ledger shares must be whole numbers."
+        }
+    }
+
+    static func message(for error: Error, fallback: String) -> String {
+        switch error {
+        case ServerLedgerSyncError.unauthorized,
+             ServerLedgerAPIClientError.unauthorized, SettlementAPIError.unauthorized:
+            return "Your shared-ledger session expired. Sign in again before retrying."
+        case ServerLedgerSyncError.offline,
+             ServerLedgerAPIClientError.offline, SettlementAPIError.offline:
+            return "Offline. Shared changes are waiting for a connection; local-only changes remain available."
+        case ServerLedgerSyncError.conflictRequiresReconfirmation,
+             ServerLedgerAPIClientError.revisionConflict:
+            return "The shared ledger changed. Refresh it, then confirm this action again."
+        case ServerLedgerAPIClientError.idempotencyKeyReused:
+            return "This operation ID is already bound to another request. Start again from a fresh form."
+        case let localError as T15LedgerUIError:
+            return localError.localizedDescription
+        default:
+            let description = error.localizedDescription
+            return description.isEmpty ? fallback : description
+        }
+    }
+
+    static func isOffline(_ error: Error) -> Bool {
+        switch error {
+        case ServerLedgerSyncError.offline,
+             ServerLedgerAPIClientError.offline,
+             SettlementAPIError.offline:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func isUnauthorized(_ error: Error) -> Bool {
+        switch error {
+        case ServerLedgerSyncError.unauthorized,
+             ServerLedgerAPIClientError.unauthorized,
+             SettlementAPIError.unauthorized:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func isConflict(_ error: Error) -> Bool {
+        switch error {
+        case ServerLedgerSyncError.conflictRequiresReconfirmation,
+             ServerLedgerAPIClientError.revisionConflict,
+             T15LedgerUIError.canonicalConflict:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+@MainActor
+final class T15CanonicalLedgerRuntime {
+    static let shared = T15CanonicalLedgerRuntime()
+
+    let store: ServerLedgerStore
+    let coordinator: ServerLedgerMutationCoordinator
+    let sync: ServerLedgerSync
+
+    private init() {
+        let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
+        let configuration = ModelConfiguration(
+            "BillBanditServerLedgerCache",
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        do {
+            let container = try ModelContainer(for: schema, configurations: configuration)
+            let context = ModelContext(container)
+            store = ServerLedgerStore(context: context)
+            coordinator = ServerLedgerMutationCoordinator(store: store)
+            sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
+        } catch {
+            fatalError("Unable to initialize the shared-ledger mutation cache: \(error)")
+        }
+    }
+
+    func authenticatedUser() async throws -> UsernameIdentityService.RemoteUser {
+        guard UsernameIdentityService.hasStoredSession else {
+            throw T15LedgerUIError.unauthenticated
+        }
+        let user = try await UsernameIdentityService.currentUser()
+        try coordinator.activate(accountID: user.id)
+        try sync.activate(accountID: user.id)
+        return user
+    }
+
+    func cachedOrRefresh(scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
+        if let cached = try store.cachedSnapshot(for: scope) { return cached }
+        return try await refresh(scope: scope)
+    }
+
+    func refresh(scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
+        sync.markReconnected()
+        return try await sync.refresh(scope: scope)
+    }
+
+    func enqueueExpense(
+        operationID: UUID,
+        scope: ServerBackedLedgerScope,
+        expectedRevision: Int64,
+        kind: String,
+        method: String,
+        path: String,
+        body: Data
+    ) throws {
+        if sync.requiresReconfirmation {
+            let request = ServerLedgerMutationRequest(
+                operationID: operationID,
+                scope: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
+                expectedRevision: expectedRevision,
+                kind: kind,
+                method: method,
+                path: path,
+                body: body
+            )
+            _ = try sync.reconfirm(
+                operationID: operationID,
+                scope: request.scope,
+                expectedRevision: expectedRevision,
+                requestPayload: request.requestPayload
+            )
+        } else {
+            _ = try coordinator.enqueueExpenseAction(
+                operationID: operationID,
+                scope: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
+                expectedRevision: expectedRevision,
+                kind: kind,
+                method: method,
+                path: path,
+                body: body
+            )
+        }
+    }
+
+    func reconcile(scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
+        sync.markReconnected()
+        return try await sync.onForeground(scope: scope)
+    }
+
+    func validatedGroup(
+        from snapshot: ServerLedgerSnapshot,
+        scope: ServerBackedLedgerScope
+    ) throws -> SettlementCanonicalLedgerGroup {
+        guard snapshot.accountID == scope.accountID,
+              snapshot.groupID == scope.groupID else {
+            throw ServerLedgerAPIClientError.snapshotScopeMismatch
+        }
+        let envelope = try JSONDecoder.serverLedger.decode(
+            SettlementCanonicalLedgerReadEnvelope.self,
+            from: snapshot.payload
+        )
+        let group = envelope.data.group
+        guard envelope.contractVersion == ServerLedgerContract.version,
+              envelope.kind == "read",
+              envelope.scope.kind == .shared,
+              envelope.scope.accountID == scope.accountID,
+              envelope.scope.groupID == scope.groupID,
+              envelope.scope.localOnly == false,
+              group.scope == "shared",
+              group.localOnly == false,
+              group.accountID == scope.accountID,
+              group.groupID == scope.groupID,
+              envelope.revision == snapshot.revision,
+              Int64(group.revision) == envelope.revision,
+              Int64(group.readRevision) == envelope.readRevision else {
+            throw ServerLedgerAPIClientError.snapshotScopeMismatch
+        }
+        let readOnlyStatuses = ["pending", "in_progress", "blocked"]
+        guard !readOnlyStatuses.contains(envelope.migration.status),
+              !readOnlyStatuses.contains(group.migration.status),
+              !envelope.stale.isStale,
+              !group.stale.isStale else {
+            throw T15LedgerUIError.canonicalReadOnly
+        }
+        return group
     }
 }
