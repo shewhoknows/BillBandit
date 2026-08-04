@@ -828,6 +828,11 @@ private struct ProfileNameTextField: UIViewRepresentable {
     }
 }
 
+private enum BillBanditLegalLinks {
+    static let privacyPolicy = URL(string: "https://shewhoknows.github.io/BillBandit/billbandit/")!
+    static let support = URL(string: "https://shewhoknows.github.io/BillBandit/billbandit/support/")!
+}
+
 struct ProfileScreen: View {
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Query private var groups: [Group]
@@ -850,6 +855,8 @@ struct ProfileScreen: View {
     @State private var isSavingUsername = false
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
     @State private var showSignOutConfirmation = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var isDeletingAccount = false
 
     init(presentAvatarPicker: Bool = false) {
         _name = State(initialValue: "")
@@ -963,6 +970,7 @@ struct ProfileScreen: View {
                         sharedLedgerSection
                     }
                     appleAccountSection
+                    legalSection
 
                     VStack(alignment: .leading, spacing: 10) {
                         BrandSectionLabel("YOUR LEDGER")
@@ -991,6 +999,12 @@ struct ProfileScreen: View {
             Button("Sign out", role: .destructive) { signOut() }
         } message: {
             Text("You will need to sign in with Apple again before using the app.")
+        }
+        .alert("Delete your BillBandit account?", isPresented: $showDeleteAccountConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) { deleteAccount() }
+        } message: {
+            Text("This permanently removes your account and personal data. Shared ledger amounts remain for the other members, with your profile and authored text anonymized.")
         }
     }
 
@@ -1209,6 +1223,14 @@ struct ProfileScreen: View {
                 .padding(.horizontal, 14)
                 .frame(height: 62)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
+                Button(isDeletingAccount ? "Deleting account…" : "Delete account") {
+                    showDeleteAccountConfirmation = true
+                }
+                .font(BrandFont.type(9.5, bold: true))
+                .foregroundStyle(.red)
+                .buttonStyle(.plain)
+                .disabled(isDeletingAccount)
+                .accessibilityIdentifier("deleteAccountButton")
             }
             if let authMessage {
                 Text(authMessage)
@@ -1216,6 +1238,50 @@ struct ProfileScreen: View {
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
             }
         }
+    }
+
+    private var legalSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            BrandSectionLabel("LEGAL & SUPPORT")
+            VStack(spacing: 8) {
+                Link(destination: BillBanditLegalLinks.privacyPolicy) {
+                    legalRow(title: "Privacy Policy", detail: "How BillBandit handles your data")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("privacyPolicyLink")
+
+                Link(destination: BillBanditLegalLinks.support) {
+                    legalRow(title: "Support", detail: "Get help or contact us")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("supportLink")
+            }
+        }
+    }
+
+    private func legalRow(title: String, detail: String) -> some View {
+        HStack(spacing: 12) {
+            Text("↗")
+                .font(BrandFont.display(18, weight: .bold))
+                .frame(width: 38, height: 38)
+                .background(Color.Brand.cobalt)
+                .foregroundStyle(Color.Brand.creamSoft)
+                .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(BrandFont.body(14, weight: .bold))
+                Text(detail)
+                    .font(BrandFont.type(9.5, bold: true))
+                    .opacity(0.58)
+            }
+            Spacer()
+            Text("→")
+                .font(BrandFont.body(17, weight: .bold))
+        }
+        .foregroundStyle(Color.Brand.cobalt)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 58)
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
     }
 
     private func profileRow(leading: String, title: String, detail: String) -> some View {
@@ -1400,6 +1466,36 @@ struct ProfileScreen: View {
         UsernameIdentityService.signOut()
         CloudCollaborationService.shared.accountDidSignOut()
         authMessage = nil
+    }
+
+    private func deleteAccount() {
+        guard !isDeletingAccount else { return }
+        isDeletingAccount = true
+        authMessage = nil
+        Task { @MainActor in
+            do {
+                await CloudCollaborationService.shared.deleteAccountData()
+                try await UsernameIdentityService.deleteAccount()
+                ServerLedgerSurfaceStore.shared.accountDidSignOut()
+                CloudCollaborationService.shared.accountDidSignOut()
+                try LocalAccountDataCleanup.deleteAll(context: context)
+                appleUserIdentifier = ""
+                applePrivateEmail = ""
+                accountOnboardingComplete = false
+                usernameHandleVerified = false
+                deferNextAppleCredentialStateCheck = false
+                hasUsernameSession = false
+                name = ""
+                selectedAvatar = .sunglasses
+                isDeletingAccount = false
+                authMessage = nil
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                isDeletingAccount = false
+                hasUsernameSession = UsernameIdentityService.hasStoredSession
+                authMessage = error.localizedDescription
+            }
+        }
     }
 }
 

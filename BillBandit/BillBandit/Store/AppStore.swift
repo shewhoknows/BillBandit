@@ -99,6 +99,52 @@ enum AppStore {
     }
 }
 
+/// Clears all on-device account and ledger data after the server account has
+/// been deleted. API cache/queue rows are included so a deleted account can
+/// never be replayed after the next sign-in.
+@MainActor
+enum LocalAccountDataCleanup {
+    static func deleteAll(context: ModelContext) throws {
+        for row in try context.fetch(FetchDescriptor<PendingLedgerOperation>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<CachedLedgerSnapshot>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<CloudKitLedgerImportState>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<ActivityItem>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<AchievementUnlock>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<ProcessedRewardEvent>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<UserProgress>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Split>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Expense>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Settlement>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Group>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Person>()) {
+            context.delete(row)
+        }
+        try context.save()
+    }
+}
+
 enum ServerLedgerLifecycleTrigger: String, Sendable {
     case startup
     case foreground

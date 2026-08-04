@@ -114,11 +114,13 @@ export async function getMobileSession(req: NextRequest): Promise<MobileSession 
       phone: true,
       preferredName: true,
       upiID: true,
+      deletedAt: true,
     },
   })
 
-  if (!user) return null
-  return { user }
+  if (!user || user.deletedAt) return null
+  const { deletedAt: _deletedAt, ...activeUser } = user
+  return { user: activeUser }
 }
 
 export async function requireMobileSession(req: NextRequest) {

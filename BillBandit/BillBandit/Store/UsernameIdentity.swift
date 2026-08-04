@@ -122,6 +122,7 @@ enum UsernameIdentityService {
         let user: RemoteUser
     }
     private struct UserResponse: Decodable { let user: RemoteUser }
+    private struct AccountDeletionResponse: Decodable { let deleted: Bool }
     private struct ErrorResponse: Decodable { let error: String? }
 
     // Same REST base as the BillBandit API (Debug → local API via API_BASE_URL).
@@ -178,6 +179,17 @@ enum UsernameIdentityService {
     }
 
     static func signOut() {
+        clearSessionAndInvalidateLedger()
+    }
+
+    static func deleteAccount() async throws {
+        guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
+        let response: AccountDeletionResponse = try await perform(
+            path: "/api/mobile/auth/me", method: "DELETE", bearerToken: token
+        )
+        guard response.deleted else {
+            throw ServiceError.response("BillBandit could not confirm account deletion.")
+        }
         clearSessionAndInvalidateLedger()
     }
 
@@ -240,9 +252,14 @@ enum UsernameIdentityService {
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { clearSessionAndInvalidateLedger() }
             let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
-            let fallback = http.statusCode == 409
-                ? "That username is already taken."
-                : "Could not save your username. Try again."
+            let fallback: String
+            if http.statusCode == 409 {
+                fallback = "That username is already taken."
+            } else if method == "DELETE" {
+                fallback = "Could not delete your account. Try again."
+            } else {
+                fallback = "Could not save your username. Try again."
+            }
             throw ServiceError.response(payload?.error ?? fallback)
         }
         do {

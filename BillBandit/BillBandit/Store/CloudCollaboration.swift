@@ -476,6 +476,19 @@ final class CloudCollaborationService: ObservableObject {
         state = .idle
     }
 
+    /// Best-effort removal of the signed-in user's public profile before the
+    /// API account is anonymized. Shared ledger records are not stored here.
+    func deleteAccountData() async {
+        let cloudUser = currentUserRecordName
+        if let cloudUser {
+            try? await container.publicCloudDatabase.deleteRecord(
+                withID: FriendProfileSync.recordID(for: cloudUser)
+            )
+        }
+        await FriendInvitationService.shared.deleteAccountData()
+        currentUserRecordName = nil
+    }
+
     func currentPersonDidChange() {
         linkCurrentPerson()
         Task { await publishFriendProfile() }
@@ -1419,6 +1432,22 @@ final class FriendInvitationService: ObservableObject {
     private func persist() {
         guard let data = try? JSONEncoder().encode(outboundInvites) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
+    }
+
+    /// Removes local invite state and the public invite records this account
+    /// created. Failure to reach CloudKit must not prevent API account
+    /// deletion, so each record removal is intentionally best effort.
+    func deleteAccountData() async {
+        let invites = outboundInvites
+        for invite in invites {
+            try? await database.deleteRecord(withID: inviteRecordID(invite.code))
+            try? await database.deleteRecord(withID: acceptanceRecordID(invite.code))
+        }
+        outboundInvites = []
+        incomingCode = ""
+        shouldPresentInviteSheet = false
+        message = nil
+        UserDefaults.standard.removeObject(forKey: Self.storageKey)
     }
 
     private func inviteRecordID(_ code: String) -> CKRecord.ID {
