@@ -136,6 +136,10 @@ struct AddGroupSheet: View {
             .padding(.bottom, 10)
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
+        .task {
+            await FriendInvitationService.shared.refreshAcceptedInvites()
+            await CloudCollaborationService.shared.refreshFriendProfiles()
+        }
     }
 
     private func toggle(_ person: Person) {

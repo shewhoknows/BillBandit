@@ -12,14 +12,22 @@ enum ServerLedgerSyncError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .snapshotScopeMismatch: return "The server returned another ledger scope"
-        case .accountScopeRequired: return "An API account is required before syncing"
-        case .activeAccountMismatch: return "The active API account does not own this ledger"
-        case .accountChanged: return "The account changed while the ledger was syncing"
-        case .conflictRequiresReconfirmation: return "The ledger changed; confirm this action again"
-        case .unauthorized: return "The API session expired"
-        case .offline: return "The ledger is waiting for a network connection"
-        case .staleRevision: return "The server returned an older ledger revision"
+        case .snapshotScopeMismatch:
+            return "Shared balances came back for a different group."
+        case .accountScopeRequired:
+            return ServerLedgerUserFacingCopy.signInForSharedBalances
+        case .activeAccountMismatch:
+            return "This account can't read that shared group."
+        case .accountChanged:
+            return "Your account changed while balances were loading."
+        case .conflictRequiresReconfirmation:
+            return "Balances changed on the server. Confirm and try again."
+        case .unauthorized:
+            return "Your session expired. Sign in again to refresh shared balances."
+        case .offline:
+            return "You're offline. Saved balances may be shown until you're back online."
+        case .staleRevision:
+            return ServerLedgerUserFacingCopy.staleBalances
         }
     }
 }
@@ -437,9 +445,6 @@ struct ServerLedgerBackoff: Equatable, Sendable {
 
 private enum ServerLedgerErrorDescription {
     static func string(_ error: Error) -> String {
-        if let localized = error as? LocalizedError, let description = localized.errorDescription {
-            return description
-        }
-        return String(describing: type(of: error))
+        ServerLedgerUserFacingCopy.friendlyErrorMessage(error)
     }
 }

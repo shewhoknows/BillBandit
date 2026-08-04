@@ -549,7 +549,9 @@ struct HomeScreen: View {
                             .multilineTextAlignment(.center)
                             .opacity(0.78)
                     }
-                    ServerLedgerSurfaceStatusView(ledger: serverLedger)
+                    ServerLedgerSurfaceStatusView(ledger: serverLedger) {
+                        Task { await serverLedger.refresh(groups: groups) }
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -661,8 +663,15 @@ struct HomeScreen: View {
                     ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0))" : "owe \(Money.currency(-$0))" }
                     : nil),
                 balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
-                sourceLabel: canonicalGroup.map { "shared · read rev \($0.readRevision)" }
-                    ?? (serverGroupID == nil ? "on this device" : "shared balance pending")
+                sourceLabel: ServerLedgerUserFacingCopy.groupSourceLabel(
+                    isLocalOnly: serverGroupID == nil,
+                    isLoading: serverGroupID != nil
+                        && canonicalGroup == nil
+                        && serverLedger.status.phase == .loading
+                ),
+                balanceIsLoading: serverGroupID != nil
+                    && presentation == nil
+                    && serverLedger.status.phase == .loading
             )
         }
         .buttonStyle(.plain)
@@ -685,8 +694,13 @@ struct HomeScreen: View {
                         .padding(.top, 4)
                     if sharedActivity.isEmpty {
                         if serverLedger.snapshot == nil {
-                            ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
-                                .padding(.vertical, 7)
+                            ServerLedgerSurfaceStatusView(
+                                ledger: serverLedger,
+                                includeEmpty: true
+                            ) {
+                                Task { await serverLedger.refresh(groups: groups) }
+                            }
+                            .padding(.vertical, 7)
                         } else {
                             Text("No shared activity yet")
                                 .font(BrandFont.type(11))
@@ -1012,20 +1026,26 @@ struct ProfileScreen: View {
     private var sharedLedgerSection: some View {
         VStack(alignment: .leading, spacing: 9) {
             BrandSectionLabel("SHARED LEDGER")
-            if let presentation = serverLedger.accountBalancePresentation(),
-               let revision = serverLedger.snapshot?.readRevision {
+            if let presentation = serverLedger.accountBalancePresentation() {
                 profileRow(
                     leading: "↗",
                     title: presentation.label,
-                    detail: "read revision \(revision)"
+                    detail: "Shared balances"
                 )
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, onLight: true)
+                ServerLedgerSurfaceStatusView(ledger: serverLedger, onLight: true) {
+                    Task { await serverLedger.refresh(groups: groups) }
+                }
             } else {
                 HStack(spacing: 9) {
-                    ServerLedgerUnavailableChip(onLight: true)
+                    ServerLedgerUnavailableChip(
+                        onLight: true,
+                        isLoading: serverLedger.status.phase == .loading
+                    )
                     Spacer(minLength: 0)
                 }
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true)
+                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true) {
+                    Task { await serverLedger.refresh(groups: groups) }
+                }
             }
             if !localGroups.isEmpty {
                 Text("On-device-only groups remain separate from the shared ledger.")
@@ -2038,6 +2058,7 @@ private struct GroupCard: View {
     let balanceText: String?
     let balanceIsPositive: Bool
     let sourceLabel: String
+    var balanceIsLoading = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -2056,7 +2077,7 @@ private struct GroupCard: View {
                     filled: balanceIsPositive
                 )
             } else {
-                ServerLedgerUnavailableChip(onLight: true)
+                ServerLedgerUnavailableChip(onLight: true, isLoading: balanceIsLoading)
             }
             Text(sourceLabel)
                 .font(BrandFont.type(8.5, bold: true))
@@ -2135,10 +2156,14 @@ struct ActivityScreen: View {
                         Text("shared ledger")
                             .font(BrandFont.type(10, bold: true))
                             .opacity(0.68)
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger)
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger) {
+                            Task { await serverLedger.refresh(groups: groups) }
+                        }
                         if sharedItems.isEmpty {
                             if serverLedger.snapshot == nil {
-                                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
+                                    Task { await serverLedger.refresh(groups: groups) }
+                                }
                             } else {
                                 Text("no shared activity yet")
                                     .font(BrandFont.type(11))

@@ -90,7 +90,14 @@ enum ServerLedgerAPIClientError: LocalizedError, Equatable, Sendable {
         case .invalidResponse: return "Invalid server ledger response"
         case .unauthorized: return "The server session is no longer authorized"
         case .offline: return "The server ledger is unavailable offline"
-        case let .server(status, code): return code ?? "Server ledger request failed with status \(status)"
+        case let .server(status, code):
+            if let code, let friendly = ServerLedgerUserFacingCopy.message(forAPIErrorCode: code) {
+                return friendly
+            }
+            if let code, code.uppercased() == code, code.contains("_") {
+                return ServerLedgerUserFacingCopy.sharedBalancesRetryHint
+            }
+            return code ?? "Couldn't load shared balances (HTTP \(status))."
         case .contractVersionMismatch: return "The server ledger contract is not supported"
         case .snapshotScopeMismatch: return "The server returned a snapshot for another account or group"
         case .staleRevision: return "The server returned an older ledger revision"

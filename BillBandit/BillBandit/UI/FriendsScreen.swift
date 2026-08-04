@@ -57,9 +57,11 @@ struct FriendsScreen: View {
             List {
                 if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("canonical shared balances")
+                        Text(ServerLedgerUserFacingCopy.sharedBalancesTitle)
                             .font(BrandFont.type(9, bold: true))
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
+                            Task { await serverLedger.refresh(groups: groups) }
+                        }
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
                     .padding(.vertical, 5)
@@ -128,7 +130,9 @@ struct FriendsScreen: View {
                 if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
                     ServerLedgerBalanceChip(presentation: presentation)
                 } else {
-                    ServerLedgerUnavailableChip()
+                    ServerLedgerUnavailableChip(
+                        isLoading: serverLedger.status.phase == .loading
+                    )
                 }
                 if localFriendIDs.contains(friend.id) {
                     HStack(spacing: 4) {
@@ -218,7 +222,9 @@ struct ProfileFriendsSection: View {
             }
 
             if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true)
+                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true) {
+                    Task { await serverLedger.refresh(groups: groups) }
+                }
             }
 
             if friends.isEmpty {
@@ -276,7 +282,10 @@ struct ProfileFriendsSection: View {
                 if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
                     ServerLedgerBalanceChip(presentation: presentation, onLight: true)
                 } else {
-                    ServerLedgerUnavailableChip(onLight: true)
+                    ServerLedgerUnavailableChip(
+                        onLight: true,
+                        isLoading: serverLedger.status.phase == .loading
+                    )
                 }
                 if localFriendIDs.contains(friend.id) {
                     HStack(spacing: 4) {

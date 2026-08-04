@@ -419,7 +419,12 @@ struct GroupDetailScreen: View {
 
     private var balanceStamp: String {
         if usesCanonicalLedger {
-            guard let money = canonicalBalanceMoney else { return "SHARED BALANCE UNAVAILABLE" }
+            guard let money = canonicalBalanceMoney else {
+                if canonicalSettlementStore.isLoading {
+                    return "LOADING BALANCE…"
+                }
+                return "BALANCE UNAVAILABLE"
+            }
             let comparison = SettlementMoneyFormatting.compare(money.minorUnits, "0")
             if comparison == .orderedAscending {
                 let positive = SettlementMoneyFormatting.subtract("0", money.minorUnits)

@@ -264,7 +264,10 @@ final class ServerLedgerCacheTests: XCTestCase {
         }
         XCTAssertEqual(snapshot.readRevision, 12)
         XCTAssertEqual(snapshot.balanceByCurrency.first?.minorUnits, "800")
-        XCTAssertTrue(ServerLedgerSurfaceStatus(phase: .ready, readRevision: 12).label.contains("12"))
+        XCTAssertEqual(
+            ServerLedgerSurfaceStatus(phase: .ready, readRevision: 12).label,
+            "Shared balances are up to date"
+        )
 
         let inconsistent = ServerLedgerSurfaceGroup(
             serverGroupID: "group-c",
@@ -352,6 +355,26 @@ final class ServerLedgerCacheTests: XCTestCase {
         )
         let container = try ModelContainer(for: schema, configurations: configuration)
         return ServerLedgerStore(context: ModelContext(container))
+    }
+
+    func testUserFacingCopyMapsLedgerReadUnavailable() {
+        XCTAssertEqual(
+            ServerLedgerUserFacingCopy.message(forAPIErrorCode: "LEDGER_READ_UNAVAILABLE"),
+            ServerLedgerUserFacingCopy.sharedBalancesRetryHint
+        )
+        XCTAssertEqual(
+            ServerLedgerAPIClientError.server(status: 409, code: "LEDGER_READ_UNAVAILABLE").errorDescription,
+            ServerLedgerUserFacingCopy.sharedBalancesRetryHint
+        )
+    }
+
+    func testSurfaceStatusErrorLabelNeverShowsRawCode() {
+        let status = ServerLedgerSurfaceStatus(
+            phase: .error,
+            message: "LEDGER_READ_UNAVAILABLE"
+        )
+        XCTAssertFalse(status.label.contains("LEDGER_READ_UNAVAILABLE"))
+        XCTAssertTrue(status.label.localizedCaseInsensitiveContains("refresh"))
     }
 }
 

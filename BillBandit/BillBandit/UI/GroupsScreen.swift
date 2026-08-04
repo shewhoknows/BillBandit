@@ -16,9 +16,11 @@ struct GroupsScreen: View {
             List {
                 if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("canonical shared ledger")
+                        Text(ServerLedgerUserFacingCopy.sharedBalancesTitle)
                             .font(BrandFont.type(9, bold: true))
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
+                            Task { await serverLedger.refresh(groups: groups) }
+                        }
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
                     .padding(.vertical, 5)
@@ -62,13 +64,14 @@ struct GroupsScreen: View {
                                     .font(BrandFont.type(9.5))
                                     .opacity(0.65)
                                 if let serverGroupID = group.serverLedgerGroupID {
-                                    Text(serverLedger.snapshot?.group(for: serverGroupID).map {
-                                        "shared · read revision \($0.readRevision)"
-                                    } ?? "shared · balance pending")
+                                    Text(serverLedger.snapshot?.group(for: serverGroupID) == nil
+                                         && serverLedger.status.phase == .loading
+                                         ? ServerLedgerUserFacingCopy.loadingBalance
+                                         : ServerLedgerUserFacingCopy.sharedGroup)
                                         .font(BrandFont.type(8.5, bold: true))
                                         .opacity(0.58)
                                 } else {
-                                    Text("on this device")
+                                    Text(ServerLedgerUserFacingCopy.onDevice)
                                         .font(BrandFont.type(8.5, bold: true))
                                         .opacity(0.58)
                                 }
@@ -79,7 +82,9 @@ struct GroupsScreen: View {
                                 if let presentation = serverLedger.groupBalancePresentation(for: serverGroupID) {
                                     ServerLedgerBalanceChip(presentation: presentation)
                                 } else {
-                                    ServerLedgerUnavailableChip()
+                                    ServerLedgerUnavailableChip(
+                                        isLoading: serverLedger.status.phase == .loading
+                                    )
                                 }
                             } else if let me = me.first {
                                 NetChip(net: BalanceMath.nets(in: group)[me.id] ?? 0)
