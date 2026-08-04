@@ -14,6 +14,7 @@ struct GroupDetailScreen: View {
     @State private var freshExpenseID: UUID?
     @State private var revealFreshExpense = true
     @State private var balanceBreakdownExpanded = false
+    @State private var canonicalSettlementStore = SettlementStore()
 
     init(group: Group) {
         self.group = group
@@ -24,31 +25,44 @@ struct GroupDetailScreen: View {
         group.expenses.sorted { $0.date > $1.date }
     }
 
+    private var serverGroupID: String? {
+        SettlementAPIConfiguration.serverGroupId(for: group)
+    }
+
+    private var usesCanonicalLedger: Bool {
+        serverGroupID != nil
+    }
+
     private var myNet: Decimal {
+        guard !usesCanonicalLedger else { return 0 }
         guard let me = currentUsers.first else { return 0 }
         return BalanceMath.nets(in: group)[me.id] ?? 0
     }
 
     private var settlementPlan: [DebtTransfer] {
-        BalanceMath.settleUpPlan(for: group)
+        guard !usesCanonicalLedger else { return [] }
+        return BalanceMath.settleUpPlan(for: group)
     }
 
     private var total: Decimal {
-        Money.cents(group.expenses.reduce(0) { $0 + $1.amount })
+        guard !usesCanonicalLedger else { return 0 }
+        return Money.cents(group.expenses.reduce(0) { $0 + $1.amount })
     }
 
     private var myPaid: Decimal {
+        guard !usesCanonicalLedger else { return 0 }
         guard let me = currentUsers.first else { return 0 }
         return Money.cents(group.expenses.filter { $0.paidBy?.id == me.id }.reduce(0) { $0 + $1.amount })
     }
 
     private var myShare: Decimal {
+        guard !usesCanonicalLedger else { return 0 }
         guard let me = currentUsers.first else { return 0 }
         return Money.cents(group.expenses.flatMap(\.splits).filter { $0.person?.id == me.id }.reduce(0) { $0 + $1.computedAmount })
     }
 
     private var prefersSharedSettleUp: Bool {
-        SettlementAPIConfiguration.prefersSharedSettleUp
+        usesCanonicalLedger
     }
 
     private var settleButtonDisabled: Bool {
@@ -61,6 +75,46 @@ struct GroupDetailScreen: View {
         return settlementPlan.isEmpty ? "All square" : "Settle up"
     }
 
+    private var canonicalTotalString: String {
+        guard let money = canonicalSettlementStore.canonicalTotalMoney else { return "—" }
+        return SettlementMoneyFormatting.display(
+            minorUnits: money.minorUnits,
+            currencyCode: money.currencyCode,
+            currencyExponent: money.currencyExponent
+        )
+    }
+
+    private var canonicalPaidShareString: String {
+        guard let paid = canonicalSettlementStore.canonicalMyPaidMoney,
+              let share = canonicalSettlementStore.canonicalMyShareMoney else { return "shared ledger loading…" }
+        return "you paid \(SettlementMoneyFormatting.display(minorUnits: paid.minorUnits, currencyCode: paid.currencyCode, currencyExponent: paid.currencyExponent))"
+            + " · your share \(SettlementMoneyFormatting.display(minorUnits: share.minorUnits, currencyCode: share.currencyCode, currencyExponent: share.currencyExponent))"
+    }
+
+    private var canonicalBalanceMoney: ServerLedgerMoneyDTO? {
+        canonicalSettlementStore.canonicalBalanceMoney
+    }
+
+    private var hasBalanceBreakdown: Bool {
+        usesCanonicalLedger
+            ? !canonicalSettlementStore.canonicalBalanceLines.isEmpty
+            : !balanceBreakdown.isEmpty
+    }
+
+    private var balanceMascot: Mascot {
+        guard usesCanonicalLedger else {
+            return myNet < 0 ? .grumpy : (myNet == 0 ? .neutral : .confused)
+        }
+        guard let money = canonicalBalanceMoney else { return .neutral }
+        let comparison = SettlementMoneyFormatting.compare(money.minorUnits, "0")
+        return comparison == .orderedAscending ? .grumpy : (comparison == .orderedSame ? .neutral : .confused)
+    }
+
+    private var balanceAnimationValue: Double {
+        guard !usesCanonicalLedger else { return 0 }
+        return NSDecimalNumber(decimal: myNet).doubleValue
+    }
+
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
@@ -68,13 +122,15 @@ struct GroupDetailScreen: View {
                 invoice
                 VStack(spacing: 10) {
                     Button { beginAddingExpense() } label: {
-                        Text("Add expense")
+                        Text(usesCanonicalLedger ? "Shared expenses" : "Add expense")
                             .font(BrandFont.display(15, weight: .bold))
                             .foregroundStyle(Color.Brand.cobalt)
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
                             .background(Color.Brand.creamSoft, in: Capsule())
                     }
+                    .disabled(usesCanonicalLedger)
+                    .opacity(usesCanonicalLedger ? 0.55 : 1)
                     .accessibilityIdentifier("groupAddExpenseButton")
                     Button { showSettle = true } label: {
                         Text(settleButtonTitle)
@@ -90,7 +146,7 @@ struct GroupDetailScreen: View {
                 }
                 .padding(.top, 18)
 
-                Text(group.simplifyDebts ? "simplify debts: ON" : "simplify debts: OFF")
+                Text(simplificationLabel)
                     .font(BrandFont.type(10, bold: true))
                     .foregroundStyle(Color.Brand.creamSoft.opacity(0.7))
                     .padding(.vertical, 8)
@@ -113,7 +169,8 @@ struct GroupDetailScreen: View {
                 SharedSettleUpScreen(
                     group: group,
                     currentUserName: currentUsers.first?.name ?? "You",
-                    onDismiss: { showSettle = false }
+                    onDismiss: { showSettle = false },
+                    settlementStore: canonicalSettlementStore
                 )
             } else {
                 RecordPaymentSheet(group: group) { result in
@@ -127,11 +184,51 @@ struct GroupDetailScreen: View {
             }
         }
         .onAppear { revealInvoice() }
+        .task(id: serverGroupID) {
+            guard let serverGroupID else { return }
+            guard let remoteUser = try? await UsernameIdentityService.currentUser() else {
+                canonicalSettlementStore.markIdentityUnavailable()
+                return
+            }
+            let label = [
+                remoteUser.name,
+                remoteUser.preferredName,
+                remoteUser.username,
+                currentUsers.first?.name
+            ]
+            .compactMap { $0 }
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? "You"
+            canonicalSettlementStore.configure(
+                accountID: remoteUser.id,
+                groupID: serverGroupID,
+                currentUserLabel: label
+            )
+            canonicalSettlementStore.setVisible(true)
+        }
+        .onDisappear {
+            if !showSettle {
+                canonicalSettlementStore.setVisible(false)
+            }
+        }
+    }
+
+    private var simplificationLabel: String {
+        if usesCanonicalLedger {
+            guard canonicalSettlementStore.hasCanonicalReadModel,
+                  let snapshot = canonicalSettlementStore.snapshot else {
+                return "shared ledger loading…"
+            }
+            return snapshot.simplifyDebts ? "simplify debts: ON" : "simplify debts: OFF"
+        }
+        return group.simplifyDebts ? "simplify debts: ON" : "simplify debts: OFF"
     }
 
     private var groupMeta: some View {
         HStack {
-            Text("\(GroupCopy.memberCount(group.members.count)) · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
+            let memberCount = usesCanonicalLedger
+                ? (canonicalSettlementStore.canonicalSnapshot?.group.members.count ?? 0)
+                : group.members.count
+            Text("\(GroupCopy.memberCount(memberCount)) · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
                 .font(BrandFont.type(10))
                 .opacity(0.65)
             Spacer()
@@ -154,41 +251,22 @@ struct GroupDetailScreen: View {
                         .padding(.top, 3)
                     DottedRule().padding(.vertical, 10)
 
-                    if sortedExpenses.isEmpty {
-                        VStack(spacing: 7) {
-                            SleepingMascotSceneView(width: 225)
-                                .accessibilityIdentifier("emptyGroupSleepingMascot")
-                            Text("no expenses on this invoice")
-                                .font(BrandFont.hand(19, weight: .bold))
-                        }
-                        .padding(.vertical, 10)
+                    if usesCanonicalLedger {
+                        canonicalInvoiceRows
                     } else {
-                        ForEach(sortedExpenses) { expense in
-                            NavigationLink(value: expense.id) {
-                                InvoiceExpenseRow(expense: expense)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("invoiceExpense-\(expense.title)")
-                            .opacity(freshExpenseID == expense.id && !revealFreshExpense ? 0 : 1)
-                            .scaleEffect(freshExpenseID == expense.id && !revealFreshExpense ? 0.96 : 1,
-                                         anchor: .top)
-                            .offset(y: freshExpenseID == expense.id && !revealFreshExpense ? -12 : 0)
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .top).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                        }
-                        .animation(reduceMotion ? nil : BrandMotion.revealSpring,
-                                   value: sortedExpenses.map(\.id))
+                        localInvoiceRows
                     }
 
                     DottedRule().padding(.vertical, 9)
-                    InvoiceLeaderRow(label: "TOTAL", amount: Money.currency(total),
-                                     strong: true, animationValue: total)
-                    Text("you paid \(Money.currency(myPaid)) · your share \(Money.currency(myShare))")
+                    InvoiceLeaderRow(
+                        label: "TOTAL",
+                        amount: usesCanonicalLedger ? canonicalTotalString : Money.currency(total),
+                        strong: true,
+                        animationValue: usesCanonicalLedger ? nil : total
+                    )
+                    Text(usesCanonicalLedger
+                         ? canonicalPaidShareString
+                         : "you paid \(Money.currency(myPaid)) · your share \(Money.currency(myShare))")
                         .font(BrandFont.type(9.5))
                         .opacity(0.6)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -196,7 +274,7 @@ struct GroupDetailScreen: View {
 
                     balanceStampControl
 
-                    if balanceBreakdownExpanded, !balanceBreakdown.isEmpty {
+                    if balanceBreakdownExpanded, hasBalanceBreakdown {
                         balanceBreakdownPanel
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
@@ -215,8 +293,10 @@ struct GroupDetailScreen: View {
             .scaleEffect(x: 1, y: invoiceRevealed ? 1 : 0.96, anchor: .top)
             .opacity(invoiceRevealed ? 1 : 0)
 
-            if !sortedExpenses.isEmpty {
-                MascotView(mascot: myNet < 0 ? .grumpy : (myNet == 0 ? .neutral : .confused), size: 66)
+            if usesCanonicalLedger
+                ? !canonicalSettlementStore.canonicalExpenses.isEmpty
+                : !sortedExpenses.isEmpty {
+                MascotView(mascot: balanceMascot, size: 66)
                     .offset(x: 8, y: -42)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
@@ -225,7 +305,84 @@ struct GroupDetailScreen: View {
         .padding(.top, 46)
     }
 
+    @ViewBuilder
+    private var canonicalInvoiceRows: some View {
+        if !canonicalSettlementStore.hasCanonicalReadModel {
+            VStack(spacing: 8) {
+                if canonicalSettlementStore.isLoading {
+                    ProgressView().tint(Color.Brand.cobalt)
+                }
+                Text(canonicalInvoiceStatus)
+                    .font(BrandFont.type(11, bold: true))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+        } else if canonicalSettlementStore.canonicalExpenses.isEmpty {
+            emptyInvoiceState
+        } else {
+            ForEach(canonicalSettlementStore.canonicalExpenses) { expense in
+                CanonicalInvoiceExpenseRow(expense: expense)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("invoiceExpense-\(expense.title)")
+            }
+        }
+    }
+
+    private var canonicalInvoiceStatus: String {
+        if canonicalSettlementStore.isMigrationBlocked {
+            return "shared ledger migration is incomplete"
+        }
+        if canonicalSettlementStore.isOffline {
+            return "offline — showing the last canonical invoice"
+        }
+        if canonicalSettlementStore.lastError != nil {
+            return "could not load the shared invoice"
+        }
+        return "loading shared invoice…"
+    }
+
+    private var emptyInvoiceState: some View {
+        VStack(spacing: 7) {
+            SleepingMascotSceneView(width: 225)
+                .accessibilityIdentifier("emptyGroupSleepingMascot")
+            Text("no expenses on this invoice")
+                .font(BrandFont.hand(19, weight: .bold))
+        }
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var localInvoiceRows: some View {
+        if sortedExpenses.isEmpty {
+            emptyInvoiceState
+        } else {
+            ForEach(sortedExpenses) { expense in
+                NavigationLink(value: expense.id) {
+                    InvoiceExpenseRow(expense: expense)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("invoiceExpense-\(expense.title)")
+                .opacity(freshExpenseID == expense.id && !revealFreshExpense ? 0 : 1)
+                .scaleEffect(freshExpenseID == expense.id && !revealFreshExpense ? 0.96 : 1,
+                             anchor: .top)
+                .offset(y: freshExpenseID == expense.id && !revealFreshExpense ? -12 : 0)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .top).combined(with: .opacity),
+                    removal: .opacity
+                ))
+            }
+            .animation(reduceMotion ? nil : BrandMotion.revealSpring,
+                       value: sortedExpenses.map(\.id))
+        }
+    }
+
     private func beginAddingExpense() {
+        guard !usesCanonicalLedger else { return }
         expenseIDsBeforeAdd = Set(group.expenses.map(\.id))
         freshExpenseID = nil
         revealFreshExpense = true
@@ -264,6 +421,18 @@ struct GroupDetailScreen: View {
     }
 
     private var balanceStamp: String {
+        if usesCanonicalLedger {
+            guard let money = canonicalBalanceMoney else { return "SHARED BALANCE UNAVAILABLE" }
+            let comparison = SettlementMoneyFormatting.compare(money.minorUnits, "0")
+            if comparison == .orderedAscending {
+                let positive = SettlementMoneyFormatting.subtract("0", money.minorUnits)
+                return "YOU OWE \(SettlementMoneyFormatting.display(minorUnits: positive, currencyCode: money.currencyCode, currencyExponent: money.currencyExponent))"
+            }
+            if comparison == .orderedDescending {
+                return "OWED TO YOU \(SettlementMoneyFormatting.display(minorUnits: money.minorUnits, currencyCode: money.currencyCode, currencyExponent: money.currencyExponent))"
+            }
+            return "ALL SQUARE"
+        }
         if myNet < 0 { return "YOU OWE \(Money.currency(-myNet))" }
         if myNet > 0 { return "OWED TO YOU \(Money.currency(myNet))" }
         return "ALL SQUARE"
@@ -271,7 +440,7 @@ struct GroupDetailScreen: View {
 
     @ViewBuilder
     private var balanceStampControl: some View {
-        if balanceBreakdown.isEmpty {
+        if !hasBalanceBreakdown {
             balanceStampLabel
         } else {
             Button {
@@ -298,22 +467,36 @@ struct GroupDetailScreen: View {
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.Brand.cobalt, lineWidth: 2.2))
             .rotationEffect(.degrees(-2.5))
             .padding(.vertical, 11)
-            .contentTransition(.numericText(value: NSDecimalNumber(decimal: myNet).doubleValue))
-            .animation(reduceMotion ? nil : BrandMotion.counter, value: myNet)
+            .contentTransition(.numericText(value: balanceAnimationValue))
+            .animation(reduceMotion ? nil : BrandMotion.counter, value: balanceStamp)
     }
 
     private var balanceBreakdownPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             DottedRule()
                 .padding(.bottom, 9)
-            Text(myNet < 0 ? "WHO YOU OWE" : "WHO OWES YOU")
+            Text(balanceStamp.hasPrefix("YOU OWE") ? "WHO YOU OWE" : "WHO OWES YOU")
                 .font(BrandFont.body(9.5, weight: .extraBold))
                 .tracking(1.1)
                 .padding(.bottom, 7)
-            ForEach(balanceBreakdown) { line in
-                InvoiceLeaderRow(label: line.label, amount: Money.currency(line.amount),
-                                 animationValue: line.amount)
+            if usesCanonicalLedger {
+                ForEach(canonicalSettlementStore.canonicalBalanceLines) { line in
+                    InvoiceLeaderRow(
+                        label: line.memberName,
+                        amount: SettlementMoneyFormatting.display(
+                            minorUnits: line.amount.minorUnits,
+                            currencyCode: line.amount.currencyCode,
+                            currencyExponent: line.amount.currencyExponent
+                        )
+                    )
                     .padding(.bottom, 7)
+                }
+            } else {
+                ForEach(balanceBreakdown) { line in
+                    InvoiceLeaderRow(label: line.label, amount: Money.currency(line.amount),
+                                     animationValue: line.amount)
+                        .padding(.bottom, 7)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -322,6 +505,7 @@ struct GroupDetailScreen: View {
     }
 
     private var balanceBreakdown: [InvoiceBalanceLine] {
+        guard !usesCanonicalLedger else { return [] }
         guard let me = currentUsers.first else { return [] }
         let membersByID = Dictionary(uniqueKeysWithValues: group.members.map { ($0.id, $0) })
         return BalanceMath.settleUpPlan(for: group).compactMap { transfer in
@@ -364,6 +548,28 @@ private struct InvoiceExpenseRow: View {
     private var payerName: String {
         let name = expense.paidBy?.name ?? "?"
         return expense.paidBy?.isCurrentUser == true ? "you" : name.lowercased()
+    }
+}
+
+private struct CanonicalInvoiceExpenseRow: View {
+    let expense: SettlementLedgerExpense
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            InvoiceLeaderRow(
+                label: expense.title,
+                amount: SettlementMoneyFormatting.display(
+                    minorUnits: expense.amount.minorUnits,
+                    currencyCode: expense.amount.currencyCode,
+                    currencyExponent: expense.amount.currencyExponent
+                )
+            )
+            Text("paid by \(expense.payerName) · split \(expense.splitCount) ways")
+                .font(BrandFont.type(8.5))
+                .opacity(0.55)
+        }
+        .padding(.bottom, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -715,6 +921,10 @@ struct RecordPaymentSheet: View {
     @State private var fromID: UUID?
     @State private var toID: UUID?
 
+    private var isLocalOnlyGroup: Bool {
+        SettlementAPIConfiguration.serverGroupId(for: group) == nil
+    }
+
     private var parsed: Decimal? {
         Money.parseInput(amount)
     }
@@ -726,7 +936,8 @@ struct RecordPaymentSheet: View {
     }
 
     private var settlementPlan: [DebtTransfer] {
-        BalanceMath.settleUpPlan(for: group)
+        guard isLocalOnlyGroup else { return [] }
+        return BalanceMath.settleUpPlan(for: group)
     }
 
     private var suggestedAmount: Decimal? {
@@ -888,6 +1099,7 @@ struct RecordPaymentSheet: View {
     }
 
     private func save() {
+        guard isLocalOnlyGroup else { return }
         guard let rawAmount = parsed, let suggestedAmount,
               let from = group.members.first(where: { $0.id == fromID }),
               let to = group.members.first(where: { $0.id == toID }),
