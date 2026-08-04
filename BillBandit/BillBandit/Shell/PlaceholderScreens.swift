@@ -19,6 +19,9 @@ struct OnboardingScreen: View {
     @State private var usernameValidationMessage: String?
     @State private var isCompleting = false
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
+    /// A returning Apple account already has a server-owned handle. Keep that
+    /// value through onboarding so we do not POST a second claim for it.
+    @State private var authenticatedRemoteUsername: String?
     @FocusState private var usernameFocused: Bool
 
     private let pages: [(Mascot, String, String)] = [
@@ -155,7 +158,9 @@ struct OnboardingScreen: View {
                 .accessibilityIdentifier("onboardingDescription-\(index)")
             if index == 2 {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("Choose your unique handle")
+                    Text(authenticatedRemoteUsername == nil
+                         ? "Choose your unique handle"
+                         : "Your unique handle")
                         .font(BrandFont.display(15, weight: .semibold))
                     TextField("@username", text: $name)
                         .textInputAutocapitalization(.never)
@@ -166,6 +171,7 @@ struct OnboardingScreen: View {
                         .onChange(of: name) {
                             usernameValidationMessage = nil
                         }
+                        .disabled(authenticatedRemoteUsername != nil)
                         .accessibilityIdentifier("onboardingUsernameField")
                         .font(BrandFont.body(17, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
@@ -287,10 +293,19 @@ struct OnboardingScreen: View {
         isCompleting = true
         defer { isCompleting = false }
         do {
-            let confirmedHandle = if isForcedConnectedIncompletePreview {
-                handle.value
+            let confirmedHandle: String
+            if let existingHandle = UsernameOnboardingHandlePolicy.existingHandle(
+                remoteUsername: authenticatedRemoteUsername,
+                isForcedPreview: isForcedConnectedIncompletePreview
+            ) {
+                // The Apple authentication response is authoritative for an
+                // existing account. The handle can be changed later from
+                // Profile, but onboarding must not attempt to claim it again.
+                confirmedHandle = existingHandle
             } else {
-                try await UsernameIdentityService.claim(handle)
+                confirmedHandle = isForcedConnectedIncompletePreview
+                    ? handle.value
+                    : try await UsernameIdentityService.claim(handle)
             }
             let current = AccountProfileIntegrity.canonicalize(
                 appleUserIdentifier: appleUserIdentifier,
@@ -304,7 +319,7 @@ struct OnboardingScreen: View {
             }
             try context.save()
             usernameHandleVerified = true
-            CloudCollaborationService.shared.currentPersonDidChange()
+            Task { await CloudCollaborationService.shared.accountDidChange() }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onComplete()
         } catch {
@@ -344,11 +359,18 @@ struct OnboardingScreen: View {
                 appleUserIdentifier = credential.user
                 if let email = credential.email { applePrivateEmail = email }
                 hasUsernameSession = true
-                if let username = remoteUser.username, !username.isEmpty {
+                switch UsernameAccountReconciliationPolicy.decision(
+                    remoteUsername: remoteUser.username
+                ) {
+                case .verified(let username):
+                    authenticatedRemoteUsername = username
                     name = username
-                } else if let fullName,
-                          name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    name = fullName
+                case .requiresClaim:
+                    authenticatedRemoteUsername = nil
+                    if let fullName,
+                       name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        name = fullName
+                    }
                 }
                 usernameValidationMessage = nil
                 authMessage = nil
@@ -1193,7 +1215,7 @@ struct ProfileScreen: View {
                 authMessage = remoteUser.username == nil
                     ? "Apple connected. Choose your unique username above."
                     : "Apple account connected securely."
-                CloudCollaborationService.shared.currentPersonDidChange()
+                Task { await CloudCollaborationService.shared.accountDidChange() }
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
                 hasUsernameSession = false
@@ -1217,6 +1239,7 @@ struct ProfileScreen: View {
         usernameHandleVerified = false
         hasUsernameSession = false
         UsernameIdentityService.signOut()
+        CloudCollaborationService.shared.accountDidSignOut()
         authMessage = nil
     }
 }

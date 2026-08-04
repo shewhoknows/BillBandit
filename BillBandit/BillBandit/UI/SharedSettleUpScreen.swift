@@ -44,10 +44,11 @@ struct SharedSettleUpScreen: View {
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .task(id: activeServerGroupId) {
             guard let serverGroupId = activeServerGroupId else { return }
+            let settlementUserLabel = await resolvedSettlementUserLabel()
             store.configure(
                 apiClient: apiClient,
                 groupId: serverGroupId,
-                currentUserLabel: currentUserName
+                currentUserLabel: settlementUserLabel
             )
             store.setVisible(true)
         }
@@ -153,6 +154,17 @@ struct SharedSettleUpScreen: View {
         } catch {
             linkError = "Could not save the link. Try again."
         }
+    }
+
+    private func resolvedSettlementUserLabel() async -> String {
+        if let remoteUser = try? await UsernameIdentityService.currentUser() {
+            for label in [remoteUser.name, remoteUser.preferredName, remoteUser.username] {
+                if let label, label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    return label
+                }
+            }
+        }
+        return currentUserName
     }
 
     private var sharedHeader: some View {

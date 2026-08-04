@@ -70,10 +70,26 @@ enum UsernameAccountReconciliationPolicy {
     }
 }
 
+/// Decides whether onboarding needs an atomic username claim. A verified
+/// server handle belongs to an existing account and must be reused; only a
+/// newly authenticated account may claim the requested handle.
+enum UsernameOnboardingHandlePolicy {
+    static func existingHandle(remoteUsername: String?,
+                                isForcedPreview: Bool) -> String? {
+        if isForcedPreview { return nil }
+        guard case .verified(let username) =
+                UsernameAccountReconciliationPolicy.decision(remoteUsername: remoteUsername)
+        else { return nil }
+        return username
+    }
+}
+
 enum UsernameIdentityService {
     struct RemoteUser: Decodable, Sendable {
         let id: String
         let username: String?
+        let name: String?
+        let preferredName: String?
     }
 
     enum ServiceError: LocalizedError {

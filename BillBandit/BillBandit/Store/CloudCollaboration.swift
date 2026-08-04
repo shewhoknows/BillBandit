@@ -563,6 +563,26 @@ final class CloudCollaborationService: ObservableObject {
         }
     }
 
+    /// Refreshes the CloudKit identity after a new Apple account signs in.
+    /// CloudKit record names are account-scoped; retaining the previous one
+    /// would publish the new profile and ledger under the old account.
+    func accountDidChange() async {
+        resetAccountScopedState()
+        if isSynchronizing || isUploading {
+            synchronizeRequested = true
+            fullSynchronizationRequested = true
+            return
+        }
+        await prepare()
+    }
+
+    /// Drops queued work for a signed-out account so a later sign-in cannot
+    /// upload that account's private ledger under a different identity.
+    func accountDidSignOut() {
+        resetAccountScopedState()
+        state = .idle
+    }
+
     func currentPersonDidChange() {
         linkCurrentPerson()
         Task { await publishFriendProfile() }
@@ -571,6 +591,23 @@ final class CloudCollaborationService: ObservableObject {
         for group in groups where group.members.contains(where: \.isCurrentUser) {
             groupDidChange(group)
         }
+    }
+
+    private func resetAccountScopedState() {
+        currentUserRecordName = nil
+        pendingMemberClaimGroupID = nil
+        pendingUploadGroupIDs.removeAll()
+        uploadAttempts.removeAll()
+        uploadRetryAfter.removeAll()
+        invitationAttempts.removeAll()
+        invitationRetryAfter.removeAll()
+        discardedInvitationRecordIDs.removeAll()
+        subscribedZoneKeys.removeAll()
+        syncPausedUntil = nil
+        uploadWorker?.cancel()
+        uploadWorker = nil
+        synchronizeRequested = false
+        fullSynchronizationRequested = false
     }
 
     func refreshFriendProfiles() async {

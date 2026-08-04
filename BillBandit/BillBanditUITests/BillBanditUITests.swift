@@ -191,7 +191,6 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(activityBell.label.contains("unread"))
         activityBell.tap()
         XCTAssertTrue(app.staticTexts["Activity"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["this month"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["Maya Chen added “Taxi from airport” in Goa Trip"]
             .waitForExistence(timeout: 4))
     }

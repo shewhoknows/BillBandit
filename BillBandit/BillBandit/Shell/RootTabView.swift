@@ -182,8 +182,20 @@ struct AppRootView: View {
             accountGateState = .signedOut
             return
         }
-        if forceSignedOutOnboarding || bypassOnboarding {
+        if forceSignedOutOnboarding {
             verifyAppleCredential()
+            return
+        }
+        if bypassOnboarding {
+            // UI-test launch flags skip the onboarding screen, but they must
+            // not skip session reconciliation when a real mobile session is
+            // present. This keeps a relaunch from displaying the previous
+            // Apple account's local current-user row.
+            if !appleUserIdentifier.isEmpty && UsernameIdentityService.hasStoredSession {
+                await reconcileUsernameAndVerifyAppleCredential()
+            } else {
+                verifyAppleCredential()
+            }
             return
         }
 
@@ -223,6 +235,7 @@ struct AppRootView: View {
             accountOnboardingComplete = false
             usernameHandleVerified = false
             UsernameIdentityService.signOut()
+            CloudCollaborationService.shared.accountDidSignOut()
             accountGateState = .signedOut
         }
     }
@@ -317,6 +330,7 @@ struct AppRootView: View {
                     accountOnboardingComplete = false
                     usernameHandleVerified = false
                     UsernameIdentityService.signOut()
+                    CloudCollaborationService.shared.accountDidSignOut()
                     accountGateState = .signedOut
                 }
             }

@@ -122,16 +122,44 @@ enum AccountProfileIntegrity {
         let usableCloudUser = cloudUser.flatMap { $0.isEmpty ? nil : $0 }
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
 
-        let candidates = people.filter { person in
-            if let usableAppleID, person.appleUserIdentifier == usableAppleID { return true }
-            if let usableCloudUser, person.cloudUserRecordName == usableCloudUser { return true }
-            return person.isCurrentUser && person.appleUserIdentifier == nil
+        // CloudKit's user record is the authoritative identity once it is
+        // available. The Apple ID in UserDefaults can briefly belong to the
+        // account that was signed out on this device, so it must not retarget
+        // that old row to the newly signed-in CloudKit account.
+        let cloudCandidates = usableCloudUser.map { cloudUser in
+            people.filter { $0.cloudUserRecordName == cloudUser }
+        } ?? []
+        let appleCandidates = usableAppleID.map { appleID in
+            people.filter { $0.appleUserIdentifier == appleID }
+        } ?? []
+        let candidates: [Person]
+        if !cloudCandidates.isEmpty {
+            // Include only Apple-ID duplicates that are not already linked to
+            // another CloudKit account. A stale old-account row must remain a
+            // friend/profile record instead of being merged into this account.
+            let matching = cloudCandidates + appleCandidates.filter { person in
+                person.cloudUserRecordName == nil ||
+                    person.cloudUserRecordName == usableCloudUser
+            }
+            var seen = Set<UUID>()
+            candidates = matching.filter { seen.insert($0.id).inserted }
+        } else if usableCloudUser != nil {
+            // A new CloudKit account on a device with old local data gets a new
+            // current-user row. Reusing the old current row was the source of
+            // the two-Apple-ID relaunch identity flip.
+            candidates = appleCandidates.filter { person in
+                person.cloudUserRecordName == nil
+            }
+        } else {
+            candidates = appleCandidates.isEmpty
+                ? people.filter { $0.isCurrentUser && $0.appleUserIdentifier == nil }
+                : appleCandidates
         }
 
         func identityScore(_ person: Person) -> Int {
             var score = 0
             if let usableAppleID, person.appleUserIdentifier == usableAppleID { score += 4 }
-            if let usableCloudUser, person.cloudUserRecordName == usableCloudUser { score += 2 }
+            if let usableCloudUser, person.cloudUserRecordName == usableCloudUser { score += 8 }
             if person.isCurrentUser { score += 1 }
             return score
         }
