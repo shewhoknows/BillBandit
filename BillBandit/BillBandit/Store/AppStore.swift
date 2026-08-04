@@ -34,14 +34,13 @@ enum AppStore {
     static let schema = Schema([
         Person.self, Group.self, Expense.self, Split.self, Settlement.self, ActivityItem.self,
         UserProgress.self, ProcessedRewardEvent.self, AchievementUnlock.self,
+        CachedLedgerSnapshot.self, PendingLedgerOperation.self, CloudKitLedgerImportState.self,
     ])
 
     static let container: ModelContainer = {
         do {
-            // iCloud capability is used by CloudCollaborationService's shared
-            // record zones. Keep SwiftData explicitly local so it doesn't infer
-            // private-store mirroring from the entitlement and reject this
-            // existing local-first schema.
+            // Ledger cache, queue, and migration checkpoints are local SwiftData
+            // records. CloudKit is intentionally not a SwiftData ledger store.
             let config = ModelConfiguration(cloudKitDatabase: .none)
             return try ModelContainer(for: schema, configurations: config)
         } catch {
@@ -91,6 +90,129 @@ enum AppStore {
             )
         }
         ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
+    }
+}
+
+enum ServerLedgerLifecycleTrigger: String, Sendable {
+    case startup
+    case foreground
+    case reconnect
+}
+
+/// Owns the production cache and queue lifecycle. The API account ID is the
+/// only identity accepted here; Apple and CloudKit identities never scope a
+/// `ServerLedgerSnapshot` or `PendingLedgerOperation`.
+@MainActor
+final class ServerLedgerAccountLifecycle {
+    static let shared = ServerLedgerAccountLifecycle()
+
+    private static let persistedAccountIDKey = "serverLedger.authoritativeAccountID"
+
+    private let store: ServerLedgerStore
+    private let sync: ServerLedgerSync
+    private(set) var activeAccountID: String?
+    private(set) var cachedCanonicalSnapshots: [ServerLedgerSnapshot] = []
+    private(set) var lastError: String?
+    private var lifecycleGeneration = 0
+    private var isReconciling = false
+    private var reconciliationGeneration = 0
+
+    private init() {
+        let store = ServerLedgerStore(context: AppStore.container.mainContext)
+        self.store = store
+        self.sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
+    }
+
+    func activate(accountID rawAccountID: String) throws {
+        let accountID = rawAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !accountID.isEmpty else {
+            throw ServerLedgerSyncError.accountScopeRequired
+        }
+
+        let persistedAccount = UserDefaults.standard.string(forKey: Self.persistedAccountIDKey)
+        let previousAccount = activeAccountID ?? persistedAccount
+        let accountChanged = previousAccount != accountID || activeAccountID == nil
+        if let previousAccount, previousAccount != accountID {
+            invalidateReconciliation()
+            try store.clear(accountID: previousAccount)
+        }
+        if sync.activeAccountID != accountID {
+            try sync.activate(accountID: accountID)
+        }
+        activeAccountID = accountID
+        UserDefaults.standard.set(accountID, forKey: Self.persistedAccountIDKey)
+        cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
+        lastError = nil
+        if accountChanged { lifecycleGeneration &+= 1 }
+    }
+
+    func signOut(accountID rawAccountID: String? = nil) {
+        invalidateReconciliation()
+        let persistedAccount = UserDefaults.standard.string(forKey: Self.persistedAccountIDKey)
+        let accounts = Set([
+            rawAccountID,
+            activeAccountID,
+            persistedAccount,
+            sync.activeAccountID,
+        ].compactMap { $0 })
+        if let syncAccount = sync.activeAccountID {
+            try? sync.signOut(accountID: syncAccount)
+        }
+        for accountID in accounts {
+            try? store.clear(accountID: accountID)
+        }
+        activeAccountID = nil
+        cachedCanonicalSnapshots = []
+        lastError = nil
+        lifecycleGeneration &+= 1
+        UserDefaults.standard.removeObject(forKey: Self.persistedAccountIDKey)
+    }
+
+    /// Loads the current account's cache first, drains only due operations for
+    /// that same account, then refreshes every API-backed local group.
+    func reconcile(trigger: ServerLedgerLifecycleTrigger) async {
+        guard let accountID = activeAccountID else { return }
+        guard !isReconciling else { return }
+        isReconciling = true
+        reconciliationGeneration &+= 1
+        let reconciliationGeneration = self.reconciliationGeneration
+        defer {
+            if self.reconciliationGeneration == reconciliationGeneration {
+                isReconciling = false
+            }
+        }
+        let generation = lifecycleGeneration
+        cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
+        if trigger == .reconnect || trigger == .foreground {
+            sync.markReconnected()
+        }
+
+        do {
+            _ = try await sync.drainPendingOperations(for: accountID)
+            guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+
+            let context = AppStore.container.mainContext
+            let groups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
+            let serverGroupIDs = groups.compactMap { SettlementAPIConfiguration.serverGroupId(for: $0) }
+            for groupID in Set(serverGroupIDs).sorted() {
+                guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+                let scope = ServerBackedLedgerScope(accountID: accountID, groupID: groupID)
+                _ = try await sync.refresh(scope: scope)
+            }
+            guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+            cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
+            lastError = nil
+        } catch let error as ServerLedgerSyncError where error == .accountChanged {
+            return
+        } catch {
+            guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func invalidateReconciliation() {
+        reconciliationGeneration &+= 1
+        isReconciling = false
     }
 }
 

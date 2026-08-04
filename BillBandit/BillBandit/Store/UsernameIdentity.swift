@@ -124,7 +124,7 @@ enum UsernameIdentityService {
     private struct UserResponse: Decodable { let user: RemoteUser }
     private struct ErrorResponse: Decodable { let error: String? }
 
-    // Same REST base as settle-up (Debug → local FairShare via API_BASE_URL in Info.plist).
+    // Same REST base as the BillBandit API (Debug → local API via API_BASE_URL).
     private static var baseURL: URL { SettlementAPIConfiguration.baseURL }
 
     static var hasStoredSession: Bool { MobileTokenStore.read() != nil }
@@ -146,6 +146,12 @@ enum UsernameIdentityService {
             path: "/api/mobile/auth/apple", method: "POST", body: body, bearerToken: nil
         )
         try MobileTokenStore.write(response.token)
+        try await MainActor.run {
+            guard MobileTokenStore.read() == response.token else {
+                throw ServiceError.missingSession
+            }
+            try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+        }
         return response.user
     }
 
@@ -162,11 +168,17 @@ enum UsernameIdentityService {
         let response: UserResponse = try await perform(
             path: "/api/mobile/auth/me", method: "GET", bearerToken: token
         )
+        try await MainActor.run {
+            guard MobileTokenStore.read() == token else {
+                throw ServiceError.missingSession
+            }
+            try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+        }
         return response.user
     }
 
     static func signOut() {
-        MobileTokenStore.clear()
+        clearSessionAndInvalidateLedger()
     }
 
     private static func save(_ handle: UsernameHandle, method: String) async throws -> String {
@@ -226,7 +238,7 @@ enum UsernameIdentityService {
             throw ServiceError.response("BillBandit returned an invalid response.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 { MobileTokenStore.clear() }
+            if http.statusCode == 401 { clearSessionAndInvalidateLedger() }
             let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
             let fallback = http.statusCode == 409
                 ? "That username is already taken."
@@ -237,6 +249,13 @@ enum UsernameIdentityService {
             return try JSONDecoder().decode(Response.self, from: data)
         } catch {
             throw ServiceError.response("BillBandit returned an unreadable response.")
+        }
+    }
+
+    private static func clearSessionAndInvalidateLedger() {
+        MobileTokenStore.clear()
+        Task { @MainActor in
+            ServerLedgerAccountLifecycle.shared.signOut()
         }
     }
 }

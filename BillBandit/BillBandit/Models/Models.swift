@@ -263,7 +263,7 @@ final class Group {
     var cloudZoneName: String?
     var cloudZoneOwnerName: String?
     var cloudDatabaseScopeRaw: String?
-    /// FairShare REST group id when this invoice syncs through the shared settlement API.
+    /// BillBandit API group id for a server-backed shared ledger.
     var serverGroupId: String?
     var members: [Person]
     @Relationship(deleteRule: .cascade, inverse: \Expense.group) var expenses: [Expense]
@@ -450,4 +450,39 @@ final class AchievementUnlock {
     var achievement: StarterAchievement {
         StarterAchievement(rawValue: achievementRaw) ?? .initiativeTaker
     }
+}
+
+/// Durable state for the one-time server migration of legacy CloudKit ledger
+/// records. The checkpoint is never read as ledger data; it only lets the
+/// authenticated API account resume or retry the migration safely.
+@Model
+final class CloudKitLedgerImportState {
+    @Attribute(.unique) var accountID: String
+    var sourceKey: String?
+    var importID: String?
+    var statusRaw: String
+    var checkpointData: Data?
+    var lastError: String?
+    var completedAt: Date?
+    var updatedAt: Date
+
+    init(accountID: String,
+         statusRaw: String = "pending",
+         sourceKey: String? = nil,
+         importID: String? = nil,
+         checkpointData: Data? = nil,
+         lastError: String? = nil,
+         completedAt: Date? = nil,
+         updatedAt: Date = .now) {
+        self.accountID = accountID
+        self.sourceKey = sourceKey
+        self.importID = importID
+        self.statusRaw = statusRaw
+        self.checkpointData = checkpointData
+        self.lastError = lastError
+        self.completedAt = completedAt
+        self.updatedAt = updatedAt
+    }
+
+    var isComplete: Bool { statusRaw == "completed" }
 }
