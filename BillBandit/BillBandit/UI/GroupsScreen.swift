@@ -8,6 +8,7 @@ struct GroupsScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var collaboration = CloudCollaborationService.shared
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAdd = false
     @State private var path = NavigationPath()
 
@@ -50,6 +51,17 @@ struct GroupsScreen: View {
                     .listRowSeparator(.hidden)
                     .accessibilityIdentifier("cloudSyncRetry")
                 }
+                if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("canonical shared ledger")
+                            .font(BrandFont.type(9, bold: true))
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                    }
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    .padding(.vertical, 5)
+                    .listRowBackground(Color.Brand.cobalt)
+                    .listRowSeparator(.hidden)
+                }
                 if groups.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .neutral, size: 145)
@@ -86,10 +98,27 @@ struct GroupsScreen: View {
                                 Text(GroupCopy.memberCount(group.members.count))
                                     .font(BrandFont.type(9.5))
                                     .opacity(0.65)
+                                if let serverGroupID = group.serverLedgerGroupID {
+                                    Text(serverLedger.snapshot?.group(for: serverGroupID).map {
+                                        "shared · read revision \($0.readRevision)"
+                                    } ?? "shared · balance pending")
+                                        .font(BrandFont.type(8.5, bold: true))
+                                        .opacity(0.58)
+                                } else {
+                                    Text("on this device")
+                                        .font(BrandFont.type(8.5, bold: true))
+                                        .opacity(0.58)
+                                }
                             }
                             .foregroundStyle(Color.Brand.creamSoft)
                             Spacer()
-                            if let me = me.first {
+                            if let serverGroupID = group.serverLedgerGroupID {
+                                if let presentation = serverLedger.groupBalancePresentation(for: serverGroupID) {
+                                    ServerLedgerBalanceChip(presentation: presentation)
+                                } else {
+                                    ServerLedgerUnavailableChip()
+                                }
+                            } else if let me = me.first {
                                 NetChip(net: BalanceMath.nets(in: group)[me.id] ?? 0)
                             }
                         }
@@ -117,6 +146,7 @@ struct GroupsScreen: View {
                 await CloudCollaborationService.shared.synchronize(
                     promoteLocalChanges: true
                 )
+                await serverLedger.refresh(groups: groups)
             }
             .navigationTitle("Groups")
             .toolbar {
@@ -137,6 +167,9 @@ struct GroupsScreen: View {
             guard let i = args.firstIndex(of: "-openGroup"), i + 1 < args.count else { return }
             let name = args[(i + 1)...].joined(separator: " ")
             if let g = groups.first(where: { $0.name == name }) { path.append(g.id) }
+        }
+        .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+            await serverLedger.refresh(groups: groups)
         }
     }
 }

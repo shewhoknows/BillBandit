@@ -70,10 +70,26 @@ enum UsernameAccountReconciliationPolicy {
     }
 }
 
+/// Decides whether onboarding needs an atomic username claim. A verified
+/// server handle belongs to an existing account and must be reused; only a
+/// newly authenticated account may claim the requested handle.
+enum UsernameOnboardingHandlePolicy {
+    static func existingHandle(remoteUsername: String?,
+                                isForcedPreview: Bool) -> String? {
+        if isForcedPreview { return nil }
+        guard case .verified(let username) =
+                UsernameAccountReconciliationPolicy.decision(remoteUsername: remoteUsername)
+        else { return nil }
+        return username
+    }
+}
+
 enum UsernameIdentityService {
     struct RemoteUser: Decodable, Sendable {
         let id: String
         let username: String?
+        let name: String?
+        let preferredName: String?
     }
 
     enum ServiceError: LocalizedError {
@@ -106,9 +122,10 @@ enum UsernameIdentityService {
         let user: RemoteUser
     }
     private struct UserResponse: Decodable { let user: RemoteUser }
+    private struct AccountDeletionResponse: Decodable { let deleted: Bool }
     private struct ErrorResponse: Decodable { let error: String? }
 
-    // Same REST base as settle-up (Debug → local FairShare via API_BASE_URL in Info.plist).
+    // Same REST base as the BillBandit API (Debug → local API via API_BASE_URL).
     private static var baseURL: URL { SettlementAPIConfiguration.baseURL }
 
     static var hasStoredSession: Bool { MobileTokenStore.read() != nil }
@@ -130,6 +147,12 @@ enum UsernameIdentityService {
             path: "/api/mobile/auth/apple", method: "POST", body: body, bearerToken: nil
         )
         try MobileTokenStore.write(response.token)
+        try await MainActor.run {
+            guard MobileTokenStore.read() == response.token else {
+                throw ServiceError.missingSession
+            }
+            try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+        }
         return response.user
     }
 
@@ -146,11 +169,28 @@ enum UsernameIdentityService {
         let response: UserResponse = try await perform(
             path: "/api/mobile/auth/me", method: "GET", bearerToken: token
         )
+        try await MainActor.run {
+            guard MobileTokenStore.read() == token else {
+                throw ServiceError.missingSession
+            }
+            try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+        }
         return response.user
     }
 
     static func signOut() {
-        MobileTokenStore.clear()
+        clearSessionAndInvalidateLedger()
+    }
+
+    static func deleteAccount() async throws {
+        guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
+        let response: AccountDeletionResponse = try await perform(
+            path: "/api/mobile/auth/me", method: "DELETE", bearerToken: token
+        )
+        guard response.deleted else {
+            throw ServiceError.response("BillBandit could not confirm account deletion.")
+        }
+        clearSessionAndInvalidateLedger()
     }
 
     private static func save(_ handle: UsernameHandle, method: String) async throws -> String {
@@ -210,17 +250,29 @@ enum UsernameIdentityService {
             throw ServiceError.response("BillBandit returned an invalid response.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 { MobileTokenStore.clear() }
+            if http.statusCode == 401 { clearSessionAndInvalidateLedger() }
             let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
-            let fallback = http.statusCode == 409
-                ? "That username is already taken."
-                : "Could not save your username. Try again."
+            let fallback: String
+            if http.statusCode == 409 {
+                fallback = "That username is already taken."
+            } else if method == "DELETE" {
+                fallback = "Could not delete your account. Try again."
+            } else {
+                fallback = "Could not save your username. Try again."
+            }
             throw ServiceError.response(payload?.error ?? fallback)
         }
         do {
             return try JSONDecoder().decode(Response.self, from: data)
         } catch {
             throw ServiceError.response("BillBandit returned an unreadable response.")
+        }
+    }
+
+    private static func clearSessionAndInvalidateLedger() {
+        MobileTokenStore.clear()
+        Task { @MainActor in
+            ServerLedgerAccountLifecycle.shared.signOut()
         }
     }
 }

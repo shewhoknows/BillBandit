@@ -87,7 +87,3 @@ export function minorUnitsToFloat(amount: CanonicalAmount): number {
   const factor = 10 ** amount.currencyExponent
   return Number(amount.minorUnits) / factor
 }
-
-export function dualWriteFloat(amount: CanonicalAmount): number {
-  return minorUnitsToFloat(amount)
-}

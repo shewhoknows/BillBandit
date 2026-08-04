@@ -2,7 +2,6 @@ import SwiftUI
 
 @main
 struct BillBanditApp: App {
-    @UIApplicationDelegateAdaptor(CloudShareAppDelegate.self) private var cloudShareDelegate
     @Environment(\.scenePhase) private var scenePhase
 
     /// Nav-bar branding: Fredoka titles in cream over the cobalt background.

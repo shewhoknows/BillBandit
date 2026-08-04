@@ -2,12 +2,12 @@ import { startOutboxDispatcher } from './dispatcher'
 import { createDefaultPusherAdapter, hasPusherCredentials, setPusherAdapter } from './pusher'
 
 const globalForOutbox = globalThis as unknown as {
-  __fairshareOutboxBootstrapped?: boolean
+  __billbanditOutboxBootstrapped?: boolean
 }
 
 export function bootstrapSettlementOutbox(): void {
-  if (globalForOutbox.__fairshareOutboxBootstrapped) return
-  globalForOutbox.__fairshareOutboxBootstrapped = true
+  if (globalForOutbox.__billbanditOutboxBootstrapped) return
+  globalForOutbox.__billbanditOutboxBootstrapped = true
 
   if (!hasPusherCredentials()) {
     return
@@ -18,5 +18,5 @@ export function bootstrapSettlementOutbox(): void {
 }
 
 export function resetOutboxBootstrapForTests(): void {
-  globalForOutbox.__fairshareOutboxBootstrapped = false
+  globalForOutbox.__billbanditOutboxBootstrapped = false
 }

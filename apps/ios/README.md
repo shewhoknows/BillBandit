@@ -6,7 +6,7 @@ The BillBandit iOS app lives at the repo root:
 
 **`BillBandit/BillBandit.xcodeproj`**
 
-We kept that path stable (instead of moving sources under `apps/ios/`) to avoid `xcodeproj`, signing, and SPM churn. See [.scratch/retire-fairshare/monorepo-layout.md](../../.scratch/retire-fairshare/monorepo-layout.md).
+We kept that path stable (instead of moving sources under `apps/ios/`) to avoid `xcodeproj`, signing, and SPM churn. See the root README for the monorepo layout notes.
 
 ## Open in Xcode
 

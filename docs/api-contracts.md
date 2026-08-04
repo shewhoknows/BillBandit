@@ -1,14 +1,14 @@
-# BillBandit / FairShare Mobile API Contract
+# BillBandit Mobile API Contract
 
 Base URL: `https://billbandit-api.contenthelper.in`
 All mobile endpoints live under `/api/mobile/...`. All requests and responses are JSON (`Content-Type: application/json`).
 
 Source of truth (read-only audit, 2026-07-08):
-- Routes: `/Users/prateekranka/Cowork/FairShare/apps/web/app/api/mobile/**/route.ts`
-- Auth: `/Users/prateekranka/Cowork/FairShare/apps/web/lib/mobile-auth.ts`
-- DTOs: `/Users/prateekranka/Cowork/FairShare/apps/web/lib/mobile-dto.ts`
-- Validation: `/Users/prateekranka/Cowork/FairShare/apps/web/lib/validations.ts`
-- Schema: `/Users/prateekranka/Cowork/FairShare/apps/web/prisma/schema.prisma`
+- Routes: `apps/api/app/api/mobile/**/route.ts`
+- Auth: `apps/api/lib/mobile-auth.ts`
+- DTOs: `apps/api/lib/mobile-dto.ts`
+- Validation: `apps/api/lib/validations-mobile-auth.ts` and `apps/api/lib/validations-mobile-ledger.ts`
+- Schema: `apps/api/prisma/schema.prisma`
 
 ---
 

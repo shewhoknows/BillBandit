@@ -161,20 +161,6 @@ final class BalanceEngineTests: XCTestCase {
             .contains { $0.id == duplicateActivity.id })
     }
 
-    func testAutomaticShareDefersUntilEveryMemberHasCloudIdentity() {
-        let current = Person(name: "You", isCurrentUser: true)
-        let friend = Person(name: "Friend")
-        let group = Group(name: "Dinner", members: [current, friend])
-
-        XCTAssertEqual(
-            AutomaticShareDecision.forGroup(group),
-            .deferUntilMembersLinked
-        )
-
-        friend.cloudUserRecordName = "cloud-user-friend"
-        XCTAssertEqual(AutomaticShareDecision.forGroup(group), .ready)
-    }
-
     func testStaleRemoteManifestCannotDeleteOrHideConcurrentExpenses() {
         let localExpenseID = UUID()
         let remoteExpenseID = UUID()
@@ -606,6 +592,68 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(expense.paidBy?.id, newer.id)
         XCTAssertEqual(expense.splits.first?.person?.id, newer.id)
         XCTAssertEqual(activity.actorID, newer.id)
+    }
+
+    @MainActor
+    func testCloudIdentityChangeCreatesANewCurrentProfileInsteadOfReusingOldAccount() throws {
+        let configuration = ModelConfiguration(
+            "AccountSwitchIntegrity", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let oldAccount = Person(name: "old_account", isCurrentUser: true)
+        oldAccount.appleUserIdentifier = "apple-old"
+        oldAccount.cloudUserRecordName = "cloud-old"
+        context.insert(oldAccount)
+        try context.save()
+
+        let current = AccountProfileIntegrity.canonicalize(
+            appleUserIdentifier: "apple-new",
+            cloudUserRecordName: "cloud-new",
+            context: context
+        )
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertNotEqual(current.id, oldAccount.id)
+        XCTAssertEqual(current.appleUserIdentifier, "apple-new")
+        XCTAssertEqual(current.cloudUserRecordName, "cloud-new")
+        XCTAssertEqual(people.filter(\.isCurrentUser).map(\.id), [current.id])
+        XCTAssertEqual(oldAccount.cloudUserRecordName, "cloud-old")
+    }
+
+    @MainActor
+    func testCloudIdentityWinsOverAStaleAppleIdentifier() throws {
+        let configuration = ModelConfiguration(
+            "CloudIdentityPriority", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let stale = Person(name: "stale_account", isCurrentUser: true)
+        stale.appleUserIdentifier = "apple-old"
+        stale.cloudUserRecordName = "cloud-old"
+        let cloudMatch = Person(name: "invitee_account")
+        cloudMatch.appleUserIdentifier = "apple-new"
+        cloudMatch.cloudUserRecordName = "cloud-new"
+        context.insert(stale)
+        context.insert(cloudMatch)
+        try context.save()
+
+        let current = AccountProfileIntegrity.canonicalize(
+            appleUserIdentifier: "apple-old",
+            cloudUserRecordName: "cloud-new",
+            context: context
+        )
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(current.id, cloudMatch.id)
+        XCTAssertEqual(people.filter(\.isCurrentUser).map(\.id), [cloudMatch.id])
+        XCTAssertEqual(stale.cloudUserRecordName, "cloud-old")
     }
 
     func testStaleRemoteProfileCannotOverwriteProfilePageUsername() {
@@ -1064,6 +1112,20 @@ struct AppleCredentialGatePolicyTests {
         #expect(
             UsernameAccountReconciliationPolicy.decision(remoteUsername: "") ==
                 .requiresClaim
+        )
+    }
+
+    @Test("Existing server handles are reused during onboarding")
+    func existingServerHandleDoesNotNeedASecondClaim() {
+        #expect(
+            UsernameOnboardingHandlePolicy.existingHandle(
+                remoteUsername: "@Esha", isForcedPreview: false
+            ) == "esha"
+        )
+        #expect(
+            UsernameOnboardingHandlePolicy.existingHandle(
+                remoteUsername: nil, isForcedPreview: false
+            ) == nil
         )
     }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import Foundation
 
 /// Add expense — mockup B4 layout. Supports equal / exact / % / shares splits.
 struct AddExpenseSheet: View {
@@ -19,6 +20,9 @@ struct AddExpenseSheet: View {
     @State private var mode: SplitMode = .equal
     @State private var inputs: [UUID: String] = [:] // per-person values for exact/%/shares
     @State private var errorMessage: String?
+    @State private var statusMessage: String?
+    @State private var isSubmitting = false
+    @State private var activeOperationID: UUID?
     @FocusState private var focusedField: FocusedField?
 
     private let editingExpense: Expense?
@@ -76,6 +80,14 @@ struct AddExpenseSheet: View {
                             .font(BrandFont.type(10, bold: true))
                             .foregroundStyle(Color.red.opacity(0.85))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("expenseMutationError")
+                    }
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(BrandFont.type(10, bold: true))
+                            .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("expenseMutationStatus")
                     }
                     saveButton
                 }
@@ -237,7 +249,7 @@ struct AddExpenseSheet: View {
 
     private var saveButton: some View {
         Button(action: save) {
-            Text(editingExpense == nil ? "Save expense" : "Save changes")
+            Text(isSubmitting ? "Saving…" : (editingExpense == nil ? "Save expense" : "Save changes"))
                 .font(BrandFont.display(15.5))
                 .foregroundStyle(Color.Brand.creamSoft)
                 .frame(maxWidth: .infinity, minHeight: 50)
@@ -246,8 +258,8 @@ struct AddExpenseSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("saveExpenseButton")
-        .disabled(parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil)
-        .opacity((parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil) ? 0.5 : 1)
+        .disabled(isSubmitting || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil)
+        .opacity((isSubmitting || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil) ? 0.5 : 1)
     }
 
     // MARK: helpers
@@ -293,6 +305,7 @@ struct AddExpenseSheet: View {
         guard let amount = parsedAmount, let payer = paidBy else { return }
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces).capitalizingFirstLetter
         guard !trimmedTitle.isEmpty else { return }
+        guard !isSubmitting else { return }
 
         var splitInputs = [SplitInput]()
         switch mode {
@@ -313,69 +326,21 @@ struct AddExpenseSheet: View {
                              value: Money.parseInput(inputs[p.id] ?? "0") ?? 0,
                              computedAmount: amt, person: p)
             }
-            let roundedAmount = Money.whole(amount)
-            let expense: Expense
-            var rewardOutcome: RewardOutcome?
-            if let existing = editingExpense {
-                let oldGroup = existing.group
-                if oldGroup?.id != group?.id {
-                    oldGroup?.expenses.removeAll { $0.id == existing.id }
-                }
-                let oldSplits = existing.splits
-                existing.splits.removeAll()
-                for oldSplit in oldSplits { context.delete(oldSplit) }
-                existing.title = trimmedTitle
-                existing.amount = roundedAmount
-                existing.categoryRaw = category.rawValue
-                existing.group = group
-                existing.paidBy = payer
-                existing.splits = splits
-                expense = existing
-                let actorName = you?.name ?? "You"
-                context.insert(ActivityItem(kind: .expenseEdited,
-                                            summary: "\(actorName) updated “\(trimmedTitle)”",
-                                            refID: existing.id, actorID: you?.id,
-                                            groupID: group?.id, groupName: group?.name))
-                if let currentUser = you {
-                    try? AchievementEngine.unlock(.highOnDetails, personID: currentUser.id,
-                                                  context: context)
-                }
+            if let selectedGroup = group, selectedGroup.serverLedgerGroupID != nil {
+                saveSharedExpense(
+                    amount: amount,
+                    title: trimmedTitle,
+                    payer: payer,
+                    computed: computed,
+                    group: selectedGroup
+                )
             } else {
-                expense = Expense(title: trimmedTitle, amount: roundedAmount,
-                                  category: category, group: group, paidBy: payer, splits: splits)
-                context.insert(expense)
-                let actorName = you?.name ?? "You"
-                context.insert(ActivityItem(kind: .expenseAdded,
-                                            summary: "\(actorName) added “\(trimmedTitle)”",
-                                            refID: expense.id, actorID: you?.id,
-                                            groupID: group?.id, groupName: group?.name))
-                if let currentUser = you {
-                    rewardOutcome = try? RewardEngine.award(
-                        action: .expenseAdded, eventID: expense.id,
-                        personID: currentUser.id, context: context
-                    )
-                }
-            }
-            for split in splits {
-                split.expense = expense
-                context.insert(split)
-            }
-            if let selectedGroup = group,
-               !selectedGroup.expenses.contains(where: { $0.id == expense.id }) {
-                selectedGroup.expenses.append(expense)
-            }
-            if let currentUser = you {
-                try? AchievementEngine.evaluateExpenseMilestones(personID: currentUser.id,
-                                                                  context: context)
-            }
-            try context.save()
-            if let selectedGroup = group {
-                CloudCollaborationService.shared.groupDidChange(selectedGroup)
-            }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            dismiss()
-            if let rewardOutcome {
-                RewardFeedbackCenter.shared.present(rewardOutcome)
+                saveLocalExpense(
+                    amount: amount,
+                    title: trimmedTitle,
+                    payer: payer,
+                    splits: splits
+                )
             }
         } catch let e as SplitError {
             switch e {
@@ -392,6 +357,376 @@ struct AddExpenseSheet: View {
             errorMessage = "couldn't save that expense"
         }
     }
+
+    private func saveLocalExpense(
+        amount: Decimal,
+        title: String,
+        payer: Person,
+        splits: [Split]
+    ) {
+        let roundedAmount = Money.whole(amount)
+        let expense: Expense
+        var rewardOutcome: RewardOutcome?
+        if let existing = editingExpense {
+            let oldGroup = existing.group
+            if oldGroup?.id != group?.id {
+                oldGroup?.expenses.removeAll { $0.id == existing.id }
+            }
+            let oldSplits = existing.splits
+            existing.splits.removeAll()
+            for oldSplit in oldSplits { context.delete(oldSplit) }
+            existing.title = title
+            existing.amount = roundedAmount
+            existing.categoryRaw = category.rawValue
+            existing.group = group
+            existing.paidBy = payer
+            existing.splits = splits
+            expense = existing
+            let actorName = you?.name ?? "You"
+            context.insert(ActivityItem(kind: .expenseEdited,
+                                        summary: "\(actorName) updated “\(title)”",
+                                        refID: existing.id, actorID: you?.id,
+                                        groupID: group?.id, groupName: group?.name))
+            if let currentUser = you {
+                try? AchievementEngine.unlock(.highOnDetails, personID: currentUser.id,
+                                              context: context)
+            }
+        } else {
+            expense = Expense(title: title, amount: roundedAmount,
+                              category: category, group: group, paidBy: payer, splits: splits)
+            context.insert(expense)
+            let actorName = you?.name ?? "You"
+            context.insert(ActivityItem(kind: .expenseAdded,
+                                        summary: "\(actorName) added “\(title)”",
+                                        refID: expense.id, actorID: you?.id,
+                                        groupID: group?.id, groupName: group?.name))
+            if let currentUser = you {
+                rewardOutcome = try? RewardEngine.award(
+                    action: .expenseAdded, eventID: expense.id,
+                    personID: currentUser.id, context: context
+                )
+            }
+        }
+        for split in splits {
+            split.expense = expense
+            context.insert(split)
+        }
+        if let selectedGroup = group,
+           !selectedGroup.expenses.contains(where: { $0.id == expense.id }) {
+            selectedGroup.expenses.append(expense)
+        }
+        if let currentUser = you {
+            try? AchievementEngine.evaluateExpenseMilestones(personID: currentUser.id,
+                                                              context: context)
+        }
+        do {
+            try context.save()
+            if let selectedGroup = group {
+                CloudCollaborationService.shared.groupDidChange(selectedGroup)
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+            if let rewardOutcome {
+                RewardFeedbackCenter.shared.present(rewardOutcome)
+            }
+        } catch {
+            errorMessage = "couldn't save that expense"
+        }
+    }
+
+    @MainActor
+    private func saveSharedExpense(
+        amount: Decimal,
+        title: String,
+        payer: Person,
+        computed: [UUID: Decimal],
+        group: Group
+    ) {
+        guard let rawServerGroupID = group.serverLedgerGroupID else { return }
+        let operationID = activeOperationID ?? UUID()
+        activeOperationID = operationID
+        isSubmitting = true
+        errorMessage = nil
+        statusMessage = "Preparing a canonical shared-ledger mutation…"
+
+        Task { @MainActor in
+            var queued = false
+            do {
+                let remoteUser = try await T15CanonicalLedgerRuntime.shared.authenticatedUser()
+                let scope = ServerBackedLedgerScope(
+                    accountID: remoteUser.id,
+                    groupID: rawServerGroupID
+                )
+                let cachedOrFresh = try await T15CanonicalLedgerRuntime.shared.cachedOrRefresh(scope: scope)
+                let canonicalGroup = try T15CanonicalLedgerRuntime.shared.validatedGroup(
+                    from: cachedOrFresh,
+                    scope: scope
+                )
+                guard canonicalGroup.baseCurrency.currencyCode == Money.currentCurrency.rawValue else {
+                    throw T15LedgerUIError.unsupportedSharedCurrency(canonicalGroup.baseCurrency.currencyCode)
+                }
+                guard canonicalGroup.members.contains(where: {
+                    $0.accountID == remoteUser.id && $0.status == "active"
+                }) else {
+                    throw T15LedgerUIError.memberIdentityUnavailable("You")
+                }
+
+                let editingID = editingExpense?.id.uuidString
+                if let editingID,
+                   !canonicalGroup.expenses.contains(where: { $0.expenseID == editingID }) {
+                    throw T15LedgerUIError.expenseNotInCanonicalSnapshot
+                }
+                let expenseID = editingID ?? operationID.uuidString
+                let expectedMinorUnits = try canonicalMoney(
+                    amount,
+                    currencyCode: canonicalGroup.baseCurrency.currencyCode,
+                    currencyExponent: canonicalGroup.baseCurrency.currencyExponent
+                ).minorUnits
+                let body = try makeSharedExpenseBody(
+                    amount: amount,
+                    title: title,
+                    payer: payer,
+                    computed: computed,
+                    canonicalGroup: canonicalGroup,
+                    accountID: remoteUser.id,
+                    expenseID: expenseID,
+                    operationID: operationID
+                )
+                let isEdit = editingID != nil
+                let path = isEdit
+                    ? "/api/mobile/expenses/\(expenseID)"
+                    : "/api/mobile/expenses"
+                try T15CanonicalLedgerRuntime.shared.enqueueExpense(
+                    operationID: operationID,
+                    scope: scope,
+                    expectedRevision: cachedOrFresh.revision,
+                    kind: isEdit ? "expense.edit" : "expense.create",
+                    method: isEdit ? "PUT" : "POST",
+                    path: path,
+                    body: body
+                )
+                queued = true
+                statusMessage = "Saved to the durable queue. Reconciling the canonical ledger…"
+
+                let canonicalSnapshot = try await T15CanonicalLedgerRuntime.shared.reconcile(scope: scope)
+                let reconciledGroup = try T15CanonicalLedgerRuntime.shared.validatedGroup(
+                    from: canonicalSnapshot,
+                    scope: scope
+                )
+                guard let reconciledExpense = reconciledGroup.expenses.first(where: {
+                    $0.expenseID == expenseID && $0.status == "active"
+                }), reconciledExpense.amount.minorUnits == expectedMinorUnits else {
+                    throw T15LedgerUIError.canonicalSnapshotUnavailable
+                }
+
+                let groupForRefresh = group
+                Task { @MainActor in
+                    await ServerLedgerSurfaceStore.shared.refresh(groups: [groupForRefresh])
+                }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                isSubmitting = false
+                activeOperationID = nil
+                statusMessage = nil
+                dismiss()
+            } catch {
+                if queued && T15LedgerUIError.isOffline(error) {
+                    // The row remains retryable with the same operation ID;
+                    // never create a second local expense as a fallback.
+                    isSubmitting = true
+                    errorMessage = nil
+                    statusMessage = "Offline. This shared expense is queued and will retry when the connection returns."
+                    return
+                }
+                if queued && T15LedgerUIError.isUnauthorized(error) {
+                    isSubmitting = true
+                    errorMessage = nil
+                    statusMessage = "Your session expired. Re-authenticate; this shared expense remains queued."
+                    return
+                }
+                if queued && T15LedgerUIError.isConflict(error) {
+                    isSubmitting = false
+                    activeOperationID = nil
+                    errorMessage = T15LedgerUIError.message(for: error, fallback: "The shared ledger changed.")
+                    statusMessage = "Refresh the canonical snapshot, then confirm the expense again before retrying."
+                    return
+                }
+                if queued {
+                    // Keep the same operation ID attached to the durable row
+                    // until the user explicitly resolves the visible state.
+                    // A second tap must never create a competing mutation.
+                    isSubmitting = true
+                    errorMessage = T15LedgerUIError.message(
+                        for: error,
+                        fallback: "The shared expense remains queued."
+                    )
+                    statusMessage = "The durable operation was not replayed in this sheet. Reconnect or refresh before trying again."
+                    return
+                }
+                isSubmitting = false
+                activeOperationID = nil
+                errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not save that shared expense.")
+                statusMessage = nil
+            }
+        }
+    }
+
+    private func makeSharedExpenseBody(
+        amount: Decimal,
+        title: String,
+        payer: Person,
+        computed: [UUID: Decimal],
+        canonicalGroup: SettlementCanonicalLedgerGroup,
+        accountID: String,
+        expenseID: String,
+        operationID: UUID
+    ) throws -> Data {
+        let payerMemberID = try canonicalMemberID(
+            for: payer,
+            canonicalGroup: canonicalGroup,
+            accountID: accountID
+        )
+        let money = try canonicalMoney(
+            Money.whole(amount),
+            currencyCode: canonicalGroup.baseCurrency.currencyCode,
+            currencyExponent: canonicalGroup.baseCurrency.currencyExponent
+        )
+        let encodedSplits = try participants.enumerated().map { index, person in
+            let memberID = try canonicalMemberID(
+                for: person,
+                canonicalGroup: canonicalGroup,
+                accountID: accountID
+            )
+            guard let computedAmount = computed[person.id] else {
+                throw T15LedgerUIError.canonicalSnapshotUnavailable
+            }
+            let input = Money.parseInput(inputs[person.id] ?? "") ?? 0
+            let percentage: Double?
+            let shares: Int?
+            switch mode {
+            case .percent:
+                percentage = NSDecimalNumber(decimal: input).doubleValue
+                shares = nil
+            case .shares:
+                let whole = Money.whole(input)
+                guard whole == input,
+                      let parsedShares = Int(NSDecimalNumber(decimal: whole).stringValue),
+                      parsedShares > 0 else {
+                    throw T15LedgerUIError.nonIntegralShares
+                }
+                percentage = nil
+                shares = parsedShares
+            case .equal, .exact:
+                percentage = nil
+                shares = nil
+            }
+            return T15ExpenseSplitMutation(
+                splitId: "\(expenseID)-\(index)-\(memberID)",
+                memberId: memberID,
+                amount: try canonicalMoney(
+                    computedAmount,
+                    currencyCode: canonicalGroup.baseCurrency.currencyCode,
+                    currencyExponent: canonicalGroup.baseCurrency.currencyExponent
+                ),
+                percentage: percentage,
+                shares: shares
+            )
+        }
+        let body = T15ExpenseMutationBody(
+            kind: editingExpense == nil ? "expense.create" : "expense.edit",
+            groupId: canonicalGroup.groupID,
+            expenseId: expenseID,
+            paidByMemberId: payerMemberID,
+            description: title,
+            amount: money,
+            currency: canonicalGroup.baseCurrency.currencyCode,
+            date: serverDate(editingExpense?.date ?? .now),
+            category: category.rawValue,
+            splitMethod: mode.serverValue,
+            splits: encodedSplits,
+            notes: editingExpense?.notes.isEmpty == false ? editingExpense?.notes : nil,
+            operationId: operationID.uuidString
+        )
+        return try JSONEncoder.serverLedger.encode(body)
+    }
+
+    private func canonicalMemberID(
+        for person: Person,
+        canonicalGroup: SettlementCanonicalLedgerGroup,
+        accountID: String
+    ) throws -> String {
+        if let localIdentityID = canonicalGroup.members.first(where: {
+            guard let raw = $0.localIdentityID else { return false }
+            return UUID(uuidString: raw) == person.id
+        })?.memberID {
+            return localIdentityID
+        }
+        if person.isCurrentUser,
+           let current = canonicalGroup.members.first(where: { $0.accountID == accountID }) {
+            return current.memberID
+        }
+        throw T15LedgerUIError.memberIdentityUnavailable(person.name)
+    }
+
+    private func canonicalMoney(
+        _ amount: Decimal,
+        currencyCode: String,
+        currencyExponent: Int
+    ) throws -> ServerLedgerMoneyDTO {
+        let decimalString = NSDecimalNumber(decimal: Money.whole(amount)).stringValue
+        let minorUnits = SettlementMoneyFormatting.minorUnits(
+            from: decimalString,
+            exponent: currencyExponent
+        )
+        guard ServerLedgerMoneyDTO.isCanonicalMinorUnits(minorUnits) else {
+            throw ServerLedgerDTOError.nonCanonicalMinorUnits(path: "amount.minorUnits")
+        }
+        return ServerLedgerMoneyDTO(
+            minorUnits: minorUnits,
+            currencyCode: currencyCode,
+            currencyExponent: currencyExponent
+        )
+    }
+
+    private func serverDate(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+}
+
+private extension SplitMode {
+    var serverValue: String {
+        switch self {
+        case .equal: return "EQUAL"
+        case .exact: return "EXACT"
+        case .percent: return "PERCENTAGE"
+        case .shares: return "SHARES"
+        }
+    }
+}
+
+private struct T15ExpenseSplitMutation: Encodable {
+    let splitId: String
+    let memberId: String
+    let amount: ServerLedgerMoneyDTO
+    let percentage: Double?
+    let shares: Int?
+}
+
+private struct T15ExpenseMutationBody: Encodable {
+    let kind: String
+    let groupId: String
+    let expenseId: String
+    let paidByMemberId: String
+    let description: String
+    let amount: ServerLedgerMoneyDTO
+    let currency: String
+    let date: String
+    let category: String
+    let splitMethod: String
+    let splits: [T15ExpenseSplitMutation]
+    let notes: String?
+    let operationId: String
 }
 
 /// Shared full-screen modal header. Keeping this in SwiftUI avoids system sheet chrome.

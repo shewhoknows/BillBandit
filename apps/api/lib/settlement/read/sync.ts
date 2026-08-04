@@ -1,10 +1,14 @@
 import { prisma } from '@/lib/prisma'
+import { loadGroupReadModel } from '@/lib/ledger/read-model/loader'
+import type { GroupLedgerReadModel, SettlementHistoryItem } from '@/lib/ledger-contract'
 import { formatMinorUnits } from '../money/canonical'
-import { buildPlan } from '../ledger/projections'
-import { loadGroupLedger } from '../ledger/load'
-import { derivePermissions, filterPlanForCaller, type CallerAccess } from '../access/matrix'
+import { derivePermissions, type CallerAccess } from '../access/matrix'
 import { resolveCallerAccess } from '../commands/core'
 import { isRealtimeAvailable } from '../outbox/pusher'
+
+type SettlementCompatibilityPermissions = ReturnType<typeof derivePermissions> & {
+  callerParticipantId: string | null
+}
 
 export type SettleUpSnapshot = {
   mode: 'snapshot' | 'no_change' | 'incremental'
@@ -18,7 +22,7 @@ export type SettleUpSnapshot = {
     createdAt: string
   } | null
   settlementCompletedAt: string | null
-  permissions: ReturnType<typeof derivePermissions>
+  permissions: SettlementCompatibilityPermissions
   realtime: { available: boolean }
   plan: Array<{
     planTransferId: string
@@ -41,6 +45,9 @@ export type SettleUpSnapshot = {
   envelopes?: Array<{ version: number; eventType: string; recordId: string | null; createdAt: string }>
 }
 
+type CanonicalSettlement = Extract<SettlementHistoryItem, { type: 'settlement' }>
+type CanonicalReversal = Extract<SettlementHistoryItem, { type: 'reversal' }>
+
 function encodeHistoryCursor(createdAt: Date, id: string): string {
   return Buffer.from(`${createdAt.toISOString()}|${id}`).toString('base64url')
 }
@@ -49,33 +56,107 @@ function decodeHistoryCursor(cursor: string): { createdAt: Date; id: string } | 
   try {
     const decoded = Buffer.from(cursor, 'base64url').toString('utf8')
     const [iso, id] = decoded.split('|')
-    if (!iso || !id) return null
-    return { createdAt: new Date(iso), id }
+    const createdAt = iso ? new Date(iso) : null
+    if (!createdAt || Number.isNaN(createdAt.getTime()) || !id) return null
+    return { createdAt, id }
   } catch {
     return null
   }
 }
 
-async function buildPlanDto(groupId: string, access: CallerAccess) {
-  const ledger = await loadGroupLedger(groupId)
-  const transfers = filterPlanForCaller(buildPlan(ledger), access)
-  const participants = new Map(ledger.participants.map((p) => [p.id, p.displayName]))
+function legacyAmount(money: {
+  minorUnits: string
+  currencyCode: string
+  currencyExponent: number
+}): string {
+  return formatMinorUnits({
+    currencyCode: money.currencyCode,
+    currencyExponent: money.currencyExponent,
+    minorUnits: BigInt(money.minorUnits),
+  })
+}
 
-  return transfers.map((t) => ({
-    planTransferId: t.planTransferId,
-    payerParticipantId: t.payerParticipantId,
-    recipientParticipantId: t.recipientParticipantId,
-    payerName: participants.get(t.payerParticipantId) ?? 'Unknown member',
-    recipientName: participants.get(t.recipientParticipantId) ?? 'Unknown member',
-    amount: formatMinorUnits(t.amount),
-    currencyCode: t.amount.currencyCode,
-    currencyExponent: t.amount.currencyExponent,
-    mode: t.mode,
+async function loadCanonicalGroup(groupId: string, userId: string): Promise<GroupLedgerReadModel> {
+  const result = await loadGroupReadModel(groupId, userId)
+  return result.group
+}
+
+function visibleCanonicalPlan(
+  model: GroupLedgerReadModel,
+  access: CallerAccess
+) {
+  if (access.participantId === null) return []
+  if (derivePermissions(access).readScope === 'full') return model.settlementPlan.transfers
+  return model.settlementPlan.transfers.filter(
+    (transfer) =>
+      transfer.payerMemberId === access.participantId ||
+      transfer.recipientMemberId === access.participantId
+  )
+}
+
+function buildPlanDto(model: GroupLedgerReadModel, access: CallerAccess) {
+  const participants = new Map(model.members.map((member) => [member.memberId, member.displayName]))
+  return visibleCanonicalPlan(model, access).map((transfer) => ({
+    planTransferId: transfer.planTransferId,
+    payerParticipantId: transfer.payerMemberId,
+    recipientParticipantId: transfer.recipientMemberId,
+    payerName: participants.get(transfer.payerMemberId) ?? 'Unknown member',
+    recipientName: participants.get(transfer.recipientMemberId) ?? 'Unknown member',
+    amount: legacyAmount(transfer.amount),
+    currencyCode: transfer.amount.currencyCode,
+    currencyExponent: transfer.amount.currencyExponent,
+    mode: transfer.mode,
   }))
 }
 
-async function loadSettledPage(
+function visibleCanonicalSettlements(
+  model: GroupLedgerReadModel,
+  access: CallerAccess
+): CanonicalSettlement[] {
+  const readScope = derivePermissions(access).readScope
+  return model.settlementHistory
+    .filter((item): item is CanonicalSettlement => item.type === 'settlement')
+    .filter(
+      (settlement) =>
+        readScope === 'full' ||
+        (access.participantId !== null &&
+          (settlement.payerMemberId === access.participantId ||
+            settlement.recipientMemberId === access.participantId))
+    )
+    .sort(
+      (left, right) =>
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.settlementId.localeCompare(left.settlementId)
+    )
+}
+
+function isAfterHistoryCursor(
+  settlement: CanonicalSettlement,
+  cursor: { createdAt: Date; id: string } | null
+): boolean {
+  if (!cursor) return true
+  return (
+    settlement.createdAt < cursor.createdAt.toISOString() ||
+    (settlement.createdAt === cursor.createdAt.toISOString() &&
+      settlement.settlementId < cursor.id)
+  )
+}
+
+async function loadSettlementNotes(
   groupId: string,
+  settlementIds: string[]
+): Promise<Map<string, string | null>> {
+  if (settlementIds.length === 0) return new Map()
+  const transactions = await prisma.transaction.findMany({
+    where: { groupId, id: { in: settlementIds } },
+    select: { id: true, note: true },
+  })
+  return new Map(transactions.map((transaction) => [transaction.id, transaction.note]))
+}
+
+async function loadSettledPageFromModel(
+  groupId: string,
+  model: GroupLedgerReadModel,
   access: CallerAccess,
   cursor?: string | null,
   limit = 20
@@ -84,78 +165,66 @@ async function loadSettledPage(
   if (!permissions.canReadHistory) return { items: [], nextCursor: null }
 
   const cursorData = cursor ? decodeHistoryCursor(cursor) : null
-  const where: Record<string, unknown> = { groupId }
-
-  if (access.participantId && permissions.readScope === 'limited') {
-    where.OR = [
-      { payerParticipantId: access.participantId },
-      { recipientParticipantId: access.participantId },
-    ]
+  const settlements = visibleCanonicalSettlements(model, access)
+  const page = settlements.filter((settlement) => isAfterHistoryCursor(settlement, cursorData)).slice(0, limit)
+  const notes = await loadSettlementNotes(
+    groupId,
+    page.map((settlement) => settlement.settlementId)
+  )
+  const participants = new Map(model.members.map((member) => [member.memberId, member.displayName]))
+  const reversals = new Map<string, CanonicalReversal>()
+  for (const item of model.settlementHistory) {
+    if (item.type === 'reversal') reversals.set(item.settlementId, item)
   }
 
-  const transactions = await prisma.transaction.findMany({
-    where,
-    include: {
-      reversal: true,
-      payerParticipant: true,
-      recipientParticipant: true,
-      actor: { select: { id: true, name: true } },
-    },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: limit + 1,
-    ...(cursorData
-      ? {
-          cursor: { id: cursorData.id },
-          skip: 1,
-          where: {
-            ...where,
-            OR: [
-              { createdAt: { lt: cursorData.createdAt } },
-              { createdAt: cursorData.createdAt, id: { lt: cursorData.id } },
-            ],
-          },
-        }
-      : {}),
-  })
-
-  const page = transactions.slice(0, limit)
-  const items = page.flatMap((t) => {
+  const items = page.flatMap((settlement) => {
     const base = {
-      id: t.id,
+      id: settlement.settlementId,
       type: 'settlement' as const,
-      payerParticipantId: t.payerParticipantId,
-      recipientParticipantId: t.recipientParticipantId,
-      payerName: t.payerParticipant?.displayName ?? 'Unknown member',
-      recipientName: t.recipientParticipant?.displayName ?? 'Unknown member',
-      amount: t.amountMinorUnits ? formatMinorUnits({
-        currencyCode: t.currency.toUpperCase(),
-        currencyExponent: t.currencyExponent ?? 2,
-        minorUnits: t.amountMinorUnits,
-      }) : String(t.amount),
-      currencyCode: t.currency.toUpperCase(),
-      note: t.note,
-      actorName: t.actor?.name ?? 'Unknown member',
-      createdAt: t.createdAt.toISOString(),
+      payerParticipantId: settlement.payerMemberId,
+      recipientParticipantId: settlement.recipientMemberId,
+      payerName: participants.get(settlement.payerMemberId) ?? 'Unknown member',
+      recipientName: participants.get(settlement.recipientMemberId) ?? 'Unknown member',
+      amount: legacyAmount(settlement.amount),
+      currencyCode: settlement.amount.currencyCode,
+      note: notes.get(settlement.settlementId) ?? null,
+      actorName: participants.get(settlement.actorMemberId) ?? 'Unknown member',
+      createdAt: settlement.createdAt,
     }
-    if (!t.reversal) return [base]
+    const reversal = reversals.get(settlement.settlementId)
+    if (!reversal) return [base]
     return [
       base,
       {
-        id: t.reversal.id,
+        id: reversal.reversalId,
         type: 'reversal' as const,
-        settlementId: t.id,
-        actorName: t.reversal.actorUserId ? (t.actor?.name ?? 'Unknown member') : 'Unknown member',
-        createdAt: t.reversal.createdAt.toISOString(),
+        settlementId: settlement.settlementId,
+        actorName: participants.get(reversal.actorMemberId) ?? 'Unknown member',
+        createdAt: reversal.createdAt,
       },
     ]
   })
 
-  const nextCursor =
-    transactions.length > limit
-      ? encodeHistoryCursor(page[page.length - 1].createdAt, page[page.length - 1].id)
-      : null
+  const pageEnd = page.length > 0 ? settlements.indexOf(page[page.length - 1]) : -1
+  const nextCursor = pageEnd >= 0 && pageEnd < settlements.length - 1
+    ? encodeHistoryCursor(
+        new Date(page[page.length - 1].createdAt),
+        page[page.length - 1].settlementId
+      )
+    : null
 
   return { items, nextCursor }
+}
+
+export async function loadSettledPage(
+  groupId: string,
+  access: CallerAccess,
+  cursor?: string | null,
+  limit = 20
+) {
+  if (!derivePermissions(access).canReadHistory) return { items: [], nextCursor: null }
+  const model = await loadCanonicalGroup(groupId, access.userId)
+  return loadSettledPageFromModel(groupId, model, access, cursor, limit)
 }
 
 export async function getSettleUpState(
@@ -176,9 +245,7 @@ export async function getSettleUpState(
 
   const access = await resolveCallerAccess(groupId, userId, prisma)
   const permissions = derivePermissions(access)
-  if (!permissions.canReadPlan) {
-    throw new Error('FORBIDDEN')
-  }
+  if (!permissions.canReadPlan) throw new Error('FORBIDDEN')
 
   const latestAudit = await prisma.settlementSettingAudit.findFirst({
     where: { groupId },
@@ -199,15 +266,16 @@ export async function getSettleUpState(
         }
       : null,
     settlementCompletedAt: group.settlementCompletedAt?.toISOString() ?? null,
-    permissions,
+    permissions: { ...permissions, callerParticipantId: access.participantId },
     realtime: { available: isRealtimeAvailable() },
   }
 
   if (afterVersion !== undefined && afterVersion !== null) {
     if (afterVersion > group.settlementVersion) {
+      const snapshot = await buildSnapshot(groupId, access, base, 'VERSION_AHEAD')
       throw Object.assign(new Error('VERSION_AHEAD'), {
         code: 'VERSION_AHEAD',
-        snapshot: await buildSnapshot(groupId, access, base),
+        snapshot,
       })
     }
     if (afterVersion === group.settlementVersion) {
@@ -232,19 +300,20 @@ export async function getSettleUpState(
       return buildSnapshot(groupId, access, base, 'VERSION_GAP')
     }
 
+    const model = await loadCanonicalGroup(groupId, userId)
     return {
       mode: 'incremental',
       ...base,
       fromVersion: afterVersion,
       toVersion: group.settlementVersion,
-      envelopes: journals.map((j) => ({
-        version: j.version,
-        eventType: j.eventType,
-        recordId: j.recordId,
-        createdAt: j.createdAt.toISOString(),
+      envelopes: journals.map((journal) => ({
+        version: journal.version,
+        eventType: journal.eventType,
+        recordId: journal.recordId,
+        createdAt: journal.createdAt.toISOString(),
       })),
-      plan: await buildPlanDto(groupId, access),
-      settled: await loadSettledPage(groupId, access),
+      plan: buildPlanDto(model, access),
+      settled: await loadSettledPageFromModel(groupId, model, access),
     }
   }
 
@@ -257,13 +326,14 @@ async function buildSnapshot(
   base: Omit<SettleUpSnapshot, 'mode' | 'plan' | 'settled'>,
   reason?: string
 ): Promise<SettleUpSnapshot> {
+  const model = await loadCanonicalGroup(groupId, access.userId)
   return {
     mode: 'snapshot',
     ...base,
     reason,
-    plan: await buildPlanDto(groupId, access),
-    settled: await loadSettledPage(groupId, access),
+    plan: buildPlanDto(model, access),
+    settled: await loadSettledPageFromModel(groupId, model, access),
   }
 }
 
-export { loadSettledPage, decodeHistoryCursor, encodeHistoryCursor }
+export { decodeHistoryCursor, encodeHistoryCursor }

@@ -1,7 +1,7 @@
 # BillBandit design tokens
 
 Source of truth for the DesignSystem layer. Derived from the BillBandit design system
-reference (originally `InkReceiptTheme.swift` in the FairShare repo). Values are exact.
+reference (originally `InkReceiptTheme.swift`). Values are exact.
 
 ## Colors
 

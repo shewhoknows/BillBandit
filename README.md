@@ -10,9 +10,9 @@ iOS expense-splitting app (`com.billbandit.app`) with Shared Settle Up, Sign in 
 | [`apps/api/`](apps/api/) | Next.js API-only backend (settlement + mobile auth) |
 | [`apps/ios/`](apps/ios/) | Pointer README → open `BillBandit/` |
 
-Production API: **`https://billbandit-api.contenthelper.in`** (same Railway Postgres/hostname after FairShare retire).
+Production API: **`https://billbandit-api.contenthelper.in`** (Railway Postgres and service hostname).
 
-Full layout rationale: [.scratch/retire-fairshare/monorepo-layout.md](.scratch/retire-fairshare/monorepo-layout.md)
+Full layout rationale is preserved in the repository history; use the canonical paths above for current work.
 
 ## Quick start
 
@@ -42,5 +42,5 @@ Use **`BillBandit/BillBandit.xcodeproj`** for the canonical app; the root scaffo
 
 - [HANDOFF.md](HANDOFF.md) — agent handoff, build commands, product status
 - [EXTERNAL_BETA_CHECKLIST.md](EXTERNAL_BETA_CHECKLIST.md) — beta release checklist
-- [.scratch/retire-fairshare/map.md](.scratch/retire-fairshare/map.md) — FairShare → BillBandit migration map
+- The repository history preserves the earlier migration work; the canonical product and API names are now BillBandit.
 - [docs/architecture.md](docs/architecture.md) — notes from the merged XcodeGen scaffold

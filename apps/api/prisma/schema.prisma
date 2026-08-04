@@ -75,6 +75,10 @@ model User {
   groupParticipants    GroupParticipant[]
   settlementReversals    SettlementReversal[]
   settlementSettingAudits SettlementSettingAudit[]
+  ledgerOperations       LedgerOperation[]       @relation("LedgerOperationAccount")
+  ledgerImports          LedgerImport[]          @relation("LedgerImportAccount")
+  ledgerImportRecords    LedgerImportRecord[]    @relation("LedgerImportRecordAccount")
+  externalIdentities     ExternalIdentity[]      @relation("ExternalIdentityAccount")
 
   friendshipsInitiated Friendship[] @relation("FriendFrom")
   friendshipsReceived  Friendship[] @relation("FriendTo")
@@ -84,6 +88,7 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime?
 
   @@index([email])
   @@index([phone])
@@ -129,6 +134,7 @@ model Group {
   settlementVersionJournal SettlementVersionJournal[]
   settlementOutbox         SettlementOutbox[]
   idempotentOperations     IdempotentOperation[]
+  ledgerOperations          LedgerOperation[] @relation("LedgerOperationGroup")
   finalizedBy              User?         @relation("GroupFinalizedBy", fields: [finalizedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
@@ -305,6 +311,109 @@ model MoneyMigrationIssue {
 
   @@index([groupId])
   @@index([tableName, recordId])
+}
+
+enum LedgerOperationState {
+  PENDING
+  COMMITTED
+  FAILED
+}
+
+model LedgerOperation {
+  id              String               @id @default(cuid())
+  accountId       String
+  groupId         String?
+  operationKey    String
+  requestHash     String
+  expectedRevision Int?
+  resultRevision  Int?
+  resultRecordId  String?
+  state           LedgerOperationState @default(PENDING)
+  failureCode     String?
+  createdAt       DateTime             @default(now())
+  completedAt     DateTime?
+
+  account User   @relation("LedgerOperationAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  group   Group? @relation("LedgerOperationGroup", fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([accountId, operationKey])
+  @@index([accountId])
+  @@index([groupId])
+}
+
+enum LedgerImportState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model LedgerImport {
+  id              String            @id @default(cuid())
+  accountId       String
+  sourceSystem    String
+  sourceKey       String
+  state           LedgerImportState @default(PENDING)
+  sourceChecksum  String?
+  failureReason   String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  account User                @relation("LedgerImportAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  records LedgerImportRecord[]
+
+  @@unique([accountId, sourceSystem, sourceKey])
+  @@index([accountId, state])
+}
+
+enum LedgerImportRecordState {
+  PENDING
+  IMPORTED
+  QUARANTINED
+  SKIPPED
+}
+
+model LedgerImportRecord {
+  id                String                  @id @default(cuid())
+  accountId         String
+  importId          String
+  sourceSystem      String
+  sourceRecordKey   String
+  sourceRecordType  String
+  payload           Json?
+  payloadChecksum   String?
+  state             LedgerImportRecordState @default(PENDING)
+  targetType        String?
+  targetId          String?
+  quarantineReason  String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  account     User         @relation("LedgerImportRecordAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  ledgerImport LedgerImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, sourceSystem, sourceRecordKey])
+  @@unique([importId, sourceRecordKey])
+  @@index([accountId, state])
+  @@index([importId, state])
+}
+
+model ExternalIdentity {
+  id        String   @id @default(cuid())
+  accountId String
+  provider  String
+  subject   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account User @relation("ExternalIdentityAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@unique([accountId, provider])
+  @@index([accountId])
 }
 
 model GroupParticipant {

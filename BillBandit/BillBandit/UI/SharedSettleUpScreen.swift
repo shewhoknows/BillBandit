@@ -1,15 +1,11 @@
 import SwiftUI
-import SwiftData
 
 struct SharedSettleUpScreen: View {
     @Bindable var group: Group
     let currentUserName: String
     let onDismiss: () -> Void
 
-    @Environment(\.modelContext) private var modelContext
     @State private var activeServerGroupId: String?
-    @State private var draftGroupId = ""
-    @State private var linkError: String?
     @State private var store = SettlementStore()
     @State private var confirmationTransfer: SettlementPlanTransferDTO?
     @State private var confirmationNote = ""
@@ -20,15 +16,18 @@ struct SharedSettleUpScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let apiClient = APIClient.live()
-
-    init(group: Group, currentUserName: String, onDismiss: @escaping () -> Void) {
+    init(
+        group: Group,
+        currentUserName: String,
+        onDismiss: @escaping () -> Void,
+        settlementStore: SettlementStore? = nil
+    ) {
         self.group = group
         self.currentUserName = currentUserName
         self.onDismiss = onDismiss
         let linked = SettlementAPIConfiguration.serverGroupId(for: group)
         _activeServerGroupId = State(initialValue: linked)
-        _draftGroupId = State(initialValue: linked ?? group.serverGroupId ?? "")
+        _store = State(initialValue: settlementStore ?? SettlementStore())
     }
 
     var body: some View {
@@ -38,16 +37,28 @@ struct SharedSettleUpScreen: View {
             if let serverGroupId = activeServerGroupId {
                 linkedSettleContent(serverGroupId: serverGroupId)
             } else {
-                linkFairShareGroupPanel
+                localOnlySettlePanel
             }
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .task(id: activeServerGroupId) {
             guard let serverGroupId = activeServerGroupId else { return }
+            guard let remoteUser = try? await UsernameIdentityService.currentUser() else {
+                store.markIdentityUnavailable()
+                return
+            }
+            let settlementUserLabel = [
+                remoteUser.name,
+                remoteUser.preferredName,
+                remoteUser.username,
+                currentUserName
+            ]
+            .compactMap { $0 }
+            .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) ?? "You"
             store.configure(
-                apiClient: apiClient,
-                groupId: serverGroupId,
-                currentUserLabel: currentUserName
+                accountID: remoteUser.id,
+                groupID: serverGroupId,
+                currentUserLabel: settlementUserLabel
             )
             store.setVisible(true)
         }
@@ -87,7 +98,7 @@ struct SharedSettleUpScreen: View {
         .padding(.bottom, 10)
     }
 
-    private var linkFairShareGroupPanel: some View {
+    private var localOnlySettlePanel: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 Text(group.name.uppercased())
@@ -96,36 +107,20 @@ struct SharedSettleUpScreen: View {
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Link to FairShare group")
+                    Text("Shared ledger unavailable")
                         .font(BrandFont.display(18, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
-                    Text("Your phone keeps its own invoice group. Paste the FairShare group id from the web app so shared Settle Up knows which server group to load.")
+                    Text("This group has no canonical server group yet. Settle Up stays local-only until the app supplies a server-backed group.")
                         .font(BrandFont.type(12))
                         .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
-                    BrandSectionLabel("FAIRSHARE GROUP ID")
-                    TextField("e.g. grp_abc123", text: $draftGroupId)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(BrandFont.type(14))
-                        .foregroundStyle(Color.Brand.cobalt)
-                        .padding(14)
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Brand.cobalt, lineWidth: 2))
-                        .accessibilityIdentifier("fairshareGroupIdField")
-                    if let linkError {
-                        Text(linkError)
-                            .font(BrandFont.type(10.5, bold: true))
-                            .foregroundStyle(Color.red.opacity(0.82))
-                    }
-                    Button(action: saveLinkedGroupId) {
-                        Text("Save & load Settle Up")
+                    Button(action: onDismiss) {
+                        Text("Close")
                             .font(BrandFont.display(15, weight: .bold))
                             .foregroundStyle(Color.Brand.creamSoft)
                             .frame(maxWidth: .infinity, minHeight: 50)
                             .background(Color.Brand.cobalt, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .disabled(draftGroupId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("fairshareGroupIdSaveButton")
                 }
                 .padding(18)
                 .background(Color.Brand.creamSoft)
@@ -137,22 +132,6 @@ struct SharedSettleUpScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.horizontal, 18)
         .padding(.bottom, 10)
-    }
-
-    private func saveLinkedGroupId() {
-        let trimmed = draftGroupId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false else {
-            linkError = "Enter a FairShare group id."
-            return
-        }
-        group.serverGroupId = trimmed
-        do {
-            try modelContext.save()
-            linkError = nil
-            activeServerGroupId = trimmed
-        } catch {
-            linkError = "Could not save the link. Try again."
-        }
     }
 
     private var sharedHeader: some View {
@@ -193,8 +172,14 @@ struct SharedSettleUpScreen: View {
     private var statusBanner: some View {
         if store.isLoading, store.snapshot == nil {
             settleBanner("Loading settlements…", showsProgress: true)
+        } else if store.isMigrationBlocked {
+            settleBanner("Shared ledger migration is incomplete — read only.")
         } else if store.isOffline, store.snapshot != nil {
-            settleBanner("Offline — showing cached balances. Writes disabled.")
+            settleBanner(
+                store.canQueueSettlement
+                    ? "Offline — cached balances shown. Payments will sync when you reconnect."
+                    : "Offline — showing cached balances. Writes disabled."
+            )
         } else if store.isUpdating {
             settleBanner("Updating…")
         } else if store.requiresReconfirmation {
@@ -295,7 +280,7 @@ struct SharedSettleUpScreen: View {
                         }
                         .font(BrandFont.type(11, bold: true))
                         .foregroundStyle(Color.Brand.cobalt)
-                        if showSettle, store.canSettle(transfer), store.writesEnabled {
+                        if showSettle, store.canStartSettlement(transfer) {
                             Button("Settle") {
                                 confirmationNote = ""
                                 actionError = nil
@@ -436,7 +421,10 @@ struct SharedSettleUpScreen: View {
                             .background(Color.Brand.cobalt, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSubmitting || !store.writesEnabled || store.requiresReconfirmation)
+                    .disabled(
+                        isSubmitting
+                            || !store.canConfirmSettlement(transfer, expectedVersion: expectedVersion)
+                    )
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -508,12 +496,11 @@ struct SharedSettleUpScreen: View {
     }
 
     private func transferAmount(_ transfer: SettlementPlanTransferDTO) -> String {
-        if transfer.currencyCode.uppercased() == Money.currentCurrency.rawValue.uppercased() {
-            if let decimal = Decimal(string: transfer.amount) {
-                return Money.currency(decimal)
-            }
-        }
-        return "\(transfer.currencyCode) \(transfer.amount)"
+        SettlementMoneyFormatting.display(
+            minorUnits: transfer.minorUnits,
+            currencyCode: transfer.currencyCode,
+            currencyExponent: transfer.currencyExponent
+        )
     }
 
     private func settledSummary(_ item: SettlementHistoryItemDTO) -> String {
@@ -521,6 +508,16 @@ struct SharedSettleUpScreen: View {
         case "reversal":
             return "Reversal"
         default:
+            if let minorUnits = item.minorUnits,
+               let currencyCode = item.currencyCode,
+               let currencyExponent = item.currencyExponent {
+                return "\(item.payerName ?? "?") paid \(item.recipientName ?? "?") · "
+                    + SettlementMoneyFormatting.display(
+                        minorUnits: minorUnits,
+                        currencyCode: currencyCode,
+                        currencyExponent: currencyExponent
+                    )
+            }
             return "\(item.payerName ?? "?") paid \(item.recipientName ?? "?") · \(item.amount ?? "") \(item.currencyCode ?? "")"
         }
     }

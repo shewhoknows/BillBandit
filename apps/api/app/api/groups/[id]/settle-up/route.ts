@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireSettlementUserId } from '@/lib/settlement/route-auth'
 import { getSettleUpState } from '@/lib/settlement/read/sync'
 import { SettlementCommandError } from '@/lib/settlement/commands/core'
+import { LedgerReadModelError } from '@/lib/ledger/read-model'
 
 export async function GET(
   req: NextRequest,
@@ -29,6 +30,18 @@ export async function GET(
     }
     if (error instanceof SettlementCommandError) {
       return NextResponse.json({ error: error.code, ...error.details }, { status: error.status })
+    }
+    if (error instanceof LedgerReadModelError) {
+      const migrationBlocked =
+        error.code === 'MONEY_REPRESENTATION_UNAVAILABLE' || error.code === 'UNSUPPORTED_CURRENCY'
+      return NextResponse.json(
+        {
+          error: migrationBlocked ? 'MONEY_MIGRATION_REQUIRED' : 'LEDGER_READ_UNAVAILABLE',
+          readOnly: true,
+          details: error.details,
+        },
+        { status: 409 }
+      )
     }
     console.error('[GET settle-up]', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

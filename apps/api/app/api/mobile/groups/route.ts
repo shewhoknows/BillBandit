@@ -4,6 +4,8 @@ import { createGroupSchema } from '@/lib/validations-mobile-ledger'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { mobileGroup } from '@/lib/mobile-dto'
 import { ensureParticipantsForGroup } from '@/lib/settlement/participants/service'
+import { loadAccountReadModel } from '@/lib/ledger/read-model/loader'
+import { mobileGroupFromLedger, readModelErrorResponse } from '@/lib/mobile-groups'
 
 const groupListInclude = {
   members: {
@@ -16,16 +18,24 @@ export async function GET(req: NextRequest) {
   const { session, response } = await requireMobileSession(req)
   if (!session) return response
 
-  const groups = await prisma.group.findMany({
-    where: {
-      members: { some: { userId: session.user.id } },
-      isArchived: false,
-    },
-    include: groupListInclude,
-    orderBy: { updatedAt: 'desc' },
-  })
-
-  return NextResponse.json({ groups: groups.map(mobileGroup) })
+  try {
+    const result = await loadAccountReadModel(session.user.id)
+    return NextResponse.json(
+      {
+        groups: result.groups.map((projection) => mobileGroupFromLedger(projection.model)),
+        readRevision: result.summary.readRevision,
+        readOnly: result.summary.readOnly,
+        migration: result.summary.migration,
+        authority: result.summary.authority,
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
+  } catch (error) {
+    const response = readModelErrorResponse(error)
+    if (response) return response
+    console.error('[MOBILE GET /groups]', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {

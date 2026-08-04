@@ -34,14 +34,13 @@ enum AppStore {
     static let schema = Schema([
         Person.self, Group.self, Expense.self, Split.self, Settlement.self, ActivityItem.self,
         UserProgress.self, ProcessedRewardEvent.self, AchievementUnlock.self,
+        CachedLedgerSnapshot.self, PendingLedgerOperation.self, CloudKitLedgerImportState.self,
     ])
 
     static let container: ModelContainer = {
         do {
-            // iCloud capability is used by CloudCollaborationService's shared
-            // record zones. Keep SwiftData explicitly local so it doesn't infer
-            // private-store mirroring from the entitlement and reject this
-            // existing local-first schema.
+            // Ledger cache, queue, and migration checkpoints are local SwiftData
+            // records. CloudKit is intentionally not a SwiftData ledger store.
             let config = ModelConfiguration(cloudKitDatabase: .none)
             return try ModelContainer(for: schema, configurations: config)
         } catch {
@@ -60,6 +59,12 @@ enum AppStore {
             fatalError("Preview container failed: \(error)")
         }
     }()
+
+    /// The one production cache/queue store used by every API-ledger surface
+    /// and mutation path. Sharing this instance prevents separate SwiftData
+    /// containers from presenting different cached revisions.
+    @MainActor
+    static let serverLedgerStore = ServerLedgerStore(context: container.mainContext)
 
     /// Store preparation runs once per launch. Demo fixtures are available only
     /// to explicit UI-test launches; ordinary debug and release builds never
@@ -94,6 +99,175 @@ enum AppStore {
     }
 }
 
+/// Clears all on-device account and ledger data after the server account has
+/// been deleted. API cache/queue rows are included so a deleted account can
+/// never be replayed after the next sign-in.
+@MainActor
+enum LocalAccountDataCleanup {
+    static func deleteAll(context: ModelContext) throws {
+        for row in try context.fetch(FetchDescriptor<PendingLedgerOperation>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<CachedLedgerSnapshot>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<CloudKitLedgerImportState>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<ActivityItem>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<AchievementUnlock>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<ProcessedRewardEvent>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<UserProgress>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Split>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Expense>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Settlement>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Group>()) {
+            context.delete(row)
+        }
+        for row in try context.fetch(FetchDescriptor<Person>()) {
+            context.delete(row)
+        }
+        try context.save()
+    }
+}
+
+enum ServerLedgerLifecycleTrigger: String, Sendable {
+    case startup
+    case foreground
+    case reconnect
+}
+
+/// Owns the production cache and queue lifecycle. The API account ID is the
+/// only identity accepted here; Apple and CloudKit identities never scope a
+/// `ServerLedgerSnapshot` or `PendingLedgerOperation`.
+@MainActor
+final class ServerLedgerAccountLifecycle {
+    static let shared = ServerLedgerAccountLifecycle()
+
+    private static let persistedAccountIDKey = "serverLedger.authoritativeAccountID"
+
+    private let store: ServerLedgerStore
+    private let sync: ServerLedgerSync
+    private(set) var activeAccountID: String?
+    private(set) var cachedCanonicalSnapshots: [ServerLedgerSnapshot] = []
+    private(set) var lastError: String?
+    private var lifecycleGeneration = 0
+    private var isReconciling = false
+    private var reconciliationGeneration = 0
+
+    private init() {
+        let store = AppStore.serverLedgerStore
+        self.store = store
+        self.sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
+    }
+
+    func activate(accountID rawAccountID: String) throws {
+        let accountID = rawAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !accountID.isEmpty else {
+            throw ServerLedgerSyncError.accountScopeRequired
+        }
+
+        let persistedAccount = UserDefaults.standard.string(forKey: Self.persistedAccountIDKey)
+        let previousAccount = activeAccountID ?? persistedAccount
+        let accountChanged = previousAccount != accountID || activeAccountID == nil
+        if let previousAccount, previousAccount != accountID {
+            invalidateReconciliation()
+            try store.clear(accountID: previousAccount)
+        }
+        if sync.activeAccountID != accountID {
+            try sync.activate(accountID: accountID)
+        }
+        activeAccountID = accountID
+        UserDefaults.standard.set(accountID, forKey: Self.persistedAccountIDKey)
+        cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
+        lastError = nil
+        if accountChanged { lifecycleGeneration &+= 1 }
+    }
+
+    func signOut(accountID rawAccountID: String? = nil) {
+        invalidateReconciliation()
+        let persistedAccount = UserDefaults.standard.string(forKey: Self.persistedAccountIDKey)
+        let accounts = Set([
+            rawAccountID,
+            activeAccountID,
+            persistedAccount,
+            sync.activeAccountID,
+        ].compactMap { $0 })
+        if let syncAccount = sync.activeAccountID {
+            try? sync.signOut(accountID: syncAccount)
+        }
+        for accountID in accounts {
+            try? store.clear(accountID: accountID)
+        }
+        activeAccountID = nil
+        cachedCanonicalSnapshots = []
+        lastError = nil
+        lifecycleGeneration &+= 1
+        UserDefaults.standard.removeObject(forKey: Self.persistedAccountIDKey)
+    }
+
+    /// Loads the current account's cache first, drains only due operations for
+    /// that same account, then refreshes every API-backed local group.
+    func reconcile(trigger: ServerLedgerLifecycleTrigger) async {
+        guard let accountID = activeAccountID else { return }
+        guard !isReconciling else { return }
+        isReconciling = true
+        reconciliationGeneration &+= 1
+        let reconciliationGeneration = self.reconciliationGeneration
+        defer {
+            if self.reconciliationGeneration == reconciliationGeneration {
+                isReconciling = false
+            }
+        }
+        let generation = lifecycleGeneration
+        cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
+        if trigger == .reconnect || trigger == .foreground {
+            sync.markReconnected()
+        }
+
+        do {
+            _ = try await sync.drainPendingOperations(for: accountID)
+            guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+
+            let context = AppStore.container.mainContext
+            let groups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
+            let serverGroupIDs = groups.compactMap { SettlementAPIConfiguration.serverGroupId(for: $0) }
+            for groupID in Set(serverGroupIDs).sorted() {
+                guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+                let scope = ServerBackedLedgerScope(accountID: accountID, groupID: groupID)
+                _ = try await sync.refresh(scope: scope)
+            }
+            guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+            cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
+            lastError = nil
+        } catch let error as ServerLedgerSyncError where error == .accountChanged {
+            return
+        } catch {
+            guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func invalidateReconciliation() {
+        reconciliationGeneration &+= 1
+        isReconciling = false
+    }
+}
+
 enum AccountProfileMergePolicy {
     static func shouldApplyRemoteProfile(remoteUpdatedAt: Date?,
                                          localUpdatedAt: Date?,
@@ -122,16 +296,44 @@ enum AccountProfileIntegrity {
         let usableCloudUser = cloudUser.flatMap { $0.isEmpty ? nil : $0 }
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
 
-        let candidates = people.filter { person in
-            if let usableAppleID, person.appleUserIdentifier == usableAppleID { return true }
-            if let usableCloudUser, person.cloudUserRecordName == usableCloudUser { return true }
-            return person.isCurrentUser && person.appleUserIdentifier == nil
+        // CloudKit's user record is the authoritative identity once it is
+        // available. The Apple ID in UserDefaults can briefly belong to the
+        // account that was signed out on this device, so it must not retarget
+        // that old row to the newly signed-in CloudKit account.
+        let cloudCandidates = usableCloudUser.map { cloudUser in
+            people.filter { $0.cloudUserRecordName == cloudUser }
+        } ?? []
+        let appleCandidates = usableAppleID.map { appleID in
+            people.filter { $0.appleUserIdentifier == appleID }
+        } ?? []
+        let candidates: [Person]
+        if !cloudCandidates.isEmpty {
+            // Include only Apple-ID duplicates that are not already linked to
+            // another CloudKit account. A stale old-account row must remain a
+            // friend/profile record instead of being merged into this account.
+            let matching = cloudCandidates + appleCandidates.filter { person in
+                person.cloudUserRecordName == nil ||
+                    person.cloudUserRecordName == usableCloudUser
+            }
+            var seen = Set<UUID>()
+            candidates = matching.filter { seen.insert($0.id).inserted }
+        } else if usableCloudUser != nil {
+            // A new CloudKit account on a device with old local data gets a new
+            // current-user row. Reusing the old current row was the source of
+            // the two-Apple-ID relaunch identity flip.
+            candidates = appleCandidates.filter { person in
+                person.cloudUserRecordName == nil
+            }
+        } else {
+            candidates = appleCandidates.isEmpty
+                ? people.filter { $0.isCurrentUser && $0.appleUserIdentifier == nil }
+                : appleCandidates
         }
 
         func identityScore(_ person: Person) -> Int {
             var score = 0
             if let usableAppleID, person.appleUserIdentifier == usableAppleID { score += 4 }
-            if let usableCloudUser, person.cloudUserRecordName == usableCloudUser { score += 2 }
+            if let usableCloudUser, person.cloudUserRecordName == usableCloudUser { score += 8 }
             if person.isCurrentUser { score += 1 }
             return score
         }
