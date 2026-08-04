@@ -27,7 +27,7 @@ _Add if needed beyond B/C:_
 
 ## Merged into package.json
 
-| Package | Lane | Version (match FairShare) | Status |
+| Package | Lane | Version (match current app) | Status |
 |---------|------|---------------------------|--------|
 | `jose` | B | `^5.10.0` | merged (Lane A, 2026-07-30) |
 | `zod` | B | `^3.23.8` | merged (Lane A, 2026-07-30) |

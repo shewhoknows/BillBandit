@@ -23,7 +23,7 @@ targets:
     settings:
       base:
         # App Store Connect already depends on this identifier — do not change.
-        PRODUCT_BUNDLE_IDENTIFIER: com.eshabhoon.fairshare
+        PRODUCT_BUNDLE_IDENTIFIER: com.billbandit.app
         CODE_SIGN_ENTITLEMENTS: BillBanditApp/Sources/App/BillBandit.entitlements
         INFOPLIST_KEY_CFBundleDisplayName: BillBandit
     info:
@@ -46,7 +46,7 @@ targets:
       - BillBanditApp/Tests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.eshabhoon.fairshare.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.billbandit.app.tests
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: BillBandit
@@ -57,7 +57,7 @@ targets:
       - BillBanditApp/UITests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.eshabhoon.fairshare.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.billbandit.app.uitests
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: BillBandit

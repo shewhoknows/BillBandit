@@ -4,7 +4,7 @@ import Security
 /// Shared REST configuration for BillBandit settlement / mobile auth APIs.
 ///
 /// Production (Release builds): `https://billbandit-api.contenthelper.in`
-/// — same Railway hostname before and after FairShare → BillBandit repo cutover.
+/// — the same Railway hostname used by the BillBandit production service.
 enum SettlementAPIConfiguration {
     /// Prod API base URL; override in Debug via `API_BASE_URL` or local `apps/api` on :3000.
     private static let productionHost = "https://billbandit-api.contenthelper.in"
@@ -44,7 +44,7 @@ enum SettlementAPIConfiguration {
         hasAuthenticatedSession && serverGroupId(for: group) != nil
     }
 
-    /// Signed-in users should get shared Settle Up even before a FairShare group id is linked.
+    /// Signed-in users should get shared Settle Up even before a server group id is linked.
     static var prefersSharedSettleUp: Bool {
         hasAuthenticatedSession
     }

@@ -14,16 +14,16 @@ export type PusherAdapter = {
 export const SETTLEMENT_INVALIDATION_EVENT = 'settlement-invalidation'
 
 const globalForPusher = globalThis as unknown as {
-  __fairsharePusherAdapter?: PusherAdapter | null
-  __fairsharePusherClient?: Pusher | null
+  __billbanditPusherAdapter?: PusherAdapter | null
+  __billbanditPusherClient?: Pusher | null
 }
 
 export function setPusherAdapter(next: PusherAdapter | null) {
-  globalForPusher.__fairsharePusherAdapter = next
+  globalForPusher.__billbanditPusherAdapter = next
 }
 
 export function getPusherAdapter(): PusherAdapter | null {
-  return globalForPusher.__fairsharePusherAdapter ?? null
+  return globalForPusher.__billbanditPusherAdapter ?? null
 }
 
 export function hasPusherCredentials(): boolean {
@@ -61,8 +61,8 @@ function getPusherClient(): Pusher {
   if (!hasPusherCredentials()) {
     throw new Error('Pusher credentials missing')
   }
-  if (!globalForPusher.__fairsharePusherClient) {
-    globalForPusher.__fairsharePusherClient = new Pusher({
+  if (!globalForPusher.__billbanditPusherClient) {
+    globalForPusher.__billbanditPusherClient = new Pusher({
       appId: process.env.PUSHER_APP_ID!,
       key: process.env.PUSHER_KEY!,
       secret: process.env.PUSHER_SECRET!,
@@ -70,7 +70,7 @@ function getPusherClient(): Pusher {
       useTLS: true,
     })
   }
-  return globalForPusher.__fairsharePusherClient
+  return globalForPusher.__billbanditPusherClient
 }
 
 export function createDefaultPusherAdapter(): PusherAdapter {
@@ -102,6 +102,6 @@ export async function publishOutboxEvent(
 }
 
 export function resetPusherClientForTests(): void {
-  globalForPusher.__fairsharePusherClient = null
-  globalForPusher.__fairsharePusherAdapter = null
+  globalForPusher.__billbanditPusherClient = null
+  globalForPusher.__billbanditPusherAdapter = null
 }
