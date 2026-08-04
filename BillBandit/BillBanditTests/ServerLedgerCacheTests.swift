@@ -106,6 +106,131 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertFalse(productionModelNames.contains(String(describing: PendingLedgerOperation.self)))
     }
 
+    func testV2MoneyRequiresCanonicalStringMinorUnits() throws {
+        let valid = try JSONDecoder.serverLedger.decode(
+            ServerLedgerMoneyDTO.self,
+            from: Data(#"{"minorUnits":"-42","currencyCode":"INR","currencyExponent":2}"#.utf8)
+        )
+        XCTAssertEqual(valid.minorUnits, "-42")
+
+        for raw in [
+            #"{"minorUnits":42,"currencyCode":"INR","currencyExponent":2}"#,
+            #"{"minorUnits":"0042","currencyCode":"INR","currencyExponent":2}"#,
+            #"{"minorUnits":"-0","currencyCode":"INR","currencyExponent":2}"#,
+        ] {
+            XCTAssertThrowsError(
+                try JSONDecoder.serverLedger.decode(ServerLedgerMoneyDTO.self, from: Data(raw.utf8))
+            )
+        }
+    }
+
+    func testOptimisticSnapshotIsReplacedAndSuccessfulOperationIsNotReplayed() async throws {
+        let store = try makeStore()
+        let scope = ServerLedgerMutationScope.serverBacked(accountID: "account-a", groupID: "group-a")
+        let operationID = UUID()
+        let request = ServerLedgerMutationRequest(
+            operationID: operationID,
+            scope: scope,
+            expectedRevision: 4,
+            requestPayload: Data("payload".utf8)
+        )
+        let optimistic = ServerLedgerSnapshot(
+            accountID: "account-a",
+            groupID: "group-a",
+            revision: 4,
+            payload: Data("optimistic".utf8)
+        )
+        let canonical = ServerLedgerSnapshot(
+            accountID: "account-a",
+            groupID: "group-a",
+            revision: 5,
+            payload: Data("canonical".utf8)
+        )
+        let api = RecordingServerLedgerAPIClient(submitResult: .success(canonical))
+        let coordinator = ServerLedgerMutationCoordinator(store: store)
+        _ = try coordinator.enqueue(request, optimisticSnapshot: optimistic)
+
+        XCTAssertEqual(try store.cachedSnapshot(for: scope.ledgerScope)?.payload, Data("optimistic".utf8))
+
+        let sync = ServerLedgerSync(store: store, apiClient: api)
+        try sync.activate(accountID: "account-a")
+        _ = try await sync.drainPendingOperations(for: "account-a")
+        _ = try await sync.drainPendingOperations(for: "account-a")
+
+        let submitCount = await api.submitCount
+        XCTAssertEqual(submitCount, 1)
+        XCTAssertEqual(try store.cachedSnapshot(for: scope.ledgerScope)?.payload, Data("canonical".utf8))
+        let completed = try XCTUnwrap(store.pendingOperations(for: "account-a", includingCompleted: true).first)
+        XCTAssertEqual(completed.retryState, .succeeded)
+        XCTAssertEqual(completed.operationID, operationID)
+    }
+
+    func testRevisionConflictRefreshesAndRequiresExplicitReconfirmation() async throws {
+        let store = try makeStore()
+        let scope = ServerBackedLedgerScope(accountID: "account-a", groupID: "group-a")
+        let request = ServerLedgerMutationRequest(
+            scope: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
+            expectedRevision: 4,
+            requestPayload: Data("stale".utf8)
+        )
+        _ = try store.enqueue(request)
+        let refreshed = ServerLedgerSnapshot(scope: scope, revision: 5, payload: Data("server".utf8))
+        let api = RecordingServerLedgerAPIClient(
+            fetchResult: .success(refreshed),
+            submitResult: .failure(
+                ServerLedgerAPIClientError.revisionConflict(
+                    expectedRevision: 4,
+                    currentRevision: 5,
+                    snapshot: nil
+                )
+            )
+        )
+        let sync = ServerLedgerSync(store: store, apiClient: api)
+        try sync.activate(accountID: "account-a")
+
+        do {
+            _ = try await sync.drainPendingOperations(for: "account-a")
+            XCTFail("A stale mutation must require explicit reconfirmation")
+        } catch let error as ServerLedgerSyncError {
+            XCTAssertEqual(error, .conflictRequiresReconfirmation)
+        }
+
+        let submitCount = await api.submitCount
+        let fetchCount = await api.fetchCount
+        XCTAssertEqual(submitCount, 1)
+        XCTAssertEqual(fetchCount, 1)
+        XCTAssertTrue(sync.requiresReconfirmation)
+        XCTAssertEqual(try store.cachedSnapshot(for: scope)?.revision, 5)
+        XCTAssertEqual(
+            try store.pendingOperations(for: "account-a", includingCompleted: true).first?.retryState,
+            .failed
+        )
+
+        _ = try await sync.drainPendingOperations(for: "account-a")
+        let finalSubmitCount = await api.submitCount
+        XCTAssertEqual(finalSubmitCount, 1)
+    }
+
+    func testSwitchingAccountsClearsOldCacheAndQueue() throws {
+        let store = try makeStore()
+        let scope = ServerBackedLedgerScope(accountID: "account-a", groupID: "group-a")
+        _ = try store.cache(snapshot: ServerLedgerSnapshot(scope: scope, revision: 1))
+        _ = try store.enqueue(
+            ServerLedgerMutationRequest(
+                scope: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
+                expectedRevision: 1,
+                requestPayload: Data("account-a".utf8)
+            )
+        )
+        let sync = ServerLedgerSync(store: store, apiClient: RecordingServerLedgerAPIClient())
+        try sync.activate(accountID: "account-a")
+        try sync.activate(accountID: "account-b")
+
+        XCTAssertNil(try store.cachedSnapshot(for: scope))
+        XCTAssertTrue(try store.pendingOperations(for: "account-a").isEmpty)
+        XCTAssertEqual(sync.activeAccountID, "account-b")
+    }
+
     private func makeStore() throws -> ServerLedgerStore {
         let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
         let configuration = ModelConfiguration(
@@ -117,5 +242,30 @@ final class ServerLedgerCacheTests: XCTestCase {
         )
         let container = try ModelContainer(for: schema, configurations: configuration)
         return ServerLedgerStore(context: ModelContext(container))
+    }
+}
+
+private actor RecordingServerLedgerAPIClient: ServerLedgerAPIClient {
+    private let fetchResult: Result<ServerLedgerSnapshot, Error>
+    private let submitResult: Result<ServerLedgerSnapshot, Error>
+    private(set) var fetchCount = 0
+    private(set) var submitCount = 0
+
+    init(
+        fetchResult: Result<ServerLedgerSnapshot, Error> = .failure(ServerLedgerAPIClientError.notImplemented),
+        submitResult: Result<ServerLedgerSnapshot, Error> = .failure(ServerLedgerAPIClientError.notImplemented)
+    ) {
+        self.fetchResult = fetchResult
+        self.submitResult = submitResult
+    }
+
+    func fetchSnapshot(for scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
+        fetchCount += 1
+        return try fetchResult.get()
+    }
+
+    func submit(_ request: ServerLedgerMutationRequest) async throws -> ServerLedgerSnapshot {
+        submitCount += 1
+        return try submitResult.get()
     }
 }

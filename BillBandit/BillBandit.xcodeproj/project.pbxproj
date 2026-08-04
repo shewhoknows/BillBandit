@@ -64,6 +64,7 @@
 		D10000000000000000000007 /* ServerLedgerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000007 /* ServerLedgerStore.swift */; };
 		D10000000000000000000008 /* ServerLedgerSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000008 /* ServerLedgerSync.swift */; };
 		D10000000000000000000009 /* ServerLedgerMutationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000009 /* ServerLedgerMutationCoordinator.swift */; };
+		D1000000000000000000000C /* ServerLedgerDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000000C /* ServerLedgerDTOs.swift */; };
 		D1000000000000000000000A /* ServerLedgerCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000000A /* ServerLedgerCacheTests.swift */; };
 		D1000000000000000000000B /* ServerAuthorityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2000000000000000000000B /* ServerAuthorityUITests.swift */; };
 /* End PBXBuildFile section */
@@ -131,6 +132,7 @@
 		D20000000000000000000007 /* ServerLedgerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerStore.swift; sourceTree = "<group>"; };
 		D20000000000000000000008 /* ServerLedgerSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerSync.swift; sourceTree = "<group>"; };
 		D20000000000000000000009 /* ServerLedgerMutationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerMutationCoordinator.swift; sourceTree = "<group>"; };
+		D2000000000000000000000C /* ServerLedgerDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerDTOs.swift; sourceTree = "<group>"; };
 		D2000000000000000000000A /* ServerLedgerCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerLedgerCacheTests.swift; sourceTree = "<group>"; };
 		D2000000000000000000000B /* ServerAuthorityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAuthorityUITests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -257,6 +259,7 @@
 			D20000000000000000000007 /* ServerLedgerStore.swift */,
 			D20000000000000000000008 /* ServerLedgerSync.swift */,
 			D20000000000000000000009 /* ServerLedgerMutationCoordinator.swift */,
+			D2000000000000000000000C /* ServerLedgerDTOs.swift */,
 		);
 			path = ServerLedger;
 			sourceTree = "<group>";
@@ -487,6 +490,7 @@
 				D10000000000000000000007 /* ServerLedgerStore.swift in Sources */,
 				D10000000000000000000008 /* ServerLedgerSync.swift in Sources */,
 				D10000000000000000000009 /* ServerLedgerMutationCoordinator.swift in Sources */,
+				D1000000000000000000000C /* ServerLedgerDTOs.swift in Sources */,
 				C884A21DE149F2972F3A27FF /* AppStore.swift in Sources */,
 				B20000000000000000000001 /* CloudCollaboration.swift in Sources */,
 				B40000000000000000000001 /* UsernameIdentity.swift in Sources */,

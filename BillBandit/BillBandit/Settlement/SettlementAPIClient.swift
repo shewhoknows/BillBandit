@@ -31,6 +31,7 @@ enum SettlementAPILog {
         case SettlementAPIError.invalidURL: return "invalid_url"
         case SettlementAPIError.invalidResponse: return "invalid_response"
         case SettlementAPIError.unauthorized: return "unauthorized"
+        case SettlementAPIError.offline: return "offline"
         case SettlementAPIError.server: return "server_error"
         case SettlementAPIError.structured(let code, _, _): return "structured_\(code)"
         case let urlError as URLError: return "url_error_\(urlError.code.rawValue)"
@@ -78,6 +79,7 @@ enum SettlementAPIError: LocalizedError {
     case invalidURL
     case invalidResponse
     case unauthorized
+    case offline
     case server(String)
     case structured(code: String, status: Int, body: Data?)
 
@@ -86,6 +88,7 @@ enum SettlementAPIError: LocalizedError {
         case .invalidURL: "Invalid API URL"
         case .invalidResponse: "Invalid server response"
         case .unauthorized: "Your session expired. Please sign in again."
+        case .offline: "The server is unavailable offline."
         case .server(let message): message
         case .structured(let code, _, _): code
         }
@@ -120,24 +123,39 @@ final class APIClient: Sendable {
     func patch<Body: Encodable, Response: Decodable>(
         _ path: String,
         body: Body,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        expectedRevision: Int? = nil
     ) async throws -> Response {
-        try await request(path, method: "PATCH", body: body, idempotencyKey: idempotencyKey)
+        try await request(
+            path,
+            method: "PATCH",
+            body: body,
+            idempotencyKey: idempotencyKey,
+            expectedRevision: expectedRevision
+        )
     }
 
     func post<Body: Encodable, Response: Decodable>(
         _ path: String,
         body: Body,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        expectedRevision: Int? = nil
     ) async throws -> Response {
-        try await request(path, method: "POST", body: body, idempotencyKey: idempotencyKey)
+        try await request(
+            path,
+            method: "POST",
+            body: body,
+            idempotencyKey: idempotencyKey,
+            expectedRevision: expectedRevision
+        )
     }
 
     private func request<Body: Encodable, Response: Decodable>(
         _ path: String,
         method: String,
         body: Body?,
-        idempotencyKey: String? = nil
+        idempotencyKey: String? = nil,
+        expectedRevision: Int? = nil
     ) async throws -> Response {
         let sanitizedPath = SettlementAPILog.sanitizedPath(path)
         let startedAt = Date()
@@ -146,12 +164,18 @@ final class APIClient: Sendable {
             throw SettlementAPIError.invalidURL
         }
 
-        let encodedBody: Data?
+        var encodedBody: Data?
         do {
             encodedBody = try body.map { try JSONEncoder.settlement.encode($0) }
         } catch {
             SettlementAPILog.api("event=settlement.request.failure method=\(method) path=\(sanitizedPath) error=\(SettlementAPILog.sanitizedError(error))")
             throw error
+        }
+        if let idempotencyKey, method != "GET", let currentBody = encodedBody {
+            encodedBody = self.addOperationIDIfMissing(
+                to: currentBody,
+                operationID: idempotencyKey
+            ) ?? currentBody
         }
 
         let hasToken = tokenProvider() != nil
@@ -162,7 +186,7 @@ final class APIClient: Sendable {
         if baseURL.scheme == "mock" {
             do {
                 let data = try await MockSettlementAPI.shared.requestData(
-                    path: url.path,
+                    path: url.path + (url.query.map { "?\($0)" } ?? ""),
                     method: method,
                     body: encodedBody,
                     hasToken: hasToken
@@ -182,6 +206,14 @@ final class APIClient: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(
+            ServerLedgerContract.clientValue,
+            forHTTPHeaderField: ServerLedgerContract.clientContractHeader
+        )
+        request.setValue(
+            ServerLedgerContract.clientValue,
+            forHTTPHeaderField: ServerLedgerContract.clientCompatibilityHeader
+        )
         if let token = hasToken ? tokenProvider() : nil {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -192,11 +224,25 @@ final class APIClient: Sendable {
         if let idempotencyKey {
             request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         }
+        if let expectedRevision = expectedRevision ?? Self.expectedRevision(from: body) {
+            request.setValue(String(expectedRevision), forHTTPHeaderField: "Expected-Revision")
+        }
 
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            SettlementAPILog.api(
+                "event=settlement.request.failure method=\(method) path=\(sanitizedPath) duration_ms=\(durationMS(since: startedAt)) error=\(SettlementAPILog.sanitizedError(error))"
+            )
+            switch error.code {
+            case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost,
+                 .cannotConnectToHost, .timedOut, .dnsLookupFailed:
+                throw SettlementAPIError.offline
+            default:
+                throw error
+            }
         } catch {
             SettlementAPILog.api(
                 "event=settlement.request.failure method=\(method) path=\(sanitizedPath) duration_ms=\(durationMS(since: startedAt)) error=\(SettlementAPILog.sanitizedError(error))"
@@ -245,6 +291,37 @@ final class APIClient: Sendable {
     private func durationMS(since startedAt: Date) -> Int {
         max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
     }
+
+    private static func expectedRevision<Body>(from body: Body?) -> Int? {
+        guard let body = body as? any SettlementExpectedRevisionProviding else { return nil }
+        return body.expectedRevision
+    }
+
+    private func addOperationIDIfMissing(to data: Data, operationID: String) -> Data? {
+        guard var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return data
+        }
+        object["operationId"] = operationID
+        return try? JSONSerialization.data(withJSONObject: object)
+    }
+}
+
+typealias SettlementAPIClient = APIClient
+
+private protocol SettlementExpectedRevisionProviding {
+    var expectedRevision: Int { get }
+}
+
+extension CreateSettlementRequest: SettlementExpectedRevisionProviding {
+    fileprivate var expectedRevision: Int { expectedVersion }
+}
+
+extension CreateReversalRequest: SettlementExpectedRevisionProviding {
+    fileprivate var expectedRevision: Int { expectedVersion }
+}
+
+extension UpdateSettlementSettingsRequest: SettlementExpectedRevisionProviding {
+    fileprivate var expectedRevision: Int { expectedVersion }
 }
 
 private struct SettlementErrorResponse: Decodable {
@@ -278,7 +355,7 @@ extension APIClient {
     ) async throws -> SettlementMutationResponseDTO {
         do {
             return try await post(path, body: body, idempotencyKey: idempotencyKey)
-        } catch let SettlementAPIError.structured(code, _, body) where code == "SETTLEMENT_VERSION_CONFLICT" || code == "TRANSFER_MISMATCH" {
+        } catch let SettlementAPIError.structured(code, _, body) where code == "SETTLEMENT_VERSION_CONFLICT" || code == "TRANSFER_MISMATCH" || code == "REVISION_CONFLICT" {
             if let body,
                let conflict = try? JSONDecoder.settlement.decode(SettlementConflictResponse.self, from: body),
                let state = conflict.state {
@@ -297,7 +374,7 @@ extension APIClient {
     ) async throws -> SettlementMutationResponseDTO {
         do {
             return try await patch(path, body: body, idempotencyKey: idempotencyKey)
-        } catch let SettlementAPIError.structured(code, _, body) where code == "SETTLEMENT_VERSION_CONFLICT" {
+        } catch let SettlementAPIError.structured(code, _, body) where code == "SETTLEMENT_VERSION_CONFLICT" || code == "REVISION_CONFLICT" {
             if let body,
                let conflict = try? JSONDecoder.settlement.decode(SettlementConflictResponse.self, from: body),
                let state = conflict.state {
