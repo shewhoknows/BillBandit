@@ -686,22 +686,7 @@ final class SettlementStore {
 
 @MainActor
 private enum SettlementLedgerRuntime {
-    static let store: ServerLedgerStore = {
-        let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
-        let configuration = ModelConfiguration(
-            "BillBanditServerLedgerCache",
-            schema: schema,
-            isStoredInMemoryOnly: false,
-            groupContainer: .none,
-            cloudKitDatabase: .none
-        )
-        do {
-            let container = try ModelContainer(for: schema, configurations: configuration)
-            return ServerLedgerStore(context: ModelContext(container))
-        } catch {
-            fatalError("Unable to initialize the server-ledger cache: \(error)")
-        }
-    }()
+    static let store = AppStore.serverLedgerStore
 }
 
 /// The old settlement routes still return a legacy mutation DTO. This adapter

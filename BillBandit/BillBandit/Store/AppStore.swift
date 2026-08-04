@@ -60,6 +60,12 @@ enum AppStore {
         }
     }()
 
+    /// The one production cache/queue store used by every API-ledger surface
+    /// and mutation path. Sharing this instance prevents separate SwiftData
+    /// containers from presenting different cached revisions.
+    @MainActor
+    static let serverLedgerStore = ServerLedgerStore(context: container.mainContext)
+
     /// Store preparation runs once per launch. Demo fixtures are available only
     /// to explicit UI-test launches; ordinary debug and release builds never
     /// seed friends or ledgers.
@@ -118,7 +124,7 @@ final class ServerLedgerAccountLifecycle {
     private var reconciliationGeneration = 0
 
     private init() {
-        let store = ServerLedgerStore(context: AppStore.container.mainContext)
+        let store = AppStore.serverLedgerStore
         self.store = store
         self.sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
     }

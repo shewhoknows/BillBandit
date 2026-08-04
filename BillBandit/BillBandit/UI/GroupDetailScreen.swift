@@ -156,11 +156,6 @@ struct GroupDetailScreen: View {
         }
         .background(Color.Brand.cobalt)
         .navigationTitle(group.name)
-        .navigationDestination(for: UUID.self) { expenseID in
-            if let expense = group.expenses.first(where: { $0.id == expenseID }) {
-                ExpenseDetailScreen(expense: expense)
-            }
-        }
         .fullScreenCover(isPresented: $showAddExpense, onDismiss: revealNewExpense) {
             AddExpenseSheet(initialGroup: group)
         }
@@ -359,7 +354,9 @@ struct GroupDetailScreen: View {
             emptyInvoiceState
         } else {
             ForEach(sortedExpenses) { expense in
-                NavigationLink(value: expense.id) {
+                NavigationLink {
+                    ExpenseDetailScreen(expense: expense)
+                } label: {
                     InvoiceExpenseRow(expense: expense)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())

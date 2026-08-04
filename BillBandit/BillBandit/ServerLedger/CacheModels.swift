@@ -7,9 +7,8 @@ enum ServerLedgerCacheError: Error, Equatable, Sendable {
 
 /// One account- and server-group-scoped cache row.
 ///
-/// These models are deliberately not added to `AppStore.schema` in this
-/// phase. A later migration can opt into them after the server-ledger cutover
-/// is ready.
+/// This model belongs to `AppStore.schema` as a local cache of API-owned
+/// ledger state. It is never synchronized through CloudKit.
 @Model
 final class CachedLedgerSnapshot {
     @Attribute(.unique) var id: UUID

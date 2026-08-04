@@ -100,10 +100,11 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertTrue(try store.pendingOperations(for: "account-a").isEmpty)
     }
 
-    func testCacheModelsAreNotInTheProductionSwiftDataSchemaYet() {
+    func testCacheModelsAreInTheProductionSwiftDataSchema() {
         let productionModelNames = Set(AppStore.schema.entities.map(\.name))
-        XCTAssertFalse(productionModelNames.contains(String(describing: CachedLedgerSnapshot.self)))
-        XCTAssertFalse(productionModelNames.contains(String(describing: PendingLedgerOperation.self)))
+        XCTAssertTrue(productionModelNames.contains(String(describing: CachedLedgerSnapshot.self)))
+        XCTAssertTrue(productionModelNames.contains(String(describing: PendingLedgerOperation.self)))
+        XCTAssertTrue(productionModelNames.contains(String(describing: CloudKitLedgerImportState.self)))
     }
 
     func testV2MoneyRequiresCanonicalStringMinorUnits() throws {

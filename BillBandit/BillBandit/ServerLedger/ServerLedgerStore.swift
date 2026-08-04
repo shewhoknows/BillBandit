@@ -10,10 +10,10 @@ enum ServerLedgerStoreError: Error, Equatable, Sendable {
 
 /// Account-scoped persistence for server snapshots and queued mutations.
 ///
-/// The store is intentionally independent from the legacy app schema. The
-/// caller supplies a cache/queue model context, while every public operation
-/// still requires an API account identity so an account switch cannot fall
-/// through to another account's rows.
+/// Production callers share the app's local cache/queue model context, while
+/// tests may supply an isolated context. Every public operation still requires
+/// an API account identity so an account switch cannot expose another
+/// account's rows.
 @MainActor
 final class ServerLedgerStore {
     let context: ModelContext

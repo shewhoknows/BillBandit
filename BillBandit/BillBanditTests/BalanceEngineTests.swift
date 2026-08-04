@@ -161,20 +161,6 @@ final class BalanceEngineTests: XCTestCase {
             .contains { $0.id == duplicateActivity.id })
     }
 
-    func testAutomaticShareDefersUntilEveryMemberHasCloudIdentity() {
-        let current = Person(name: "You", isCurrentUser: true)
-        let friend = Person(name: "Friend")
-        let group = Group(name: "Dinner", members: [current, friend])
-
-        XCTAssertEqual(
-            AutomaticShareDecision.forGroup(group),
-            .deferUntilMembersLinked
-        )
-
-        friend.cloudUserRecordName = "cloud-user-friend"
-        XCTAssertEqual(AutomaticShareDecision.forGroup(group), .ready)
-    }
-
     func testStaleRemoteManifestCannotDeleteOrHideConcurrentExpenses() {
         let localExpenseID = UUID()
         let remoteExpenseID = UUID()

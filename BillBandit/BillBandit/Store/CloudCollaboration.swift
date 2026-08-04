@@ -542,7 +542,7 @@ final class CloudCollaborationService: ObservableObject {
         do {
             let accountStatus = try await container.accountStatus()
             guard accountStatus == .available else {
-                lastIssue = Self.message(for: accountStatus)
+                lastIssue = "iCloud is unavailable for profile and friend sync."
                 return false
             }
             let recordName = try await container.userRecordID().recordName

@@ -616,9 +616,7 @@ struct HomeScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 groupCards(for: localGroups)
             }
-            if groups.isEmpty || (sharedGroups.count < 3 && localGroups.count < 3) {
-                newGroupButton
-            }
+            newGroupButton
         }
     }
 
@@ -653,12 +651,9 @@ struct HomeScreen: View {
         let serverGroupID = group.serverLedgerGroupID
         let canonicalGroup = serverGroupID.flatMap { serverLedger.snapshot?.group(for: $0) }
         let presentation = serverGroupID.flatMap { serverLedger.groupBalancePresentation(for: $0) }
-        let localNet: Decimal?
-        if serverGroupID == nil {
-            localNet = currentUsers.first.map { BalanceMath.nets(in: group)[$0.id] ?? 0 }
-        } else {
-            localNet = nil
-        }
+        let localNet: Decimal? = serverGroupID == nil
+            ? currentUsers.first.map { BalanceMath.nets(in: group)[$0.id] ?? 0 }
+            : nil
         NavigationLink(value: group) {
             GroupCard(
                 group: group,

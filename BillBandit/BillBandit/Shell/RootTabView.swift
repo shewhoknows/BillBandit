@@ -593,21 +593,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
     var hasSharedGroups: Bool { snapshot?.groups.isEmpty == false }
 
     private init() {
-        let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
-        let configuration = ModelConfiguration(
-            "ServerLedgerSurfaceCache",
-            schema: schema,
-            isStoredInMemoryOnly: false,
-            groupContainer: .none,
-            cloudKitDatabase: .none
-        )
-        let container: ModelContainer
-        do {
-            container = try ModelContainer(for: schema, configurations: configuration)
-        } catch {
-            fatalError("Server ledger cache container failed: \(error)")
-        }
-        let store = ServerLedgerStore(context: ModelContext(container))
+        let store = AppStore.serverLedgerStore
         cacheStore = store
         sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
         activeAccountID = UserDefaults.standard.string(forKey: Self.accountIDDefaultsKey)

@@ -477,6 +477,11 @@ struct AddExpenseSheet: View {
                     throw T15LedgerUIError.expenseNotInCanonicalSnapshot
                 }
                 let expenseID = editingID ?? operationID.uuidString
+                let expectedMinorUnits = try canonicalMoney(
+                    amount,
+                    currencyCode: canonicalGroup.baseCurrency.currencyCode,
+                    currencyExponent: canonicalGroup.baseCurrency.currencyExponent
+                ).minorUnits
                 let body = try makeSharedExpenseBody(
                     amount: amount,
                     title: title,
@@ -510,7 +515,7 @@ struct AddExpenseSheet: View {
                 )
                 guard let reconciledExpense = reconciledGroup.expenses.first(where: {
                     $0.expenseID == expenseID && $0.status == "active"
-                }), reconciledExpense.amount.minorUnits == body.amount.minorUnits else {
+                }), reconciledExpense.amount.minorUnits == expectedMinorUnits else {
                     throw T15LedgerUIError.canonicalSnapshotUnavailable
                 }
 

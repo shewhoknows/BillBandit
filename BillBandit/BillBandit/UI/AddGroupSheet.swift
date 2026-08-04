@@ -463,23 +463,9 @@ final class T15CanonicalLedgerRuntime {
     let sync: ServerLedgerSync
 
     private init() {
-        let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
-        let configuration = ModelConfiguration(
-            "BillBanditServerLedgerCache",
-            schema: schema,
-            isStoredInMemoryOnly: false,
-            groupContainer: .none,
-            cloudKitDatabase: .none
-        )
-        do {
-            let container = try ModelContainer(for: schema, configurations: configuration)
-            let context = ModelContext(container)
-            store = ServerLedgerStore(context: context)
-            coordinator = ServerLedgerMutationCoordinator(store: store)
-            sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
-        } catch {
-            fatalError("Unable to initialize the shared-ledger mutation cache: \(error)")
-        }
+        store = AppStore.serverLedgerStore
+        coordinator = ServerLedgerMutationCoordinator(store: store)
+        sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
     }
 
     func authenticatedUser() async throws -> UsernameIdentityService.RemoteUser {
