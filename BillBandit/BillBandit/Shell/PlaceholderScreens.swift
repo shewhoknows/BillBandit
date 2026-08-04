@@ -976,6 +976,7 @@ struct ProfileScreen: View {
                         BrandSectionLabel("YOUR LEDGER")
                         profileRow(leading: "#", title: "\(groups.count) groups", detail: "\(expenses.count) expenses")
                     }
+                    accountSection
 
                 }
                 .padding(22)
@@ -1223,19 +1224,46 @@ struct ProfileScreen: View {
                 .padding(.horizontal, 14)
                 .frame(height: 62)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
-                Button(isDeletingAccount ? "Deleting account…" : "Delete account") {
-                    showDeleteAccountConfirmation = true
-                }
-                .font(BrandFont.type(9.5, bold: true))
-                .foregroundStyle(.red)
-                .buttonStyle(.plain)
-                .disabled(isDeletingAccount)
-                .accessibilityIdentifier("deleteAccountButton")
             }
             if let authMessage {
                 Text(authMessage)
                     .font(BrandFont.type(9.5, bold: true))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+            }
+        }
+    }
+
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            BrandSectionLabel("ACCOUNT")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Permanently remove your account and personal data.")
+                    .font(BrandFont.type(9.5, bold: true))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.64))
+
+                Button {
+                    showDeleteAccountConfirmation = true
+                } label: {
+                    Label(
+                        isDeletingAccount ? "Deleting account…" : "Delete account",
+                        systemImage: "trash"
+                    )
+                    .font(BrandFont.body(14, weight: .bold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 58)
+                }
+                .foregroundStyle(.red)
+                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.red, lineWidth: 2)
+                )
+                .buttonStyle(.plain)
+                .disabled(isDeletingAccount)
+                .accessibilityLabel("Delete account")
+                .accessibilityHint("Permanently deletes your account and personal data")
+                .accessibilityIdentifier("deleteAccountButton")
             }
         }
     }

@@ -21,6 +21,9 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(progressToggle.waitForExistence(timeout: 4))
         let addFriend = app.descendants(matching: .any)["profileAddFriendButton"]
         XCTAssertTrue(addFriend.waitForExistence(timeout: 4))
+        let deleteAccountButton = app.buttons["deleteAccountButton"]
+        XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: 4))
+        XCTAssertEqual(deleteAccountButton.label, "Delete account")
         XCTAssertFalse(app.staticTexts["DEFAULT CURRENCY"].exists)
         XCTAssertFalse(app.staticTexts["REMINDERS"].exists)
         XCTAssertFalse(app.staticTexts["MASCOT MOTION"].exists)
