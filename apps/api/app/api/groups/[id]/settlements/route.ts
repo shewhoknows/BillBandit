@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireSettlementUserId } from '@/lib/settlement/route-auth'
 import { executeSettlement } from '@/lib/settlement/commands/settle'
-import { SettlementCommandError } from '@/lib/settlement/commands/core'
+import {
+  normalizeSettlementError,
+} from '@/lib/settlement/commands/core'
 import { onSettlementCommandCommitted } from '@/lib/settlement/version/sources'
 import { getSettleUpState } from '@/lib/settlement/read/sync'
 
@@ -29,15 +31,31 @@ export async function POST(
       recipientParticipantId: body.recipientParticipantId,
       currencyCode: body.currencyCode,
       currencyExponent: body.currencyExponent,
-      minorUnits: BigInt(body.minorUnits),
+      minorUnits: body.minorUnits,
       note: body.note,
     })
-    await onSettlementCommandCommitted()
+    await onSettlementCommandCommitted(params.id, result.eventType)
     const state = await getSettleUpState(params.id, userId!)
     return NextResponse.json({ result, state }, { status: 201 })
   } catch (error) {
-    if (error instanceof SettlementCommandError) {
-      return NextResponse.json({ error: error.code, ...error.details }, { status: error.status })
+    const normalized = normalizeSettlementError(error)
+    if (normalized) {
+      let state: Awaited<ReturnType<typeof getSettleUpState>> | undefined
+      if (normalized.includeState) {
+        try {
+          state = await getSettleUpState(params.id, userId!)
+        } catch {
+          // Keep the deterministic error code even if a state read is unavailable.
+        }
+      }
+      return NextResponse.json(
+        {
+          error: normalized.code,
+          ...normalized.details,
+          ...(state ? { state } : {}),
+        },
+        { status: normalized.status }
+      )
     }
     console.error('[POST settlements]', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

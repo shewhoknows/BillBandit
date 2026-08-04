@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { LedgerMutationError } from '@/lib/ledger/mutation'
 import { amountsEqual } from '../money/canonical'
 import { buildPlan, planIsEmpty } from '../ledger/projections'
 import { loadGroupLedger } from '../ledger/load'
@@ -32,6 +33,52 @@ export type SettlementCommandResult = VersionAdvanceResult & {
   allocationId?: string
   reversalId?: string
   noop?: boolean
+}
+
+export type NormalizedSettlementError = {
+  code: string
+  status: number
+  details: Record<string, unknown>
+  includeState: boolean
+}
+
+const staleSettlementConflictCodes = new Set([
+  'REVISION_CONFLICT',
+  'SETTLEMENT_VERSION_CONFLICT',
+  'TRANSFER_MISMATCH',
+  'TRANSFER_NOT_FOUND',
+])
+
+/** Translate the shared-kernel errors back to the legacy settle-up contract. */
+export function normalizeSettlementError(error: unknown): NormalizedSettlementError | null {
+  if (error instanceof LedgerMutationError) {
+    const staleConflict = staleSettlementConflictCodes.has(error.code)
+    return {
+      code:
+        error.code === 'REVISION_CONFLICT'
+          ? 'SETTLEMENT_VERSION_CONFLICT'
+          : error.code === 'TRANSFER_NOT_FOUND'
+            ? 'TRANSFER_MISMATCH'
+            : error.code,
+      status: staleConflict ? 409 : error.status,
+      details: {
+        ...(error.details ?? {}),
+        ...(staleConflict ? { requiresReconfirmation: true } : {}),
+      },
+      includeState: staleConflict,
+    }
+  }
+
+  if (error instanceof SettlementCommandError) {
+    return {
+      code: error.code,
+      status: error.status,
+      details: error.details ?? {},
+      includeState: staleSettlementConflictCodes.has(error.code),
+    }
+  }
+
+  return null
 }
 
 async function resolveCallerAccess(
