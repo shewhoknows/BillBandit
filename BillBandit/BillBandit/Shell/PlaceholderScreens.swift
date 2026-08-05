@@ -537,46 +537,8 @@ struct HomeScreen: View {
 
     private var balanceHeader: some View {
         VStack(spacing: 16) {
-            if !sharedGroups.isEmpty {
-                VStack(alignment: .center, spacing: 7) {
-                    Text("shared ledger")
-                        .font(BrandFont.hand(20, weight: .semibold))
-                    if let presentation = serverLedger.accountBalancePresentation() {
-                        ServerLedgerBalanceChip(presentation: presentation)
-                    } else {
-                        Text(serverLedger.status.label)
-                            .font(BrandFont.type(11, bold: true))
-                            .multilineTextAlignment(.center)
-                            .opacity(0.78)
-                    }
-                    ServerLedgerSurfaceStatusView(ledger: serverLedger)
-                }
-                .frame(maxWidth: .infinity)
-            }
-
-            if !localGroups.isEmpty {
-                VStack(alignment: .center, spacing: 5) {
-                    Text("on-device ledger")
-                        .font(BrandFont.hand(19, weight: .semibold))
-                    Text(localNet >= 0 ? "you're owed overall" : "you owe overall")
-                        .font(BrandFont.type(11, bold: true))
-                        .opacity(0.86)
-                    AnimatedCurrencyText(amount: abs(localNet), font: BrandFont.display(39, weight: .bold))
-                    Squiggle()
-                        .stroke(Color.Brand.creamSoft, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .frame(width: 112, height: 10)
-                    HStack(spacing: 8) {
-                        BalancePill(text: "you owe \(Money.currency(localOwe))", filled: false,
-                                    onDark: true, animationValue: localOwe)
-                        BalancePill(text: "owed \(Money.currency(localOwed))", filled: false,
-                                    onDark: true, animationValue: localOwed)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-
             if groups.isEmpty {
-                Text("no groups yet")
+                Text("no groups yet ")
                     .font(BrandFont.hand(20, weight: .semibold))
                     .opacity(0.75)
             }
@@ -603,10 +565,6 @@ struct HomeScreen: View {
             .padding(.top, 15)
 
             if !sharedGroups.isEmpty {
-                Text("shared groups")
-                    .font(BrandFont.type(10, bold: true))
-                    .foregroundStyle(Color.Brand.creamSoft.opacity(0.68))
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 groupCards(for: sharedGroups)
             }
             if !localGroups.isEmpty {
@@ -661,8 +619,15 @@ struct HomeScreen: View {
                     ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0))" : "owe \(Money.currency(-$0))" }
                     : nil),
                 balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
-                sourceLabel: canonicalGroup.map { "shared · read rev \($0.readRevision)" }
-                    ?? (serverGroupID == nil ? "on this device" : "shared balance pending")
+                sourceLabel: ServerLedgerUserFacingCopy.groupSourceLabel(
+                    isLocalOnly: serverGroupID == nil,
+                    isLoading: serverGroupID != nil
+                        && canonicalGroup == nil
+                        && serverLedger.status.phase == .loading
+                ),
+                balanceIsLoading: serverGroupID != nil
+                    && presentation == nil
+                    && serverLedger.status.phase == .loading
             )
         }
         .buttonStyle(.plain)
@@ -685,8 +650,13 @@ struct HomeScreen: View {
                         .padding(.top, 4)
                     if sharedActivity.isEmpty {
                         if serverLedger.snapshot == nil {
-                            ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
-                                .padding(.vertical, 7)
+                            ServerLedgerSurfaceStatusView(
+                                ledger: serverLedger,
+                                includeEmpty: true
+                            ) {
+                                Task { await serverLedger.refresh(groups: groups) }
+                            }
+                            .padding(.vertical, 7)
                         } else {
                             Text("No shared activity yet")
                                 .font(BrandFont.type(11))
@@ -721,7 +691,7 @@ struct HomeScreen: View {
             .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 15))
             .padding(.top, 22)
 
-            MascotView(mascot: .confused, size: 58)
+            MascotView(mascot: .confused, size: 58, idle: false)
                 .padding(.trailing, 12)
         }
         .padding(.top, 2)
@@ -934,7 +904,7 @@ struct ProfileScreen: View {
                             Button {
                                 beginNameEdit()
                             } label: {
-                                Text(trimmedName.isEmpty ? "your profile" : trimmedName)
+                                Text((trimmedName.isEmpty ? "your profile" : trimmedName) + " ")
                                     .font(BrandFont.hand(24, weight: .bold))
                                     .foregroundStyle(Color.Brand.cobalt)
                                     .lineLimit(1)
@@ -976,6 +946,7 @@ struct ProfileScreen: View {
                         BrandSectionLabel("YOUR LEDGER")
                         profileRow(leading: "#", title: "\(groups.count) groups", detail: "\(expenses.count) expenses")
                     }
+                    accountSection
 
                 }
                 .padding(22)
@@ -1011,20 +982,20 @@ struct ProfileScreen: View {
     private var sharedLedgerSection: some View {
         VStack(alignment: .leading, spacing: 9) {
             BrandSectionLabel("SHARED LEDGER")
-            if let presentation = serverLedger.accountBalancePresentation(),
-               let revision = serverLedger.snapshot?.readRevision {
+            if let presentation = serverLedger.accountBalancePresentation() {
                 profileRow(
                     leading: "↗",
                     title: presentation.label,
-                    detail: "read revision \(revision)"
+                    detail: "Shared balances"
                 )
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, onLight: true)
             } else {
                 HStack(spacing: 9) {
-                    ServerLedgerUnavailableChip(onLight: true)
+                    ServerLedgerUnavailableChip(
+                        onLight: true,
+                        isLoading: serverLedger.status.phase == .loading
+                    )
                     Spacer(minLength: 0)
                 }
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true)
             }
             if !localGroups.isEmpty {
                 Text("On-device-only groups remain separate from the shared ledger.")
@@ -1223,19 +1194,46 @@ struct ProfileScreen: View {
                 .padding(.horizontal, 14)
                 .frame(height: 62)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
-                Button(isDeletingAccount ? "Deleting account…" : "Delete account") {
-                    showDeleteAccountConfirmation = true
-                }
-                .font(BrandFont.type(9.5, bold: true))
-                .foregroundStyle(.red)
-                .buttonStyle(.plain)
-                .disabled(isDeletingAccount)
-                .accessibilityIdentifier("deleteAccountButton")
             }
             if let authMessage {
                 Text(authMessage)
                     .font(BrandFont.type(9.5, bold: true))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+            }
+        }
+    }
+
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            BrandSectionLabel("ACCOUNT")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Permanently remove your account and personal data.")
+                    .font(BrandFont.type(9.5, bold: true))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.64))
+
+                Button {
+                    showDeleteAccountConfirmation = true
+                } label: {
+                    Label(
+                        isDeletingAccount ? "Deleting account…" : "Delete account",
+                        systemImage: "trash"
+                    )
+                    .font(BrandFont.body(14, weight: .bold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 58)
+                }
+                .foregroundStyle(.red)
+                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.red, lineWidth: 2)
+                )
+                .buttonStyle(.plain)
+                .disabled(isDeletingAccount)
+                .accessibilityLabel("Delete account")
+                .accessibilityHint("Permanently deletes your account and personal data")
+                .accessibilityIdentifier("deleteAccountButton")
             }
         }
     }
@@ -2010,6 +2008,7 @@ private struct GroupCard: View {
     let balanceText: String?
     let balanceIsPositive: Bool
     let sourceLabel: String
+    var balanceIsLoading = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -2028,7 +2027,7 @@ private struct GroupCard: View {
                     filled: balanceIsPositive
                 )
             } else {
-                ServerLedgerUnavailableChip(onLight: true)
+                ServerLedgerUnavailableChip(onLight: true, isLoading: balanceIsLoading)
             }
             Text(sourceLabel)
                 .font(BrandFont.type(8.5, bold: true))
@@ -2100,17 +2099,21 @@ struct ActivityScreen: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    Text("recent activity")
+                    Text("recent activity ")
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
                     if !sharedGroups.isEmpty {
                         Text("shared ledger")
                             .font(BrandFont.type(10, bold: true))
                             .opacity(0.68)
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger)
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger) {
+                            Task { await serverLedger.refresh(groups: groups) }
+                        }
                         if sharedItems.isEmpty {
                             if serverLedger.snapshot == nil {
-                                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
+                                    Task { await serverLedger.refresh(groups: groups) }
+                                }
                             } else {
                                 Text("no shared activity yet")
                                     .font(BrandFont.type(11))
@@ -2139,7 +2142,7 @@ struct ActivityScreen: View {
                     if sharedGroups.isEmpty && localItems.isEmpty {
                         VStack(spacing: 10) {
                             MascotView(mascot: .neutral, size: 160)
-                            Text("nothing in the ledger yet")
+                            Text("nothing in the ledger yet ")
                                 .font(BrandFont.hand(22, weight: .bold))
                         }
                         .frame(maxWidth: .infinity)

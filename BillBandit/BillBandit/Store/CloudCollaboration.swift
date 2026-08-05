@@ -134,19 +134,38 @@ enum ConnectedFriendIdentity {
         }
     }
 
-    static func actualFriends(from people: [Person]) -> [Person] {
-        canonicalPeople(from: people).filter { person in
-            guard !person.isCurrentUser,
-                  let cloudUser = person.cloudUserRecordName else { return false }
-            return !cloudUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Connected crew members linked through the friend-invite handshake.
+    /// Rows that still carry a Sign in with Apple identifier are former local
+    /// account profiles, not selectable friends.
+    static func isConnectedFriend(_ person: Person) -> Bool {
+        guard !person.isCurrentUser else { return false }
+        guard person.appleUserIdentifier?.isEmpty != false else { return false }
+        guard let cloudUser = person.cloudUserRecordName?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !cloudUser.isEmpty else {
+            return false
         }
+        return true
+    }
+
+    static func actualFriends(from people: [Person]) -> [Person] {
+        canonicalPeople(from: people).filter(isConnectedFriend)
     }
 
     static func groupMemberOptions(from people: [Person]) -> [Person] {
-        canonicalPeople(from: people).filter { person in
-            if person.isCurrentUser { return true }
-            guard let cloudUser = person.cloudUserRecordName else { return false }
-            return !cloudUser.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let canonical = canonicalPeople(from: people)
+        let current = canonical.first(where: \.isCurrentUser)
+        let friends = actualFriends(from: people)
+        var seen = Set<UUID>()
+        var options = [Person]()
+        if let current, seen.insert(current.id).inserted {
+            options.append(current)
+        }
+        for friend in friends where seen.insert(friend.id).inserted {
+            options.append(friend)
+        }
+        return options.sorted {
+            if $0.isCurrentUser != $1.isCurrentUser { return $0.isCurrentUser }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
 

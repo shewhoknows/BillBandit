@@ -457,19 +457,21 @@ struct ServerLedgerSurfaceStatus: Equatable {
     var label: String {
         switch phase {
         case .signedOut:
-            return "Sign in to view shared balances"
+            return ServerLedgerUserFacingCopy.signInForSharedBalances
         case .loading:
-            return "Loading shared ledger…"
+            return ServerLedgerUserFacingCopy.loadingSharedBalances
         case .ready:
-            return "Shared ledger · read revision \(readRevision.map { String($0) } ?? "—")"
+            return "Shared balances are up to date"
         case .cached:
-            return "Offline cache · read revision \(readRevision.map { String($0) } ?? "—") · read-only"
+            return ServerLedgerUserFacingCopy.offlineCachedBalances
         case .stale:
-            return "Shared ledger is stale · read revision \(readRevision.map { String($0) } ?? "—")"
+            return ServerLedgerUserFacingCopy.friendlyMessage(message)
+                ?? ServerLedgerUserFacingCopy.staleBalances
         case .empty:
-            return "No shared ledger groups"
+            return ServerLedgerUserFacingCopy.noSharedGroups
         case .error:
-            return message ?? "Shared ledger unavailable"
+            return ServerLedgerUserFacingCopy.friendlyMessage(message)
+                ?? ServerLedgerUserFacingCopy.sharedBalancesUnavailable
         }
     }
 
@@ -614,7 +616,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
         } catch {
             activeAccountID = nil
             snapshot = nil
-            status = ServerLedgerSurfaceStatus(phase: .error, message: error.localizedDescription)
+            status = ServerLedgerSurfaceStatus(phase: .error, message: ServerLedgerUserFacingCopy.friendlyErrorMessage(error))
         }
     }
 
@@ -738,12 +740,35 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
         guard generation == refreshGeneration else { return }
         guard freshGroups.count == sharedGroups.count else {
-            if snapshot == nil { status = failureStatus(errors.first) }
-            else {
+            if freshGroups.isEmpty {
+                if snapshot == nil { status = failureStatus(errors.first) }
+                else {
+                    status = ServerLedgerSurfaceStatus(
+                        phase: .stale,
+                        readRevision: snapshot?.readRevision,
+                        message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
+                    )
+                }
+                return
+            }
+            // Partial success: keep the groups that loaded. Failed groups stay
+            // absent from the snapshot and render as "Balance unavailable".
+            switch ServerLedgerSurfaceProjection.project(accountID: accountID, groups: freshGroups) {
+            case .empty, .invalidScope, .inconsistent:
+                if snapshot == nil { status = failureStatus(errors.first) }
+                else {
+                    status = ServerLedgerSurfaceStatus(
+                        phase: .stale,
+                        readRevision: snapshot?.readRevision,
+                        message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
+                    )
+                }
+            case let .ready(projected):
+                snapshot = projected
                 status = ServerLedgerSurfaceStatus(
-                    phase: .stale,
-                    readRevision: snapshot?.readRevision,
-                    message: errors.first?.localizedDescription
+                    phase: usedCache ? .cached : .stale,
+                    readRevision: projected.readRevision,
+                    message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
                 )
             }
             return
@@ -780,7 +805,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             status = ServerLedgerSurfaceStatus(
                 phase: phase,
                 readRevision: projected.readRevision,
-                message: errors.first?.localizedDescription
+                message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
             )
         }
     }
@@ -811,7 +836,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             status = ServerLedgerSurfaceStatus(
                 phase: .cached,
                 readRevision: projected.readRevision,
-                message: "Cached shared-ledger data is read-only until refreshed."
+                message: ServerLedgerUserFacingCopy.offlineCachedBalances
             )
         }
     }
@@ -840,7 +865,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             accountDidAuthenticate(remoteUser.id)
             return activeAccountID
         } catch {
-            status = ServerLedgerSurfaceStatus(phase: .error, message: error.localizedDescription)
+            status = ServerLedgerSurfaceStatus(phase: .error, message: ServerLedgerUserFacingCopy.friendlyErrorMessage(error))
             return nil
         }
     }
@@ -928,12 +953,15 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
     private func failureStatus(_ error: Error?) -> ServerLedgerSurfaceStatus {
         if let error {
-            if error is ServerLedgerSyncError {
-                return ServerLedgerSurfaceStatus(phase: .error, message: error.localizedDescription)
-            }
-            return ServerLedgerSurfaceStatus(phase: .error, message: error.localizedDescription)
+            return ServerLedgerSurfaceStatus(
+                phase: .error,
+                message: ServerLedgerUserFacingCopy.friendlyErrorMessage(error)
+            )
         }
-        return ServerLedgerSurfaceStatus(phase: .error, message: "Shared ledger unavailable")
+        return ServerLedgerSurfaceStatus(
+            phase: .error,
+            message: ServerLedgerUserFacingCopy.sharedBalancesUnavailable
+        )
     }
 
     private func cachedSnapshot(for scope: ServerBackedLedgerScope) -> ServerLedgerSnapshot? {
@@ -958,26 +986,51 @@ struct ServerLedgerSurfaceStatusView: View {
     @ObservedObject var ledger: ServerLedgerSurfaceStore
     var includeEmpty = false
     var onLight = false
+    var onRetry: (() -> Void)?
+
+    private var showsRetry: Bool {
+        ledger.status.phase == .error || ledger.status.phase == .stale
+    }
 
     var body: some View {
         if includeEmpty || ledger.status.phase != .empty {
-            HStack(spacing: 7) {
-                BrandIconView(icon: .pulse, size: 13)
-                Text(ledger.status.label)
-                    .font(BrandFont.type(9, bold: true))
-                    .lineLimit(2)
-                Spacer(minLength: 0)
+            SwiftUI.Group {
+                if showsRetry, let onRetry {
+                    Button(action: onRetry) {
+                        statusContent
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Retries loading shared balances")
+                } else {
+                    statusContent
+                }
             }
-            .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.78) : Color.Brand.creamSoft.opacity(0.78))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                (onLight ? Color.Brand.cobalt : Color.Brand.creamSoft).opacity(0.10),
-                in: Capsule()
-            )
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("sharedLedgerStatus")
         }
+    }
+
+    private var statusContent: some View {
+        HStack(spacing: 7) {
+            BrandIconView(icon: .pulse, size: 13)
+            Text(ledger.status.label)
+                .font(BrandFont.type(9, bold: true))
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+            if showsRetry, onRetry != nil {
+                Text("retry")
+                    .font(BrandFont.type(8.5, bold: true))
+                    .opacity(0.72)
+            }
+        }
+        .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.78) : Color.Brand.creamSoft.opacity(0.78))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            (onLight ? Color.Brand.cobalt : Color.Brand.creamSoft).opacity(0.10),
+            in: Capsule()
+        )
     }
 }
 
@@ -1003,9 +1056,12 @@ struct ServerLedgerBalanceChip: View {
 
 struct ServerLedgerUnavailableChip: View {
     var onLight = false
+    var isLoading = false
 
     var body: some View {
-        Text("shared balance unavailable")
+        Text(isLoading
+             ? ServerLedgerUserFacingCopy.loadingBalance
+             : ServerLedgerUserFacingCopy.balanceUnavailable)
             .font(BrandFont.type(9, bold: true))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -1014,9 +1070,14 @@ struct ServerLedgerUnavailableChip: View {
             .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.68) : Color.Brand.creamSoft.opacity(0.74))
             .overlay(Capsule().stroke(
                 onLight ? Color.Brand.cobalt.opacity(0.6) : Color.Brand.creamSoft.opacity(0.7),
-                style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+                style: StrokeStyle(
+                    lineWidth: 1.5,
+                    dash: isLoading ? [] : [3, 3]
+                )
             ))
-            .accessibilityLabel("Shared balance unavailable")
+            .accessibilityLabel(isLoading
+                                ? ServerLedgerUserFacingCopy.loadingBalance
+                                : ServerLedgerUserFacingCopy.balanceUnavailable)
     }
 }
 
@@ -1600,7 +1661,7 @@ private struct MemberClaimView: View {
                 Spacer(minLength: 12)
                 MascotView(mascot: .greeting, size: 154, idle: false)
                 VStack(spacing: 7) {
-                    Text("which member are you?")
+                    Text("which member are you? ")
                         .font(BrandFont.hand(30, weight: .bold))
                     Text("Match your profile to the name used on \(group?.name ?? "this shared bill").")
                         .font(BrandFont.body(14, weight: .semibold))

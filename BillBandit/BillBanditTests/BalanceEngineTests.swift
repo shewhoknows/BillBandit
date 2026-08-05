@@ -625,6 +625,38 @@ final class BalanceEngineTests: XCTestCase {
     }
 
     @MainActor
+    func testGroupMemberOptionsExcludeStaleAccountsAndIncludeConnectedFriends() throws {
+        let configuration = ModelConfiguration(
+            "GroupMemberOptionsIntegrity", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let staleYou = Person(name: "You")
+        staleYou.appleUserIdentifier = "apple-old"
+        staleYou.cloudUserRecordName = "cloud-old"
+        let current = Person(name: "bubby", isCurrentUser: true)
+        current.appleUserIdentifier = "apple-new"
+        current.cloudUserRecordName = "cloud-new"
+        let friend = Person(name: "Alex")
+        friend.cloudUserRecordName = "cloud-friend"
+        [staleYou, current, friend].forEach(context.insert)
+        try context.save()
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(
+            ConnectedFriendIdentity.actualFriends(from: people).map(\.id),
+            [friend.id]
+        )
+        XCTAssertEqual(
+            Set(ConnectedFriendIdentity.groupMemberOptions(from: people).map(\.id)),
+            Set([current.id, friend.id])
+        )
+    }
+
+    @MainActor
     func testCloudIdentityWinsOverAStaleAppleIdentifier() throws {
         let configuration = ModelConfiguration(
             "CloudIdentityPriority", schema: AppStore.schema,

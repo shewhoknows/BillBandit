@@ -231,7 +231,7 @@ struct SharedSettleUpScreen: View {
         if let snapshot = store.snapshot, snapshot.plan.isEmpty {
             VStack(spacing: 8) {
                 MascotView(mascot: .celebrating, size: 120)
-                Text("everyone is settled")
+                Text("everyone is settled ")
                     .font(BrandFont.hand(28, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
                 if let completedAt = snapshot.settlementCompletedAt {
