@@ -677,10 +677,19 @@ export function buildGroupLedgerReadEnvelope(
   options: ReadModelBuildOptions = {}
 ): LedgerReadProjection {
   const groupProjection = buildGroupLedgerProjection(source, options)
-  const projectedGroups = allGroups
+  const projectedGroups: GroupLedgerProjection[] = []
+  for (const group of allGroups
     .filter((group) => group.localOnly === false)
-    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || a.groupId.localeCompare(b.groupId))
-    .map((group) => buildGroupLedgerProjection(group, options))
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || a.groupId.localeCompare(b.groupId))) {
+    try {
+      projectedGroups.push(buildGroupLedgerProjection(group, options))
+    } catch (error) {
+      // Containment: an unreadable sibling group must not take down the
+      // requested group's envelope. The requested group itself still fails.
+      if (group.groupId === source.groupId) throw error
+      console.error(`[read-model] skipping unreadable group ${group.groupId}`, error)
+    }
+  }
   const sharedGroups = projectedGroups.map((projection) => groupSummary(
     allGroups.find((group) => group.groupId === projection.model.groupId)!,
     projection.model,
@@ -731,10 +740,18 @@ export function buildAccountLedgerSummary(
   source: ReadModelAccountSource,
   options: ReadModelBuildOptions = {}
 ): AccountProjectionResult {
-  const groupProjections = source.groups
+  const groupProjections: GroupLedgerProjection[] = []
+  for (const group of source.groups
     .filter((group) => group.localOnly === false)
-    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || a.groupId.localeCompare(b.groupId))
-    .map((group) => buildGroupLedgerProjection(group, options))
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || a.groupId.localeCompare(b.groupId))) {
+    try {
+      groupProjections.push(buildGroupLedgerProjection(group, options))
+    } catch (error) {
+      // Containment: one unreadable group must not blank the whole account.
+      // The group is omitted from the summary; clients show it as unavailable.
+      console.error(`[read-model] skipping unreadable group ${group.groupId} in account summary`, error)
+    }
+  }
   const groups = groupProjections.map((projection) => {
     const groupSource = source.groups.find((group) => group.groupId === projection.model.groupId)!
     return groupSummary(groupSource, projection.model, projection.readOnly)
