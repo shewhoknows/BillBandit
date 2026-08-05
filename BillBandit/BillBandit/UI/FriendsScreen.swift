@@ -71,7 +71,7 @@ struct FriendsScreen: View {
                 if friends.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .greeting, size: 145)
-                        Text("add a partner in crime")
+                        Text("add a partner in crime ")
                             .font(BrandFont.hand(24, weight: .bold))
                         Text("Friends you split with will show up here.")
                             .font(BrandFont.body(12, weight: .semibold))
@@ -230,7 +230,7 @@ struct ProfileFriendsSection: View {
             if friends.isEmpty {
                 VStack(spacing: 6) {
                     MascotView(mascot: .greeting, size: 94)
-                    Text("add a partner in crime")
+                    Text("add a partner in crime ")
                         .font(BrandFont.hand(21, weight: .bold))
                     Text("Friends you split with will show up here.")
                         .font(BrandFont.body(11.5, weight: .semibold))
@@ -325,7 +325,7 @@ struct FriendInvitationSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     MascotView(mascot: .greeting, size: 126)
-                    Text("add a partner in crime")
+                    Text("add a partner in crime ")
                         .font(BrandFont.hand(25.5, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
                         .lineLimit(1)
@@ -513,7 +513,7 @@ struct FriendInvitationSheet: View {
     private func acceptedView(name: String) -> some View {
         VStack(spacing: 12) {
             MascotView(mascot: .celebrating, size: 150, idle: false)
-            Text("crew connected!")
+            Text("crew connected! ")
                 .font(BrandFont.hand(29, weight: .bold))
             Text("\(name) is now in your friends list and can be added to groups.")
                 .font(BrandFont.body(12.5, weight: .semibold))

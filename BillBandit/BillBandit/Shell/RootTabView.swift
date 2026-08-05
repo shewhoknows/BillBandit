@@ -1638,7 +1638,7 @@ private struct MemberClaimView: View {
                 Spacer(minLength: 12)
                 MascotView(mascot: .greeting, size: 154, idle: false)
                 VStack(spacing: 7) {
-                    Text("which member are you?")
+                    Text("which member are you? ")
                         .font(BrandFont.hand(30, weight: .bold))
                     Text("Match your profile to the name used on \(group?.name ?? "this shared bill").")
                         .font(BrandFont.body(14, weight: .semibold))

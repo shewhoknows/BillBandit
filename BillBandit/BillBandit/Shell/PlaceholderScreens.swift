@@ -539,7 +539,7 @@ struct HomeScreen: View {
         VStack(spacing: 16) {
             if !sharedGroups.isEmpty {
                 VStack(alignment: .center, spacing: 7) {
-                    Text("shared ledger")
+                    Text("shared ledger ")
                         .font(BrandFont.hand(20, weight: .semibold))
                     if let presentation = serverLedger.accountBalancePresentation() {
                         ServerLedgerBalanceChip(presentation: presentation)
@@ -558,7 +558,7 @@ struct HomeScreen: View {
 
             if !localGroups.isEmpty {
                 VStack(alignment: .center, spacing: 5) {
-                    Text("on-device ledger")
+                    Text("on-device ledger ")
                         .font(BrandFont.hand(19, weight: .semibold))
                     Text(localNet >= 0 ? "you're owed overall" : "you owe overall")
                         .font(BrandFont.type(11, bold: true))
@@ -578,7 +578,7 @@ struct HomeScreen: View {
             }
 
             if groups.isEmpty {
-                Text("no groups yet")
+                Text("no groups yet ")
                     .font(BrandFont.hand(20, weight: .semibold))
                     .opacity(0.75)
             }
@@ -948,7 +948,7 @@ struct ProfileScreen: View {
                             Button {
                                 beginNameEdit()
                             } label: {
-                                Text(trimmedName.isEmpty ? "your profile" : trimmedName)
+                                Text((trimmedName.isEmpty ? "your profile" : trimmedName) + " ")
                                     .font(BrandFont.hand(24, weight: .bold))
                                     .foregroundStyle(Color.Brand.cobalt)
                                     .lineLimit(1)
@@ -2149,7 +2149,7 @@ struct ActivityScreen: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    Text("recent activity")
+                    Text("recent activity ")
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
                     if !sharedGroups.isEmpty {
@@ -2192,7 +2192,7 @@ struct ActivityScreen: View {
                     if sharedGroups.isEmpty && localItems.isEmpty {
                         VStack(spacing: 10) {
                             MascotView(mascot: .neutral, size: 160)
-                            Text("nothing in the ledger yet")
+                            Text("nothing in the ledger yet ")
                                 .font(BrandFont.hand(22, weight: .bold))
                         }
                         .frame(maxWidth: .infinity)

@@ -342,7 +342,7 @@ struct GroupDetailScreen: View {
         VStack(spacing: 7) {
             SleepingMascotSceneView(width: 225)
                 .accessibilityIdentifier("emptyGroupSleepingMascot")
-            Text("no expenses on this invoice")
+            Text("no expenses on this invoice ")
                 .font(BrandFont.hand(19, weight: .bold))
         }
         .padding(.vertical, 10)
@@ -1155,7 +1155,7 @@ struct SettlementCelebrationScreen: View {
                 MascotView(mascot: .celebrating, size: 235, idle: false)
                     .scaleEffect(reduceMotion || burst ? 1 : 0.72)
                     .offset(y: reduceMotion || burst ? 0 : 28)
-                Text(result.fullySettled ? "all squared away!" : "payment recorded!")
+                Text((result.fullySettled ? "all squared away!" : "payment recorded!") + " ")
                     .font(BrandFont.hand(38, weight: .bold))
                 Text("\(result.from) paid \(result.to)")
                     .font(BrandFont.display(15, weight: .medium))
