@@ -207,18 +207,33 @@ function memberSources(raw: RawReadModelGroup): ReadModelMemberSource[] {
   return Array.from(members.values()).sort((a, b) => a.memberId.localeCompare(b.memberId))
 }
 
-function expenseSource(raw: RawReadModelExpense, groupId: string): ReadModelExpenseSource {
+function expenseSource(
+  raw: RawReadModelExpense,
+  groupId: string,
+  participants: Map<string, string>
+): ReadModelExpenseSource {
   const amount = exactMoneyFromDatabase(raw.amountMinorUnits, raw.currencyExponent, raw.currency, groupId, raw.id)
   const splits: RawReadModelExpenseSplit[] = raw.splits
+  const memberId = (userId: string, recordId: string, role: string): string => {
+    const participantId = participants.get(userId)
+    if (!participantId) {
+      throw new LedgerReadModelError(
+        'INVALID_LEDGER_RECORD',
+        `Expense ${recordId} ${role} user ${userId} is missing a participant identity`,
+        { groupId, recordId, userId }
+      )
+    }
+    return participantId
+  }
   return {
     expenseId: raw.id,
     description: raw.description,
-    paidByMemberId: raw.paidById,
+    paidByMemberId: memberId(raw.paidById, raw.id, 'payer'),
     amount,
     splitMethod: raw.splitType as ReadModelExpenseSource['splitMethod'],
     splits: splits.map((split) => ({
       splitId: split.id,
-      memberId: split.userId,
+      memberId: memberId(split.userId, `${raw.id}:${split.id}`, 'split'),
       amount: exactMoneyFromDatabase(split.amountMinorUnits, split.currencyExponent, raw.currency, groupId, split.id),
       percentage: split.percentage === null ? null : String(split.percentage),
       shares: split.shares,
@@ -280,6 +295,7 @@ function groupSource(
   migrationIssueIds: string[] = []
 ): ReadModelGroupSource {
   const baseCurrency = exactBaseCurrency(raw.currency, raw.id)
+  const participants = participantByUser(raw)
   return {
     groupId: raw.id,
     accountId,
@@ -289,7 +305,7 @@ function groupSource(
     simplifyDebts: raw.simplifyDebts,
     localOnly: false,
     members: memberSources(raw),
-    expenses: raw.expenses.map((expense) => expenseSource(expense, raw.id)),
+    expenses: raw.expenses.map((expense) => expenseSource(expense, raw.id, participants)),
     settlements: raw.transactions.map((transaction) => settlementSource(transaction, raw)),
     pendingOperationIds: [],
     migration,
