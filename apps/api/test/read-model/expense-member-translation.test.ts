@@ -5,6 +5,7 @@ import {
   buildAccountLedgerSummary,
   buildGroupLedgerReadEnvelope,
 } from '../../lib/ledger/read-model/projection'
+import type { MigrationState } from '../../lib/ledger-contract'
 import type { ReadModelGroupSource } from '../../lib/ledger/read-model/types'
 
 const user = {
@@ -15,8 +16,8 @@ const user = {
   externalIdentities: [],
 }
 
-const migration = {
-  status: 'not_required' as const,
+const migration: MigrationState = {
+  status: 'not_required',
   source: 'none',
   migrationId: null,
   importedAt: null,
