@@ -537,46 +537,6 @@ struct HomeScreen: View {
 
     private var balanceHeader: some View {
         VStack(spacing: 16) {
-            if !sharedGroups.isEmpty {
-                VStack(alignment: .center, spacing: 7) {
-                    Text("shared ledger ")
-                        .font(BrandFont.hand(20, weight: .semibold))
-                    if let presentation = serverLedger.accountBalancePresentation() {
-                        ServerLedgerBalanceChip(presentation: presentation)
-                    } else {
-                        Text(serverLedger.status.label)
-                            .font(BrandFont.type(11, bold: true))
-                            .multilineTextAlignment(.center)
-                            .opacity(0.78)
-                    }
-                    ServerLedgerSurfaceStatusView(ledger: serverLedger) {
-                        Task { await serverLedger.refresh(groups: groups) }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-
-            if !localGroups.isEmpty {
-                VStack(alignment: .center, spacing: 5) {
-                    Text("on-device ledger ")
-                        .font(BrandFont.hand(19, weight: .semibold))
-                    Text(localNet >= 0 ? "you're owed overall" : "you owe overall")
-                        .font(BrandFont.type(11, bold: true))
-                        .opacity(0.86)
-                    AnimatedCurrencyText(amount: abs(localNet), font: BrandFont.display(39, weight: .bold))
-                    Squiggle()
-                        .stroke(Color.Brand.creamSoft, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .frame(width: 112, height: 10)
-                    HStack(spacing: 8) {
-                        BalancePill(text: "you owe \(Money.currency(localOwe))", filled: false,
-                                    onDark: true, animationValue: localOwe)
-                        BalancePill(text: "owed \(Money.currency(localOwed))", filled: false,
-                                    onDark: true, animationValue: localOwed)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-
             if groups.isEmpty {
                 Text("no groups yet ")
                     .font(BrandFont.hand(20, weight: .semibold))
@@ -605,10 +565,6 @@ struct HomeScreen: View {
             .padding(.top, 15)
 
             if !sharedGroups.isEmpty {
-                Text("shared groups")
-                    .font(BrandFont.type(10, bold: true))
-                    .foregroundStyle(Color.Brand.creamSoft.opacity(0.68))
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 groupCards(for: sharedGroups)
             }
             if !localGroups.isEmpty {
@@ -735,7 +691,7 @@ struct HomeScreen: View {
             .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 15))
             .padding(.top, 22)
 
-            MascotView(mascot: .confused, size: 58)
+            MascotView(mascot: .confused, size: 58, idle: false)
                 .padding(.trailing, 12)
         }
         .padding(.top, 2)
@@ -1032,9 +988,6 @@ struct ProfileScreen: View {
                     title: presentation.label,
                     detail: "Shared balances"
                 )
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, onLight: true) {
-                    Task { await serverLedger.refresh(groups: groups) }
-                }
             } else {
                 HStack(spacing: 9) {
                     ServerLedgerUnavailableChip(
@@ -1042,9 +995,6 @@ struct ProfileScreen: View {
                         isLoading: serverLedger.status.phase == .loading
                     )
                     Spacer(minLength: 0)
-                }
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true) {
-                    Task { await serverLedger.refresh(groups: groups) }
                 }
             }
             if !localGroups.isEmpty {

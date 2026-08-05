@@ -14,19 +14,6 @@ struct GroupsScreen: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(ServerLedgerUserFacingCopy.sharedBalancesTitle)
-                            .font(BrandFont.type(9, bold: true))
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
-                            Task { await serverLedger.refresh(groups: groups) }
-                        }
-                    }
-                    .foregroundStyle(Color.Brand.creamSoft)
-                    .padding(.vertical, 5)
-                    .listRowBackground(Color.Brand.cobalt)
-                    .listRowSeparator(.hidden)
-                }
                 if groups.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .neutral, size: 145)
@@ -64,12 +51,7 @@ struct GroupsScreen: View {
                                     .font(BrandFont.type(9.5))
                                     .opacity(0.65)
                                 if let serverGroupID = group.serverLedgerGroupID {
-                                    Text(serverLedger.snapshot?.group(for: serverGroupID) == nil
-                                         && serverLedger.status.phase == .loading
-                                         ? ServerLedgerUserFacingCopy.loadingBalance
-                                         : ServerLedgerUserFacingCopy.sharedGroup)
-                                        .font(BrandFont.type(8.5, bold: true))
-                                        .opacity(0.58)
+                                    // Source tag intentionally omitted for shared groups.
                                 } else {
                                     Text(ServerLedgerUserFacingCopy.onDevice)
                                         .font(BrandFont.type(8.5, bold: true))

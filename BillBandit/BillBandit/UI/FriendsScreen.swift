@@ -221,12 +221,6 @@ struct ProfileFriendsSection: View {
                 .accessibilityIdentifier("profileAddFriendButton")
             }
 
-            if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true) {
-                    Task { await serverLedger.refresh(groups: groups) }
-                }
-            }
-
             if friends.isEmpty {
                 VStack(spacing: 6) {
                     MascotView(mascot: .greeting, size: 94)
