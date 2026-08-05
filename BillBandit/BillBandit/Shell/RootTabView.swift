@@ -740,11 +740,34 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
         guard generation == refreshGeneration else { return }
         guard freshGroups.count == sharedGroups.count else {
-            if snapshot == nil { status = failureStatus(errors.first) }
-            else {
+            if freshGroups.isEmpty {
+                if snapshot == nil { status = failureStatus(errors.first) }
+                else {
+                    status = ServerLedgerSurfaceStatus(
+                        phase: .stale,
+                        readRevision: snapshot?.readRevision,
+                        message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
+                    )
+                }
+                return
+            }
+            // Partial success: keep the groups that loaded. Failed groups stay
+            // absent from the snapshot and render as "Balance unavailable".
+            switch ServerLedgerSurfaceProjection.project(accountID: accountID, groups: freshGroups) {
+            case .empty, .invalidScope, .inconsistent:
+                if snapshot == nil { status = failureStatus(errors.first) }
+                else {
+                    status = ServerLedgerSurfaceStatus(
+                        phase: .stale,
+                        readRevision: snapshot?.readRevision,
+                        message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
+                    )
+                }
+            case let .ready(projected):
+                snapshot = projected
                 status = ServerLedgerSurfaceStatus(
-                    phase: .stale,
-                    readRevision: snapshot?.readRevision,
+                    phase: usedCache ? .cached : .stale,
+                    readRevision: projected.readRevision,
                     message: errors.first.map { ServerLedgerUserFacingCopy.friendlyErrorMessage($0) }
                 )
             }
