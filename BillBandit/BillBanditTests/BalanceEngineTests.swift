@@ -330,6 +330,62 @@ final class BalanceEngineTests: XCTestCase {
         )
     }
 
+    func testStaleInvitationSnapshotDoesNotOverwriteConnectedFriend() {
+        let friend = Person(name: "bubby", avatar: .bows)
+        friend.cloudUserRecordName = "cloud-bubby"
+        let profileUpdatedAt = Date(timeIntervalSince1970: 1_234)
+        friend.profileUpdatedAt = profileUpdatedAt
+
+        let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: "You",
+            avatarRaw: ProfileAvatar.bucketHat.rawValue,
+            to: friend,
+            isNew: false
+        )
+
+        XCTAssertFalse(applied)
+        XCTAssertEqual(friend.name, "bubby")
+        XCTAssertEqual(friend.avatarRaw, ProfileAvatar.bows.rawValue)
+        XCTAssertEqual(friend.cloudUserRecordName, "cloud-bubby")
+        XCTAssertEqual(friend.profileUpdatedAt, profileUpdatedAt)
+    }
+
+    func testNewInvitationSnapshotPopulatesNewPerson() {
+        let person = Person(name: "placeholder")
+
+        let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: "bubby",
+            avatarRaw: ProfileAvatar.headphones.rawValue,
+            to: person,
+            isNew: true
+        )
+
+        XCTAssertTrue(applied)
+        XCTAssertEqual(person.name, "Bubby")
+        XCTAssertEqual(person.avatarRaw, ProfileAvatar.headphones.rawValue)
+    }
+
+    func testIgnoredStaleInvitationKeepsConnectedFriendAsOneGroupMemberOption() {
+        let currentUser = Person(name: "You", isCurrentUser: true)
+        currentUser.cloudUserRecordName = "cloud-current-user"
+        let friend = Person(name: "bubby", avatar: .bows)
+        friend.cloudUserRecordName = "cloud-bubby"
+        let people = [currentUser, friend]
+
+        let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: "You",
+            avatarRaw: ProfileAvatar.bucketHat.rawValue,
+            to: friend,
+            isNew: false
+        )
+        XCTAssertFalse(applied)
+
+        let options = ConnectedFriendIdentity.groupMemberOptions(from: people)
+        XCTAssertEqual(options.map(\.id), [currentUser.id, friend.id])
+        XCTAssertEqual(options.filter { $0.id == friend.id }.count, 1)
+        XCTAssertEqual(options.first { $0.id == friend.id }?.name, "bubby")
+    }
+
     @MainActor
     func testFriendAccountRepairLeavesOneRowPerCloudAccountAndRetargetsLedger() throws {
         let configuration = ModelConfiguration(
