@@ -57,9 +57,11 @@ struct FriendsScreen: View {
             List {
                 if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("canonical shared balances")
+                        Text(ServerLedgerUserFacingCopy.sharedBalancesTitle)
                             .font(BrandFont.type(9, bold: true))
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true)
+                        ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
+                            Task { await serverLedger.refresh(groups: groups) }
+                        }
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
                     .padding(.vertical, 5)
@@ -69,7 +71,7 @@ struct FriendsScreen: View {
                 if friends.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .greeting, size: 145)
-                        Text("add a partner in crime")
+                        Text("add a partner in crime ")
                             .font(BrandFont.hand(24, weight: .bold))
                         Text("Friends you split with will show up here.")
                             .font(BrandFont.body(12, weight: .semibold))
@@ -128,7 +130,9 @@ struct FriendsScreen: View {
                 if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
                     ServerLedgerBalanceChip(presentation: presentation)
                 } else {
-                    ServerLedgerUnavailableChip()
+                    ServerLedgerUnavailableChip(
+                        isLoading: serverLedger.status.phase == .loading
+                    )
                 }
                 if localFriendIDs.contains(friend.id) {
                     HStack(spacing: 4) {
@@ -217,14 +221,10 @@ struct ProfileFriendsSection: View {
                 .accessibilityIdentifier("profileAddFriendButton")
             }
 
-            if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
-                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true, onLight: true)
-            }
-
             if friends.isEmpty {
                 VStack(spacing: 6) {
                     MascotView(mascot: .greeting, size: 94)
-                    Text("add a partner in crime")
+                    Text("add a partner in crime ")
                         .font(BrandFont.hand(21, weight: .bold))
                     Text("Friends you split with will show up here.")
                         .font(BrandFont.body(11.5, weight: .semibold))
@@ -276,7 +276,10 @@ struct ProfileFriendsSection: View {
                 if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
                     ServerLedgerBalanceChip(presentation: presentation, onLight: true)
                 } else {
-                    ServerLedgerUnavailableChip(onLight: true)
+                    ServerLedgerUnavailableChip(
+                        onLight: true,
+                        isLoading: serverLedger.status.phase == .loading
+                    )
                 }
                 if localFriendIDs.contains(friend.id) {
                     HStack(spacing: 4) {
@@ -316,7 +319,7 @@ struct FriendInvitationSheet: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     MascotView(mascot: .greeting, size: 126)
-                    Text("add a partner in crime")
+                    Text("add a partner in crime ")
                         .font(BrandFont.hand(25.5, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
                         .lineLimit(1)
@@ -504,7 +507,7 @@ struct FriendInvitationSheet: View {
     private func acceptedView(name: String) -> some View {
         VStack(spacing: 12) {
             MascotView(mascot: .celebrating, size: 150, idle: false)
-            Text("crew connected!")
+            Text("crew connected! ")
                 .font(BrandFont.hand(29, weight: .bold))
             Text("\(name) is now in your friends list and can be added to groups.")
                 .font(BrandFont.body(12.5, weight: .semibold))

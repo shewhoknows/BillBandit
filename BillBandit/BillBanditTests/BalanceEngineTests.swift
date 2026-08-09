@@ -330,6 +330,113 @@ final class BalanceEngineTests: XCTestCase {
         )
     }
 
+    func testStaleInvitationSnapshotDoesNotOverwriteConnectedFriend() {
+        let friend = Person(name: "bubby", avatar: .bows)
+        friend.cloudUserRecordName = "cloud-bubby"
+        let profileUpdatedAt = Date(timeIntervalSince1970: 1_234)
+        friend.profileUpdatedAt = profileUpdatedAt
+
+        let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: "You",
+            avatarRaw: ProfileAvatar.bucketHat.rawValue,
+            to: friend,
+            isNew: false
+        )
+
+        XCTAssertFalse(applied)
+        XCTAssertEqual(friend.name, "bubby")
+        XCTAssertEqual(friend.avatarRaw, ProfileAvatar.bows.rawValue)
+        XCTAssertEqual(friend.cloudUserRecordName, "cloud-bubby")
+        XCTAssertEqual(friend.profileUpdatedAt, profileUpdatedAt)
+    }
+
+    func testNewInvitationSnapshotPopulatesNewPerson() {
+        let person = Person(name: "placeholder")
+
+        let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: "bubby",
+            avatarRaw: ProfileAvatar.headphones.rawValue,
+            to: person,
+            isNew: true
+        )
+
+        XCTAssertTrue(applied)
+        XCTAssertEqual(person.name, "Bubby")
+        XCTAssertEqual(person.avatarRaw, ProfileAvatar.headphones.rawValue)
+    }
+
+    func testIgnoredStaleInvitationKeepsConnectedFriendAsOneGroupMemberOption() {
+        let currentUser = Person(name: "You", isCurrentUser: true)
+        currentUser.cloudUserRecordName = "cloud-current-user"
+        let friend = Person(name: "bubby", avatar: .bows)
+        friend.cloudUserRecordName = "cloud-bubby"
+        let people = [currentUser, friend]
+
+        let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: "You",
+            avatarRaw: ProfileAvatar.bucketHat.rawValue,
+            to: friend,
+            isNew: false
+        )
+        XCTAssertFalse(applied)
+
+        let options = ConnectedFriendIdentity.groupMemberOptions(from: people)
+        XCTAssertEqual(options.map(\.id), [currentUser.id, friend.id])
+        XCTAssertEqual(options.filter { $0.id == friend.id }.count, 1)
+        XCTAssertEqual(options.first { $0.id == friend.id }?.name, "bubby")
+    }
+
+    func testIncomingFriendNormalizationRemovesLocalAccountIdentity() {
+        let friend = Person(name: "bubby", isCurrentUser: true)
+        friend.appleUserIdentifier = "apple-old-account"
+        friend.appleSessionStateRaw = "active"
+
+        let changed = ConnectedFriendIdentity.normalizeIncomingFriend(
+            friend,
+            cloudUser: "cloud-bubby"
+        )
+
+        XCTAssertTrue(changed)
+        XCTAssertFalse(friend.isCurrentUser)
+        XCTAssertNil(friend.appleUserIdentifier)
+        XCTAssertNil(friend.appleSessionStateRaw)
+        XCTAssertEqual(friend.cloudUserRecordName, "cloud-bubby")
+    }
+
+    @MainActor
+    func testCanonicalCurrentPersonDemotesRemoteCurrentRow() throws {
+        let configuration = ModelConfiguration(
+            "CanonicalCurrentPerson", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let remote = Person(name: "bubby", isCurrentUser: true)
+        remote.cloudUserRecordName = "cloud-bubby"
+        let current = Person(name: "esha")
+        current.appleUserIdentifier = "apple-esha"
+        current.cloudUserRecordName = "cloud-esha"
+        context.insert(remote)
+        context.insert(current)
+        try context.save()
+
+        let canonical = AccountProfileIntegrity.canonicalCurrentPerson(
+            appleUserIdentifier: "apple-esha",
+            cloudUserRecordName: "cloud-esha",
+            context: context
+        )
+
+        XCTAssertEqual(canonical?.id, current.id)
+        XCTAssertTrue(current.isCurrentUser)
+        XCTAssertFalse(remote.isCurrentUser)
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<Person>()).filter(\.isCurrentUser).map(\.id),
+            [current.id]
+        )
+    }
+
     @MainActor
     func testFriendAccountRepairLeavesOneRowPerCloudAccountAndRetargetsLedger() throws {
         let configuration = ModelConfiguration(
@@ -622,6 +729,38 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(current.cloudUserRecordName, "cloud-new")
         XCTAssertEqual(people.filter(\.isCurrentUser).map(\.id), [current.id])
         XCTAssertEqual(oldAccount.cloudUserRecordName, "cloud-old")
+    }
+
+    @MainActor
+    func testGroupMemberOptionsExcludeStaleAccountsAndIncludeConnectedFriends() throws {
+        let configuration = ModelConfiguration(
+            "GroupMemberOptionsIntegrity", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let staleYou = Person(name: "You")
+        staleYou.appleUserIdentifier = "apple-old"
+        staleYou.cloudUserRecordName = "cloud-old"
+        let current = Person(name: "bubby", isCurrentUser: true)
+        current.appleUserIdentifier = "apple-new"
+        current.cloudUserRecordName = "cloud-new"
+        let friend = Person(name: "Alex")
+        friend.cloudUserRecordName = "cloud-friend"
+        [staleYou, current, friend].forEach(context.insert)
+        try context.save()
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(
+            ConnectedFriendIdentity.actualFriends(from: people).map(\.id),
+            [friend.id]
+        )
+        XCTAssertEqual(
+            Set(ConnectedFriendIdentity.groupMemberOptions(from: people).map(\.id)),
+            Set([current.id, friend.id])
+        )
     }
 
     @MainActor
