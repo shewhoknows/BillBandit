@@ -285,6 +285,29 @@ enum AccountProfileMergePolicy {
 /// Collapses historical duplicate "me" rows into the one profile owned by the
 /// signed-in Apple account and retargets every ledger reference before deletion.
 enum AccountProfileIntegrity {
+    /// Returns the canonical local profile for the signed-in account without
+    /// creating a profile when onboarding has not established one yet.
+    @MainActor
+    static func canonicalCurrentPerson(appleUserIdentifier: String?,
+                                      cloudUserRecordName: String?,
+                                      context: ModelContext) -> Person? {
+        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        let appleID = appleUserIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cloudUser = cloudUserRecordName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let usableAppleID = appleID.flatMap { $0.isEmpty ? nil : $0 }
+        let usableCloudUser = cloudUser.flatMap { $0.isEmpty ? nil : $0 }
+        let hasLocalIdentity = people.contains { person in
+            person.isCurrentUser ||
+            (usableAppleID != nil && person.appleUserIdentifier == usableAppleID) ||
+            (usableCloudUser != nil && person.cloudUserRecordName == usableCloudUser &&
+                person.appleUserIdentifier?.isEmpty == false)
+        }
+        guard hasLocalIdentity else { return nil }
+        return canonicalize(appleUserIdentifier: usableAppleID,
+                            cloudUserRecordName: usableCloudUser,
+                            context: context)
+    }
+
     @MainActor
     @discardableResult
     static func canonicalize(appleUserIdentifier rawAppleID: String?,
@@ -303,15 +326,21 @@ enum AccountProfileIntegrity {
         let cloudCandidates = usableCloudUser.map { cloudUser in
             people.filter { $0.cloudUserRecordName == cloudUser }
         } ?? []
+        // Marker-less remote friend rows must never become the current
+        // account merely because they carry a matching CloudKit record name.
+        let locallyIdentifiedCloudCandidates = cloudCandidates.filter { person in
+            person.appleUserIdentifier?.isEmpty == false ||
+                (usableAppleID == nil && person.isCurrentUser)
+        }
         let appleCandidates = usableAppleID.map { appleID in
             people.filter { $0.appleUserIdentifier == appleID }
         } ?? []
         let candidates: [Person]
-        if !cloudCandidates.isEmpty {
+        if !locallyIdentifiedCloudCandidates.isEmpty {
             // Include only Apple-ID duplicates that are not already linked to
             // another CloudKit account. A stale old-account row must remain a
             // friend/profile record instead of being merged into this account.
-            let matching = cloudCandidates + appleCandidates.filter { person in
+            let matching = locallyIdentifiedCloudCandidates + appleCandidates.filter { person in
                 person.cloudUserRecordName == nil ||
                     person.cloudUserRecordName == usableCloudUser
             }

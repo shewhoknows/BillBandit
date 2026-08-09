@@ -111,6 +111,23 @@ enum ConnectedFriendIdentity {
             .filter(\.isLetter)
     }
 
+    /// Remote profiles never retain local Apple-account or session identity.
+    /// This also repairs rows reused from an older account-direction bug.
+    @discardableResult
+    static func normalizeIncomingFriend(_ person: Person, cloudUser: String) -> Bool {
+        let normalizedCloudUser = cloudUser.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCloudUser.isEmpty else { return false }
+        let changed = person.isCurrentUser ||
+            person.appleUserIdentifier != nil ||
+            person.appleSessionStateRaw != nil ||
+            person.cloudUserRecordName != normalizedCloudUser
+        person.isCurrentUser = false
+        person.appleUserIdentifier = nil
+        person.appleSessionStateRaw = nil
+        person.cloudUserRecordName = normalizedCloudUser
+        return changed
+    }
+
     @discardableResult
     static func applyInvitationSnapshot(name: String, avatarRaw: String?, to person: Person,
                                         isNew: Bool) -> Bool {
@@ -181,7 +198,7 @@ enum ConnectedFriendIdentity {
     private static func canonicalConnectedPerson(for cloudUser: String,
                                                  among people: [Person]) -> Person? {
         people.filter {
-            !$0.isCurrentUser && $0.cloudUserRecordName == cloudUser
+            isConnectedFriend($0) && $0.cloudUserRecordName == cloudUser
         }.sorted { lhs, rhs in
             let lhsDate = lhs.profileUpdatedAt ?? .distantPast
             let rhsDate = rhs.profileUpdatedAt ?? .distantPast
@@ -195,9 +212,7 @@ enum ConnectedFriendIdentity {
     static func repairDuplicateAccounts(context: ModelContext) -> [Group] {
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
         var affectedByID: [UUID: Group] = [:]
-        let connected = people.filter {
-            !$0.isCurrentUser && $0.cloudUserRecordName?.isEmpty == false
-        }
+        let connected = people.filter(isConnectedFriend)
         let accounts = Dictionary(grouping: connected, by: { $0.cloudUserRecordName! })
 
         for (cloudUser, rows) in accounts where rows.count > 1 {
@@ -525,6 +540,16 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     func refreshFriendProfiles() async {
+        if currentUserRecordName == nil {
+            guard UsernameIdentityService.hasStoredSession,
+                  (try? await container.accountStatus()) == .available,
+                  let recordName = try? await container.userRecordID().recordName else {
+                return
+            }
+            currentUserRecordName = recordName
+            linkCurrentPerson()
+            await publishFriendProfile()
+        }
         if let task = friendProfileRefreshTask {
             await task.value
             return
@@ -640,7 +665,10 @@ final class CloudCollaborationService: ObservableObject {
         let context = AppStore.container.mainContext
         ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
-        guard let existing = people.first(where: { $0.cloudUserRecordName == cloudUser }) else {
+        guard let existing = people.first(where: {
+            $0.cloudUserRecordName == cloudUser &&
+                ConnectedFriendIdentity.isConnectedFriend($0)
+        }) else {
             return false
         }
         guard AccountProfileMergePolicy.shouldApplyRemoteProfile(
@@ -659,8 +687,11 @@ final class CloudCollaborationService: ObservableObject {
         guard let cloudUser = currentUserRecordName else { return }
         let generation = accountGeneration
         let context = AppStore.container.mainContext
-        guard let profile = ((try? context.fetch(FetchDescriptor<Person>())) ?? [])
-            .first(where: \.isCurrentUser) else { return }
+        guard let profile = AccountProfileIntegrity.canonicalCurrentPerson(
+            appleUserIdentifier: UserDefaults.standard.string(forKey: "appleUserIdentifier"),
+            cloudUserRecordName: cloudUser,
+            context: context
+        ) else { return }
         guard generation == accountGeneration,
               currentUserRecordName == cloudUser else { return }
 
@@ -1276,10 +1307,6 @@ final class FriendInvitationService: ObservableObject {
             persist()
             return preview
         }
-        guard let profile = currentProfile else {
-            message = "Finish your profile before inviting a friend."
-            return nil
-        }
         if let currentUsableInvite { return currentUsableInvite }
 
         isWorking = true
@@ -1289,6 +1316,10 @@ final class FriendInvitationService: ObservableObject {
             let accountStatus = try await container.accountStatus()
             guard accountStatus == .available else { throw FriendInviteError.iCloudUnavailable }
             let cloudUser = try await container.userRecordID().recordName
+            guard let profile = currentProfile(cloudUserRecordName: cloudUser) else {
+                message = "Finish your profile before inviting a friend."
+                return nil
+            }
             var invite: OutboundFriendInvite?
             for _ in 0..<4 {
                 let code = FriendInviteCode.generate()
@@ -1323,10 +1354,6 @@ final class FriendInvitationService: ObservableObject {
     }
 
     func accept(code rawCode: String) async -> Person? {
-        guard let profile = currentProfile else {
-            message = "Finish your profile before accepting an invitation."
-            return nil
-        }
         let code = FriendInviteCode.normalize(rawCode)
         guard FriendInviteCode.isValid(code) else {
             message = "Enter the complete 10-character invite code."
@@ -1339,6 +1366,10 @@ final class FriendInvitationService: ObservableObject {
             let accountStatus = try await container.accountStatus()
             guard accountStatus == .available else { throw FriendInviteError.iCloudUnavailable }
             let cloudUser = try await container.userRecordID().recordName
+            guard let profile = currentProfile(cloudUserRecordName: cloudUser) else {
+                message = "Finish your profile before accepting an invitation."
+                return nil
+            }
             let invite = try await database.record(for: inviteRecordID(code))
             guard let expiresAt = invite["expiresAt"] as? Date, expiresAt > .now else {
                 throw FriendInviteError.expired
@@ -1374,7 +1405,9 @@ final class FriendInvitationService: ObservableObject {
 
             let avatarRaw = invite["inviterAvatar"] as? String
             let friend = linkFriend(name: inviterName, avatarRaw: avatarRaw,
-                                    cloudUser: inviterCloudUser)
+                                    cloudUser: inviterCloudUser,
+                                    currentCloudUser: cloudUser)
+            await CloudCollaborationService.shared.refreshFriendProfiles()
             incomingCode = ""
             message = "\(friend.name) is now in your crew."
             return friend
@@ -1392,6 +1425,7 @@ final class FriendInvitationService: ObservableObject {
         let refreshable = outboundInvites.filter { $0.status != .expired }
         guard !refreshable.isEmpty else { return }
         guard (try? await container.accountStatus()) == .available else { return }
+        guard let currentCloudUser = try? await container.userRecordID().recordName else { return }
 
         var changed = false
         for invite in refreshable {
@@ -1399,7 +1433,8 @@ final class FriendInvitationService: ObservableObject {
                   let cloudUser = record["accepterCloudUser"] as? String,
                   let name = record["accepterName"] as? String else { continue }
             let avatarRaw = record["accepterAvatar"] as? String
-            let friend = linkFriend(name: name, avatarRaw: avatarRaw, cloudUser: cloudUser)
+            let friend = linkFriend(name: name, avatarRaw: avatarRaw, cloudUser: cloudUser,
+                                    currentCloudUser: currentCloudUser)
             if let index = outboundInvites.firstIndex(where: { $0.code == invite.code }) {
                 outboundInvites[index].status = .accepted
                 outboundInvites[index].acceptedFriendName = friend.name
@@ -1407,6 +1442,7 @@ final class FriendInvitationService: ObservableObject {
             }
         }
         if changed { persist() }
+        if changed { await CloudCollaborationService.shared.refreshFriendProfiles() }
     }
 
     func shareText(for invite: OutboundFriendInvite) -> String {
@@ -1416,22 +1452,40 @@ final class FriendInvitationService: ObservableObject {
         "This invitation expires in 7 days."
     }
 
-    private var currentProfile: Person? {
+    private func currentProfile(cloudUserRecordName: String) -> Person? {
         let context = AppStore.container.mainContext
-        return ((try? context.fetch(FetchDescriptor<Person>())) ?? []).first(where: \.isCurrentUser)
+        return AccountProfileIntegrity.canonicalCurrentPerson(
+            appleUserIdentifier: UserDefaults.standard.string(forKey: "appleUserIdentifier"),
+            cloudUserRecordName: cloudUserRecordName,
+            context: context
+        )
     }
 
     @discardableResult
-    private func linkFriend(name: String, avatarRaw: String?, cloudUser: String) -> Person {
+    private func linkFriend(name: String, avatarRaw: String?, cloudUser: String,
+                            currentCloudUser: String) -> Person {
         let context = AppStore.container.mainContext
+        let current = AccountProfileIntegrity.canonicalCurrentPerson(
+            appleUserIdentifier: UserDefaults.standard.string(forKey: "appleUserIdentifier"),
+            cloudUserRecordName: currentCloudUser,
+            context: context
+        )
+        guard cloudUser != currentCloudUser else {
+            return current ?? Person(name: "You", isCurrentUser: true)
+        }
         ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
-        if let existing = people.first(where: { $0.cloudUserRecordName == cloudUser }) {
+        if let existing = people.first(where: {
+            $0.id != current?.id && $0.cloudUserRecordName == cloudUser
+        }) {
+            ConnectedFriendIdentity.normalizeIncomingFriend(existing, cloudUser: cloudUser)
             _ = ConnectedFriendIdentity.applyInvitationSnapshot(
                 name: name, avatarRaw: avatarRaw, to: existing, isNew: false
             )
             let legacyMatches = people.filter {
                 !$0.isCurrentUser && $0.cloudUserRecordName == nil &&
+                    $0.appleUserIdentifier?.isEmpty != false &&
+                    $0.appleSessionStateRaw == nil &&
                     ConnectedFriendIdentity.normalizedName($0.name) ==
                     ConnectedFriendIdentity.normalizedName(name)
             }
@@ -1445,17 +1499,19 @@ final class FriendInvitationService: ObservableObject {
 
         let legacyMatches = people.filter {
             !$0.isCurrentUser && $0.cloudUserRecordName == nil &&
+                $0.appleUserIdentifier?.isEmpty != false &&
+                $0.appleSessionStateRaw == nil &&
                 ConnectedFriendIdentity.normalizedName($0.name) ==
                 ConnectedFriendIdentity.normalizedName(name)
         }
         let isNew = legacyMatches.count != 1
         let friend = isNew ? Person(name: name.capitalizingFirstLetter) : legacyMatches[0]
+        ConnectedFriendIdentity.normalizeIncomingFriend(friend, cloudUser: cloudUser)
         _ = ConnectedFriendIdentity.applyInvitationSnapshot(
             name: name, avatarRaw: avatarRaw, to: friend, isNew: isNew
         )
-        friend.cloudUserRecordName = cloudUser
         if isNew { context.insert(friend) }
-        if let actor = people.first(where: \.isCurrentUser) {
+        if let actor = current {
             context.insert(ActivityItem(kind: .friendAdded,
                                         summary: "\(actor.name) added \(friend.name)",
                                         refID: friend.id, actorID: actor.id))

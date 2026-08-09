@@ -386,6 +386,57 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(options.first { $0.id == friend.id }?.name, "bubby")
     }
 
+    func testIncomingFriendNormalizationRemovesLocalAccountIdentity() {
+        let friend = Person(name: "bubby", isCurrentUser: true)
+        friend.appleUserIdentifier = "apple-old-account"
+        friend.appleSessionStateRaw = "active"
+
+        let changed = ConnectedFriendIdentity.normalizeIncomingFriend(
+            friend,
+            cloudUser: "cloud-bubby"
+        )
+
+        XCTAssertTrue(changed)
+        XCTAssertFalse(friend.isCurrentUser)
+        XCTAssertNil(friend.appleUserIdentifier)
+        XCTAssertNil(friend.appleSessionStateRaw)
+        XCTAssertEqual(friend.cloudUserRecordName, "cloud-bubby")
+    }
+
+    @MainActor
+    func testCanonicalCurrentPersonDemotesRemoteCurrentRow() throws {
+        let configuration = ModelConfiguration(
+            "CanonicalCurrentPerson", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(for: AppStore.schema,
+                                           configurations: configuration)
+        let context = container.mainContext
+        let remote = Person(name: "bubby", isCurrentUser: true)
+        remote.cloudUserRecordName = "cloud-bubby"
+        let current = Person(name: "esha")
+        current.appleUserIdentifier = "apple-esha"
+        current.cloudUserRecordName = "cloud-esha"
+        context.insert(remote)
+        context.insert(current)
+        try context.save()
+
+        let canonical = AccountProfileIntegrity.canonicalCurrentPerson(
+            appleUserIdentifier: "apple-esha",
+            cloudUserRecordName: "cloud-esha",
+            context: context
+        )
+
+        XCTAssertEqual(canonical?.id, current.id)
+        XCTAssertTrue(current.isCurrentUser)
+        XCTAssertFalse(remote.isCurrentUser)
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<Person>()).filter(\.isCurrentUser).map(\.id),
+            [current.id]
+        )
+    }
+
     @MainActor
     func testFriendAccountRepairLeavesOneRowPerCloudAccountAndRetargetsLedger() throws {
         let configuration = ModelConfiguration(
