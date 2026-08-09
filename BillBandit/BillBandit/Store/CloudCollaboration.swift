@@ -111,6 +111,15 @@ enum ConnectedFriendIdentity {
             .filter(\.isLetter)
     }
 
+    @discardableResult
+    static func applyInvitationSnapshot(name: String, avatarRaw: String?, to person: Person,
+                                        isNew: Bool) -> Bool {
+        guard isNew else { return false }
+        person.name = name.capitalizingFirstLetter
+        person.avatarRaw = avatarRaw
+        return true
+    }
+
     static func preferredPerson(for person: Person, among people: [Person]) -> Person {
         guard !person.isCurrentUser else { return person }
         if let cloudUser = person.cloudUserRecordName, !cloudUser.isEmpty {
@@ -375,6 +384,8 @@ final class CloudCollaborationService: ObservableObject {
     private var currentUserRecordName: String?
     private var isPreparing = false
     private var foregroundSyncWorker: Task<Void, Never>?
+    private var friendProfileRefreshTask: Task<Void, Never>?
+    private var friendProfileRefreshTaskToken: UUID?
     private var accountGeneration = 0
 
     private init() {
@@ -514,6 +525,26 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     func refreshFriendProfiles() async {
+        if let task = friendProfileRefreshTask {
+            await task.value
+            return
+        }
+
+        let token = UUID()
+        friendProfileRefreshTaskToken = token
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.refreshFriendProfilesWorker()
+        }
+        friendProfileRefreshTask = task
+        await task.value
+        if friendProfileRefreshTaskToken == token {
+            friendProfileRefreshTask = nil
+            friendProfileRefreshTaskToken = nil
+        }
+    }
+
+    private func refreshFriendProfilesWorker() async {
         guard let currentUserRecordName else { return }
         let generation = accountGeneration
         let context = AppStore.container.mainContext
@@ -592,6 +623,9 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     private func resetAccountScopedState() {
+        friendProfileRefreshTask?.cancel()
+        friendProfileRefreshTask = nil
+        friendProfileRefreshTaskToken = nil
         accountGeneration &+= 1
         currentUserRecordName = nil
         pendingMemberClaimGroupID = nil
@@ -1393,14 +1427,9 @@ final class FriendInvitationService: ObservableObject {
         ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
         if let existing = people.first(where: { $0.cloudUserRecordName == cloudUser }) {
-            if AccountProfileMergePolicy.shouldApplyRemoteProfile(
-                remoteUpdatedAt: nil,
-                localUpdatedAt: existing.profileUpdatedAt,
-                isCurrentUser: false
-            ) {
-                existing.name = name
-                existing.avatarRaw = avatarRaw
-            }
+            _ = ConnectedFriendIdentity.applyInvitationSnapshot(
+                name: name, avatarRaw: avatarRaw, to: existing, isNew: false
+            )
             let legacyMatches = people.filter {
                 !$0.isCurrentUser && $0.cloudUserRecordName == nil &&
                     ConnectedFriendIdentity.normalizedName($0.name) ==
@@ -1419,14 +1448,13 @@ final class FriendInvitationService: ObservableObject {
                 ConnectedFriendIdentity.normalizedName($0.name) ==
                 ConnectedFriendIdentity.normalizedName(name)
         }
-        let friend = legacyMatches.count == 1 ? legacyMatches[0] : Person(
-            name: name.capitalizingFirstLetter,
-            avatar: avatarRaw.flatMap(ProfileAvatar.init(rawValue:))
+        let isNew = legacyMatches.count != 1
+        let friend = isNew ? Person(name: name.capitalizingFirstLetter) : legacyMatches[0]
+        _ = ConnectedFriendIdentity.applyInvitationSnapshot(
+            name: name, avatarRaw: avatarRaw, to: friend, isNew: isNew
         )
-        friend.name = name.capitalizingFirstLetter
-        friend.avatarRaw = avatarRaw
         friend.cloudUserRecordName = cloudUser
-        if legacyMatches.count != 1 { context.insert(friend) }
+        if isNew { context.insert(friend) }
         if let actor = people.first(where: \.isCurrentUser) {
             context.insert(ActivityItem(kind: .friendAdded,
                                         summary: "\(actor.name) added \(friend.name)",
