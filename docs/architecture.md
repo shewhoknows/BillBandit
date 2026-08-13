@@ -9,6 +9,40 @@
   hidden/flagged UI plus an entry in [api-contracts.md](api-contracts.md).
 - Previews and unit tests run against in-process mock repositories (DEBUG only).
 
+## 2026-08-12 server-authoritative social flow
+
+The Railway API is the sole authority for friends, groups and expenses. SwiftData
+and other device stores can cache API data, but they must not create a second
+social identity or shared ledger. CloudKit collaboration records from older builds
+are legacy data. They are not authoritative for this flow.
+
+The canonical sequence is:
+
+1. One account creates a reusable five-character code with
+   `POST /api/mobile/friends/invitations`.
+2. The other account claims it with
+   `POST /api/mobile/friends/invitations/{code}/claim`.
+3. Both accounts load the same accepted edge from `GET /api/mobile/friends`.
+4. The creator sends accepted friend account IDs in `memberAccountIds` to
+   `POST /api/mobile/groups`. One transaction creates all memberships and group
+   participants.
+5. Canonical expense and settlement mutations increment the group ledger revision.
+   Both accounts then read the same group, exact amounts and opposite balances.
+
+Friend deletion through `DELETE /api/mobile/friends/{accountId}` is a social
+operation only. It removes the accepted friendship edge. Existing group membership
+and all expense, split, settlement and ledger history stay intact.
+
+Pusher can reduce notification delay, but correctness does not depend on it. While
+the app is active, it can poll `GET /api/mobile/sync-token`. An unchanged SHA-256
+token needs no full reload. A changed token causes a friends/groups refresh. The
+token covers friend add/remove/profile updates, group discovery/removal/name/member
+changes, and canonical group revision changes. The response contains no raw IDs.
+
+Validation on 2026-08-12: TypeScript typecheck passes, the five focused friend
+tests pass, the authenticated sync-token integration test passes, and the full
+API ledger suite passes 34/34.
+
 ## Layers
 
 ```
@@ -36,13 +70,10 @@ Data (APIClient, repositories, DEBUG mocks)
 
 Backend capabilities the API does not provide yet (kept honest in UI):
 
-- Friend codes / invite codes / trip invite links — no endpoints. UI hidden behind
-  `FeatureFlags`.
 - Reopening a finalized trip — no un-finalize endpoint. Reopen is unavailable in
   production UI; finalize is guarded by a confirmation.
-- Standalone friends list — the backend models friendships but exposes no API;
-  the app derives "people you've traveled with" from group memberships.
-- Member removal, group edit/delete — no endpoints; UI does not offer them.
+- Standalone group edit/delete endpoints do not exist. Canonical membership
+  mutations support add, role update and removal.
 
 ## Conventions
 

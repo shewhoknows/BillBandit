@@ -516,6 +516,8 @@ function historyAndActivity(source: ReadModelGroupSource): {
       activityId: `activity-${expense.expenseId}`,
       type: 'expense',
       expenseId: expense.expenseId,
+      description: expense.description,
+      actorMemberId: expense.createdByMemberId ?? expense.paidByMemberId,
       amount: expense.amount,
       at: expense.createdAt,
     })
@@ -538,6 +540,9 @@ function historyAndActivity(source: ReadModelGroupSource): {
         activityId: `activity-${settlement.settlementId}`,
         type: 'settlement',
         settlementId: settlement.settlementId,
+        actorMemberId: settlement.actorMemberId,
+        payerMemberId: settlement.payerMemberId,
+        recipientMemberId: settlement.recipientMemberId,
         amount: settlement.amount,
         at: settlement.createdAt,
       })
@@ -556,6 +561,9 @@ function historyAndActivity(source: ReadModelGroupSource): {
         type: 'reversal',
         reversalId: settlement.reversal.reversalId,
         settlementId: settlement.settlementId,
+        actorMemberId: settlement.reversal.actorMemberId,
+        payerMemberId: settlement.payerMemberId,
+        recipientMemberId: settlement.recipientMemberId,
         amount: settlement.amount,
         at: settlement.reversal.createdAt,
       })

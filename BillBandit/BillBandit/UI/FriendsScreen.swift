@@ -22,6 +22,12 @@ struct FriendsScreen: View {
         ConnectedFriendIdentity.actualFriends(from: people)
     }
 
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
+
     /// Pairwise you↔friend balances (positive = they owe you).
     private var localNets: [UUID: Decimal] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
@@ -47,20 +53,20 @@ struct FriendsScreen: View {
     }
 
     private func usesSharedLedger(_ friend: Person) -> Bool {
-        groups.contains { group in
+        visibleGroups.contains { group in
             group.serverLedgerGroupID != nil && group.members.contains { $0.id == friend.id }
-        } || serverLedger.hasCanonicalMembership(for: friend.id)
+        } || serverLedger.hasCanonicalMembership(for: friend)
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if groups.contains(where: { $0.serverLedgerGroupID != nil }) {
+                if visibleGroups.contains(where: { $0.serverLedgerGroupID != nil }) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(ServerLedgerUserFacingCopy.sharedBalancesTitle)
                             .font(BrandFont.type(9, bold: true))
                         ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
-                            Task { await serverLedger.refresh(groups: groups) }
+                            Task { await serverLedger.refresh(groups: visibleGroups) }
                         }
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
@@ -92,9 +98,12 @@ struct FriendsScreen: View {
                 ForEach(friends) { friend in
                     HStack(spacing: 11) {
                         ProfileAvatarView(avatar: friend.profileAvatar, size: 38)
-                        Text(friend.name)
-                            .font(BrandFont.display(13.5))
-                            .foregroundStyle(Color.Brand.creamSoft)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(friend.name)
+                                .font(BrandFont.display(13.5))
+                                .foregroundStyle(Color.Brand.creamSoft)
+                            FriendRemovalButton(friend: friend, onLight: false)
+                        }
                         Spacer()
                         friendBalance(for: friend)
                     }
@@ -117,8 +126,8 @@ struct FriendsScreen: View {
                 }
             }
             .fullScreenCover(isPresented: $showAdd) { FriendInvitationSheet() }
-            .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-                await serverLedger.refresh(groups: groups)
+            .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+                await serverLedger.refresh(groups: visibleGroups)
             }
         }
     }
@@ -127,7 +136,7 @@ struct FriendsScreen: View {
     private func friendBalance(for friend: Person) -> some View {
         if usesSharedLedger(friend) {
             VStack(alignment: .trailing, spacing: 3) {
-                if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
+                if let presentation = serverLedger.friendBalancePresentation(for: friend) {
                     ServerLedgerBalanceChip(presentation: presentation)
                 } else {
                     ServerLedgerUnavailableChip(
@@ -168,6 +177,12 @@ struct ProfileFriendsSection: View {
         ConnectedFriendIdentity.actualFriends(from: people)
     }
 
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
+
     private var localNets: [UUID: Decimal] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
         let localExpenses = expenses.filter { $0.group?.serverLedgerGroupID == nil }
@@ -192,9 +207,9 @@ struct ProfileFriendsSection: View {
     }
 
     private func usesSharedLedger(_ friend: Person) -> Bool {
-        groups.contains { group in
+        visibleGroups.contains { group in
             group.serverLedgerGroupID != nil && group.members.contains { $0.id == friend.id }
-        } || serverLedger.hasCanonicalMembership(for: friend.id)
+        } || serverLedger.hasCanonicalMembership(for: friend)
     }
 
     var body: some View {
@@ -239,11 +254,14 @@ struct ProfileFriendsSection: View {
                 ForEach(friends) { friend in
                     HStack(spacing: 10) {
                         ProfileAvatarView(avatar: friend.profileAvatar, size: 42)
-                        Text(friend.name)
-                            .font(BrandFont.body(13.5, weight: .bold))
-                            .foregroundStyle(Color.Brand.cobalt)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(friend.name)
+                                .font(BrandFont.body(13.5, weight: .bold))
+                                .foregroundStyle(Color.Brand.cobalt)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
+                            FriendRemovalButton(friend: friend, onLight: true)
+                        }
                         Spacer(minLength: 5)
                         friendBalance(for: friend)
                     }
@@ -264,8 +282,8 @@ struct ProfileFriendsSection: View {
             await FriendInvitationService.shared.refreshAcceptedInvites()
             await CloudCollaborationService.shared.refreshFriendProfiles()
         }
-        .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-            await serverLedger.refresh(groups: groups)
+        .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+            await serverLedger.refresh(groups: visibleGroups)
         }
     }
 
@@ -273,7 +291,7 @@ struct ProfileFriendsSection: View {
     private func friendBalance(for friend: Person) -> some View {
         if usesSharedLedger(friend) {
             VStack(alignment: .trailing, spacing: 3) {
-                if let presentation = serverLedger.friendBalancePresentation(for: friend.id) {
+                if let presentation = serverLedger.friendBalancePresentation(for: friend) {
                     ServerLedgerBalanceChip(presentation: presentation, onLight: true)
                 } else {
                     ServerLedgerUnavailableChip(
@@ -292,6 +310,74 @@ struct ProfileFriendsSection: View {
             }
         } else {
             NetChip(net: localNets[friend.id] ?? 0, style: .friend, onLight: true)
+        }
+    }
+}
+
+private struct FriendRemovalButton: View {
+    let friend: Person
+    let onLight: Bool
+
+    @State private var showConfirmation = false
+    @State private var isRemoving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Button {
+            showConfirmation = true
+        } label: {
+            if isRemoving {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(onLight ? Color.Brand.cobalt : Color.Brand.creamSoft)
+            } else {
+                Text("Remove")
+                    .font(BrandFont.type(9, bold: true))
+                    .underline()
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.68) : Color.Brand.creamSoft.opacity(0.72))
+        .disabled(isRemoving)
+        .accessibilityLabel("Remove \(friend.name) from friends")
+        .accessibilityIdentifier("removeFriendButton-\(friend.id.uuidString)")
+        .confirmationDialog(
+            "Remove \(friend.name)?",
+            isPresented: $showConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove friend", role: .destructive) {
+                removeFriend()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Past groups and expenses will stay in your history.")
+        }
+        .alert(
+            "Could not remove friend",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "Try again.")
+        }
+    }
+
+    private func removeFriend() {
+        isRemoving = true
+        errorMessage = nil
+        Task { @MainActor in
+            do {
+                try await ServerSocialSyncService.shared.remove(friend: friend)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                errorMessage = error.localizedDescription
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            isRemoving = false
         }
     }
 }
@@ -461,7 +547,7 @@ struct FriendInvitationSheet: View {
                 .foregroundStyle(Color.Brand.cobalt.opacity(0.68))
                 .multilineTextAlignment(.center)
 
-            TextField("B4NDT-CREW2", text: $code)
+            TextField("B4NDT", text: $code)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .keyboardType(.asciiCapable)
@@ -474,7 +560,7 @@ struct FriendInvitationSheet: View {
                                           lineWidth: BrandOutline.control))
                 .accessibilityIdentifier("friendInviteCodeField")
                 .onChange(of: code) { _, value in
-                    let normalized = String(FriendInviteCode.normalize(value).prefix(10))
+                    let normalized = String(FriendInviteCode.normalize(value).prefix(5))
                     if code != normalized { code = normalized }
                 }
 

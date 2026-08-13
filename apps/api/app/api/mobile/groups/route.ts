@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { createGroupSchema } from '@/lib/validations-mobile-ledger'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { mobileGroup } from '@/lib/mobile-dto'
-import { ensureParticipantsForGroup } from '@/lib/settlement/participants/service'
+import { profileDisplayName } from '@/lib/profile-display-name'
 import { loadAccountReadModel } from '@/lib/ledger/read-model/loader'
 import { mobileGroupFromLedger, readModelErrorResponse } from '@/lib/mobile-groups'
-
-const groupListInclude = {
-  members: {
-    include: { user: { select: { id: true, name: true, image: true, email: true } } },
-  },
-  _count: { select: { expenses: { where: { isDeleted: false } } } },
-} as const
+import {
+  createGroupWithFriends,
+  GroupCreationError,
+  GroupCreationIdempotencyError,
+  groupCreationIdempotencyKey,
+} from '@/lib/mobile-group-creation'
 
 export async function GET(req: NextRequest) {
   const { session, response } = await requireMobileSession(req)
@@ -49,31 +47,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.errors[0].message }, { status: 400 })
     }
 
-    const { name, description, currency, category } = parsed.data
-    const group = await prisma.group.create({
-      data: {
-        name,
-        description,
-        currency,
-        category,
-        members: { create: { userId: session.user.id, role: 'ADMIN' } },
-      },
-      include: groupListInclude,
+    const { name, description, currency, category, memberAccountIds } = parsed.data
+    const result = await createGroupWithFriends({
+      accountId: session.user.id,
+      actorName: profileDisplayName(session.user),
+      name,
+      description,
+      currency,
+      category,
+      memberAccountIds,
+      idempotencyKey: groupCreationIdempotencyKey(req.headers.get('Idempotency-Key')),
     })
 
-    await ensureParticipantsForGroup(group.id)
-
-    await prisma.activityLog.create({
-      data: {
-        userId: session.user.id,
-        type: 'GROUP_CREATED',
-        description: `${session.user.name} created the group "${name}"`,
-        metadata: { groupId: group.id },
-      },
-    })
-
-    return NextResponse.json({ group: mobileGroup(group) }, { status: 201 })
+    return NextResponse.json(
+      { group: mobileGroup(result.group) },
+      {
+        status: result.replayed ? 200 : 201,
+        headers: { 'Idempotency-Replayed': result.replayed ? 'true' : 'false' },
+      }
+    )
   } catch (error) {
+    if (error instanceof GroupCreationError) {
+      return NextResponse.json(
+        {
+          code: error.code,
+          error: error.message,
+          invalidAccountIds: error.invalidAccountIds,
+        },
+        { status: error.status }
+      )
+    }
+    if (error instanceof GroupCreationIdempotencyError) {
+      return NextResponse.json(
+        { code: error.code, error: error.message },
+        { status: error.status }
+      )
+    }
     console.error('[MOBILE POST /groups]', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }

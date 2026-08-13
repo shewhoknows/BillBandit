@@ -91,8 +91,26 @@ test('account deletion removes personal data and preserves shared ledger integri
       expiresAt: new Date('2030-01-01T00:00:00.000Z'),
     },
   })
+  await db.friendInvitation.create({
+    data: {
+      inviterId: fixture.aliceId,
+      code: 'AL2CE',
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+    },
+  })
+  await db.friendClaimRateLimit.create({
+    data: {
+      accountId: fixture.aliceId,
+      windowStartedAt: new Date('2026-08-12T00:00:00.000Z'),
+      failureCount: 2,
+    },
+  })
+  const [friendFromId, friendToId] = [fixture.aliceId, fixture.bobId].sort()
   await db.friendship.create({
-    data: { fromId: fixture.aliceId, toId: fixture.bobId },
+    data: {
+      fromId: friendFromId,
+      toId: friendToId,
+    },
   })
   await db.transaction.create({
     data: {
@@ -166,6 +184,8 @@ test('account deletion removes personal data and preserves shared ledger integri
   assert.equal(await db.ledgerOperation.count({ where: { accountId: fixture.aliceId } }), 0)
   assert.equal(await db.ledgerImport.count({ where: { accountId: fixture.aliceId } }), 0)
   assert.equal(await db.mobileOTPChallenge.count({ where: { identifier: email } }), 0)
+  assert.equal(await db.friendInvitation.count({ where: { inviterId: fixture.aliceId } }), 0)
+  assert.equal(await db.friendClaimRateLimit.count({ where: { accountId: fixture.aliceId } }), 0)
   assert.equal(await db.friendship.count({ where: { OR: [{ fromId: fixture.aliceId }, { toId: fixture.aliceId }] } }), 0)
 
   const expense = await db.expense.findUniqueOrThrow({ where: { id: fixture.expenseId! } })

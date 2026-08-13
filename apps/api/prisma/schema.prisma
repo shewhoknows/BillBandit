@@ -67,6 +67,7 @@ model User {
   groupMemberships GroupMember[]
   finalizedGroups  Group[]        @relation("GroupFinalizedBy")
   paidExpenses     Expense[]      @relation("PaidBy")
+  createdExpenses  Expense[]      @relation("ExpenseCreatedBy")
   expenseSplits    ExpenseSplit[]
 
   sentTransactions     Transaction[] @relation("Sender")
@@ -79,6 +80,8 @@ model User {
   ledgerImports          LedgerImport[]          @relation("LedgerImportAccount")
   ledgerImportRecords    LedgerImportRecord[]    @relation("LedgerImportRecordAccount")
   externalIdentities     ExternalIdentity[]      @relation("ExternalIdentityAccount")
+  friendInvitation       FriendInvitation?
+  friendClaimRateLimit   FriendClaimRateLimit?
 
   friendshipsInitiated Friendship[] @relation("FriendFrom")
   friendshipsReceived  Friendship[] @relation("FriendTo")
@@ -188,6 +191,9 @@ model Expense {
   paidById String
   paidBy   User   @relation("PaidBy", fields: [paidById], references: [id])
 
+  createdById String?
+  createdBy   User?   @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
   splits    ExpenseSplit[]
   splitType SplitType      @default(EQUAL)
 
@@ -206,6 +212,7 @@ model Expense {
 
   @@index([groupId])
   @@index([paidById])
+  @@index([createdById])
   @@index([date])
 }
 
@@ -555,6 +562,31 @@ model SettlementOutbox {
   @@unique([groupId, version])
   @@index([state, nextAttemptAt])
   @@index([groupId])
+}
+
+model FriendInvitation {
+  id        String   @id @default(cuid())
+  inviterId String   @unique
+  code      String   @unique @db.VarChar(5)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inviter User @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model FriendClaimRateLimit {
+  accountId       String   @id
+  windowStartedAt DateTime
+  failureCount    Int      @default(0)
+  blockedUntil    DateTime?
+  updatedAt       DateTime @updatedAt
+
+  account User @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([blockedUntil])
 }
 
 model Friendship {

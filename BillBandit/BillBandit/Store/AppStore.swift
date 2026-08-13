@@ -245,7 +245,10 @@ final class ServerLedgerAccountLifecycle {
 
             let context = AppStore.container.mainContext
             let groups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
-            let serverGroupIDs = groups.compactMap { SettlementAPIConfiguration.serverGroupId(for: $0) }
+            let serverGroupIDs = groups.compactMap { group -> String? in
+                guard group.serverAccountId == accountID else { return nil }
+                return SettlementAPIConfiguration.serverGroupId(for: group)
+            }
             for groupID in Set(serverGroupIDs).sorted() {
                 guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
                 let scope = ServerBackedLedgerScope(accountID: accountID, groupID: groupID)
@@ -757,6 +760,15 @@ enum LedgerIntegrity {
 }
 
 enum ActivityData {
+    static func localItems(_ items: [ActivityItem], groups: [Group]) -> [ActivityItem] {
+        let groupsByID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        return items.filter { item in
+            guard let groupID = item.groupID else { return true }
+            guard let group = groupsByID[groupID] else { return false }
+            return group.serverLedgerGroupID == nil
+        }
+    }
+
     static func unreadCount(in items: [ActivityItem], currentUserID: UUID,
                             lastRead: Date) -> Int {
         items.filter {

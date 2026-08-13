@@ -86,7 +86,7 @@ struct GroupDetailScreen: View {
 
     private var canonicalPaidShareString: String {
         guard let paid = canonicalSettlementStore.canonicalMyPaidMoney,
-              let share = canonicalSettlementStore.canonicalMyShareMoney else { return "shared ledger loading…" }
+              let share = canonicalSettlementStore.canonicalMyShareMoney else { return "balance loading…" }
         return "you paid \(SettlementMoneyFormatting.display(minorUnits: paid.minorUnits, currencyCode: paid.currencyCode, currencyExponent: paid.currencyExponent))"
             + " · your share \(SettlementMoneyFormatting.display(minorUnits: share.minorUnits, currencyCode: share.currencyCode, currencyExponent: share.currencyExponent))"
     }
@@ -122,15 +122,13 @@ struct GroupDetailScreen: View {
                 invoice
                 VStack(spacing: 10) {
                     Button { beginAddingExpense() } label: {
-                        Text(usesCanonicalLedger ? "Shared expenses" : "Add expense")
+                        Text("Add expense")
                             .font(BrandFont.display(15, weight: .bold))
                             .foregroundStyle(Color.Brand.cobalt)
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
                             .background(Color.Brand.creamSoft, in: Capsule())
                     }
-                    .disabled(usesCanonicalLedger)
-                    .opacity(usesCanonicalLedger ? 0.55 : 1)
                     .accessibilityIdentifier("groupAddExpenseButton")
                     Button { showSettle = true } label: {
                         Text(settleButtonTitle)
@@ -156,7 +154,7 @@ struct GroupDetailScreen: View {
         }
         .background(Color.Brand.cobalt)
         .navigationTitle(group.name)
-        .fullScreenCover(isPresented: $showAddExpense, onDismiss: revealNewExpense) {
+        .fullScreenCover(isPresented: $showAddExpense, onDismiss: expenseSheetDidDismiss) {
             AddExpenseSheet(initialGroup: group)
         }
         .fullScreenCover(isPresented: $showSettle) {
@@ -200,6 +198,18 @@ struct GroupDetailScreen: View {
             )
             canonicalSettlementStore.setVisible(true)
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .billBanditServerCatalogDidRefresh
+            )
+        ) { notification in
+            guard let serverGroupID,
+                  let groupIDs = notification.userInfo?["groupIDs"] as? [String],
+                  groupIDs.contains(serverGroupID) else { return }
+            Task {
+                await canonicalSettlementStore.refresh(forceWritesDisabled: true)
+            }
+        }
         .onDisappear {
             if !showSettle {
                 canonicalSettlementStore.setVisible(false)
@@ -211,7 +221,7 @@ struct GroupDetailScreen: View {
         if usesCanonicalLedger {
             guard canonicalSettlementStore.hasCanonicalReadModel,
                   let snapshot = canonicalSettlementStore.snapshot else {
-                return "shared ledger loading…"
+                return "balance loading…"
             }
             return snapshot.simplifyDebts ? "simplify debts: ON" : "simplify debts: OFF"
         }
@@ -327,10 +337,10 @@ struct GroupDetailScreen: View {
 
     private var canonicalInvoiceStatus: String {
         if canonicalSettlementStore.isMigrationBlocked {
-            return "shared ledger migration is incomplete"
+            return "group update is incomplete"
         }
         if canonicalSettlementStore.isOffline {
-            return "offline — showing the last canonical invoice"
+            return "offline — showing the last saved invoice"
         }
         if canonicalSettlementStore.lastError != nil {
             return "could not load the shared invoice"
@@ -379,11 +389,21 @@ struct GroupDetailScreen: View {
     }
 
     private func beginAddingExpense() {
-        guard !usesCanonicalLedger else { return }
         expenseIDsBeforeAdd = Set(group.expenses.map(\.id))
         freshExpenseID = nil
         revealFreshExpense = true
         showAddExpense = true
+    }
+
+    private func expenseSheetDidDismiss() {
+        if usesCanonicalLedger {
+            Task {
+                await canonicalSettlementStore.refresh(forceWritesDisabled: true)
+                await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
+            }
+        } else {
+            revealNewExpense()
+        }
     }
 
     private func revealNewExpense() {

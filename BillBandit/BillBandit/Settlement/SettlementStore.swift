@@ -2,6 +2,28 @@ import Foundation
 import Observation
 import SwiftData
 
+enum SettlementRealtimeRefreshPolicy {
+    static let fallbackPollingInterval: Duration = .seconds(4)
+    static let safetyPollingInterval: Duration = .seconds(15)
+
+    static func canUseRealtime(
+        serverAvailable: Bool,
+        localPusherConfigured: Bool
+    ) -> Bool {
+        serverAvailable && localPusherConfigured
+    }
+
+    static func pollingInterval(
+        serverAvailable: Bool,
+        localPusherConfigured: Bool
+    ) -> Duration {
+        canUseRealtime(
+            serverAvailable: serverAvailable,
+            localPusherConfigured: localPusherConfigured
+        ) ? safetyPollingInterval : fallbackPollingInterval
+    }
+}
+
 @MainActor
 @Observable
 final class SettlementStore {
@@ -265,7 +287,11 @@ final class SettlementStore {
         return canStartSettlement(transfer)
     }
 
-    func settle(transfer: SettlementPlanTransferDTO, note: String?, expectedVersion: Int) async throws {
+    func settle(
+        transfer: SettlementPlanTransferDTO,
+        note: String?,
+        expectedVersion: Int
+    ) async throws -> String? {
         guard let scope = configuredScope, let snapshot, canonicalSnapshot != nil else {
             throw SettlementClientError.writeDisabled
         }
@@ -280,6 +306,11 @@ final class SettlementStore {
         }
 
         let note = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let knownSettlementIDs = Set(
+            canonicalSnapshot?.group.settlementHistory.compactMap { item in
+                item.type == "settlement" ? item.settlementID : nil
+            } ?? []
+        )
         let request = CreateSettlementRequest(
             expectedVersion: expectedVersion,
             planTransferId: transfer.planTransferId,
@@ -314,9 +345,14 @@ final class SettlementStore {
             // The durable queue is the eligible offline path. The UI can
             // remain on the cached canonical read model and will drain on the
             // next foreground/reconnect cycle.
+            return nil
         } catch {
             throw error
         }
+        return canonicalSnapshot?.group.settlementHistory.first(where: { item in
+            item.type == "settlement"
+                && item.settlementID.map { !knownSettlementIDs.contains($0) } == true
+        })?.settlementID
     }
 
     func reverse(settlementId: String) async throws {
@@ -604,16 +640,27 @@ final class SettlementStore {
 
     private func subscribeRealtimeIfNeeded() async {
         guard let scope = configuredScope,
-              snapshot?.realtime.available == true else { return }
+              SettlementRealtimeRefreshPolicy.canUseRealtime(
+                serverAvailable: snapshot?.realtime.available == true,
+                localPusherConfigured: SettlementRealtimeConfig.isPusherConfigured
+              ) else { return }
         await realtimeClient.subscribe(groupId: scope.groupID, apiClient: legacyAPIClient)
     }
 
     private func startPollingIfNeeded() {
         stopPolling()
-        guard isVisible, snapshot?.realtime.available == false else { return }
+        guard isVisible, let serverRealtimeAvailable = snapshot?.realtime.available else { return }
+        let interval = SettlementRealtimeRefreshPolicy.pollingInterval(
+            serverAvailable: serverRealtimeAvailable,
+            localPusherConfigured: SettlementRealtimeConfig.isPusherConfigured
+        )
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
                 guard let self, self.isVisible else { continue }
                 await self.refresh(forceWritesDisabled: false)
             }

@@ -5,6 +5,43 @@ import XCTest
 
 @MainActor
 final class ServerLedgerCacheTests: XCTestCase {
+    func testCanonicalRouteConflictShapeStopsStaleMutationRetry() throws {
+        let client = URLSessionServerLedgerAPIClient(
+            baseURL: URL(string: "https://example.test")!,
+            tokenProvider: { "token" }
+        )
+        let data = try XCTUnwrap(
+            """
+            {
+              "error": "REVISION_CONFLICT",
+              "message": "The shared ledger changed.",
+              "details": {
+                "expectedRevision": 4,
+                "currentRevision": 5,
+                "retryable": true,
+                "serverAuthoritative": true
+              }
+            }
+            """.data(using: .utf8)
+        )
+
+        let error = try client.decodeHTTPErrorForTesting(
+            status: 409,
+            data: data,
+            scope: ServerBackedLedgerScope(
+                accountID: "account-a",
+                groupID: "group-a"
+            ),
+            expectedRevision: 4
+        )
+        guard case let .revisionConflict(expected, current, snapshot) = error else {
+            return XCTFail("Expected revisionConflict, got \(error)")
+        }
+        XCTAssertEqual(expected, 4)
+        XCTAssertEqual(current, 5)
+        XCTAssertNil(snapshot)
+    }
+
     func testCacheAndQueueAreAccountScoped() throws {
         let store = try makeStore()
         let accountA = ServerBackedLedgerScope(accountID: "account-a", groupID: "group-a")
@@ -232,7 +269,7 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertEqual(sync.activeAccountID, "account-b")
     }
 
-    func testSurfaceProjectionRequiresOneCanonicalReadRevision() throws {
+    func testSurfaceProjectionCombinesBalancesAtHighestGroupRevision() throws {
         let owed = try XCTUnwrap(
             ServerLedgerSurfaceMoney(minorUnits: "900", currencyCode: "INR", currencyExponent: 2)
         )
@@ -251,7 +288,7 @@ final class ServerLedgerCacheTests: XCTestCase {
             serverGroupID: "group-b",
             accountID: "account-a",
             name: "B",
-            readRevision: 12,
+            readRevision: 9,
             currentMemberID: "member-a",
             currentAccount: [owe]
         )
@@ -260,30 +297,127 @@ final class ServerLedgerCacheTests: XCTestCase {
             accountID: "account-a",
             groups: [first, second]
         ) else {
-            return XCTFail("Groups with one canonical revision should project")
+            return XCTFail("Groups with independent revisions should project")
         }
         XCTAssertEqual(snapshot.readRevision, 12)
         XCTAssertEqual(snapshot.balanceByCurrency.first?.minorUnits, "800")
         XCTAssertEqual(
             ServerLedgerSurfaceStatus(phase: .ready, readRevision: 12).label,
-            "Shared balances are up to date"
+            "Balances are current"
         )
 
-        let inconsistent = ServerLedgerSurfaceGroup(
-            serverGroupID: "group-c",
+        let summary = try XCTUnwrap(snapshot.accountBalanceSummaries.first)
+        XCTAssertEqual(summary.net.minorUnits, "800")
+        XCTAssertEqual(summary.owed.minorUnits, "900")
+        XCTAssertEqual(summary.owe.minorUnits, "100")
+        XCTAssertEqual(summary.headline, "you're owed overall")
+        XCTAssertTrue(snapshot.coversExactly(serverGroupIDs: ["group-a", "group-b"]))
+        XCTAssertFalse(snapshot.coversExactly(serverGroupIDs: ["group-a"]))
+    }
+
+    func testAccountBalanceSummaryDoesNotNetDifferentCurrencies() throws {
+        let inrOwed = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "50000", currencyCode: "INR", currencyExponent: 2)
+        )
+        let usdOwe = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "-1200", currencyCode: "USD", currencyExponent: 2)
+        )
+        let group = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-a",
             accountID: "account-a",
-            name: "C",
-            readRevision: 13,
+            name: "A",
+            readRevision: 1,
+            currentMemberID: "member-a",
+            currentAccount: [inrOwed, usdOwe]
+        )
+
+        guard case let .ready(snapshot) = ServerLedgerSurfaceProjection.project(
+            accountID: "account-a",
+            groups: [group]
+        ) else {
+            return XCTFail("The group should project")
+        }
+
+        XCTAssertEqual(snapshot.accountBalanceSummaries.map(\.net.currencyCode), ["INR", "USD"])
+        XCTAssertEqual(snapshot.accountBalanceSummaries.map(\.headline), ["you're owed overall", "you owe overall"])
+    }
+
+    func testAccountBalanceSummaryExplainsOffsettingGroupBalances() throws {
+        let owed = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "900", currencyCode: "INR", currencyExponent: 2)
+        )
+        let owe = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "-900", currencyCode: "INR", currencyExponent: 2)
+        )
+        let first = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-a",
+            accountID: "account-a",
+            name: "A",
+            readRevision: 1,
             currentMemberID: "member-a",
             currentAccount: [owed]
         )
-        guard case let .inconsistent(revisions) = ServerLedgerSurfaceProjection.project(
+        let second = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-b",
             accountID: "account-a",
-            groups: [first, inconsistent]
+            name: "B",
+            readRevision: 1,
+            currentMemberID: "member-a",
+            currentAccount: [owe]
+        )
+
+        guard case let .ready(snapshot) = ServerLedgerSurfaceProjection.project(
+            accountID: "account-a",
+            groups: [first, second]
         ) else {
-            return XCTFail("Different read revisions must not be blended")
+            return XCTFail("The groups should project")
         }
-        XCTAssertEqual(revisions, Set([12, 13]))
+
+        let summary = try XCTUnwrap(snapshot.accountBalanceSummaries.first)
+        XCTAssertEqual(summary.net.minorUnits, "0")
+        XCTAssertEqual(summary.owed.minorUnits, "900")
+        XCTAssertEqual(summary.owe.minorUnits, "900")
+        XCTAssertEqual(summary.headline, "you owe and are owed")
+    }
+
+    func testSurfaceProjectionAllowsIndependentChangesAndAggregatesFlags() throws {
+        let firstBalance = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "250", currencyCode: "INR", currencyExponent: 2)
+        )
+        let secondBalance = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(minorUnits: "700", currencyCode: "INR", currencyExponent: 2)
+        )
+        let first = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-a",
+            accountID: "account-a",
+            name: "A",
+            readRevision: 4,
+            currentMemberID: "member-a",
+            currentAccount: [firstBalance],
+            isStale: true
+        )
+        let second = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-b",
+            accountID: "account-a",
+            name: "B",
+            readRevision: 17,
+            currentMemberID: "member-a",
+            currentAccount: [secondBalance],
+            isReadOnly: true
+        )
+
+        guard case let .ready(snapshot) = ServerLedgerSurfaceProjection.project(
+            accountID: "account-a",
+            groups: [first, second]
+        ) else {
+            return XCTFail("Independent group changes should remain visible together")
+        }
+
+        XCTAssertEqual(snapshot.readRevision, 17)
+        XCTAssertEqual(snapshot.groups.map(\.serverGroupID), ["group-a", "group-b"])
+        XCTAssertEqual(snapshot.balanceByCurrency.first?.minorUnits, "950")
+        XCTAssertTrue(snapshot.isStale)
+        XCTAssertTrue(snapshot.isReadOnly)
     }
 
     func testSurfaceScopePolicySeparatesLocalOnlyAndSharedGroups() {
@@ -342,6 +476,88 @@ final class ServerLedgerCacheTests: XCTestCase {
             ),
             .invalidScope
         )
+    }
+
+    func testFriendBalanceUsesStableAccountIDWhenLocalIdentityIsMissing() throws {
+        let amount = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(
+                minorUnits: "27700",
+                currencyCode: "INR",
+                currencyExponent: 2
+            )
+        )
+        let group = ServerLedgerSurfaceGroup(
+            serverGroupID: "group-goa",
+            accountID: "account-esha",
+            name: "Goa",
+            readRevision: 2,
+            currentMemberID: "member-esha",
+            currentAccount: [amount],
+            members: [
+                ServerLedgerSurfaceMember(
+                    memberID: "member-esha",
+                    accountID: "account-esha",
+                    localIdentityID: nil,
+                    displayName: "esha"
+                ),
+                ServerLedgerSurfaceMember(
+                    memberID: "member-bubby",
+                    accountID: "account-bubby",
+                    localIdentityID: nil,
+                    displayName: "bubby"
+                ),
+            ],
+            transfers: [
+                ServerLedgerSurfaceTransfer(
+                    payerMemberID: "member-bubby",
+                    recipientMemberID: "member-esha",
+                    amount: amount
+                ),
+            ]
+        )
+        guard case let .ready(snapshot) = ServerLedgerSurfaceProjection.project(
+            accountID: "account-esha",
+            groups: [group]
+        ) else {
+            return XCTFail("The snapshot must project")
+        }
+
+        let localID = UUID()
+        XCTAssertEqual(
+            snapshot.friendBalance(
+                forAccountID: "account-bubby",
+                localPersonID: localID
+            )?.first?.minorUnits,
+            "27700"
+        )
+        XCTAssertTrue(
+            snapshot.hasMembership(
+                forAccountID: "account-bubby",
+                localPersonID: localID
+            )
+        )
+    }
+
+    func testActivitySummaryUsesExpenseAndActorNames() throws {
+        let amount = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(
+                minorUnits: "50000",
+                currencyCode: "INR",
+                currencyExponent: 2
+            )
+        )
+        let item = ServerLedgerSurfaceActivityItem(
+            id: "expense-lunch",
+            type: "expense",
+            groupID: "group-goa",
+            groupName: "Goa",
+            description: "Lunch",
+            actorName: "esha",
+            amount: amount,
+            at: .now
+        )
+
+        XCTAssertEqual(item.displaySummary, "Lunch added in Goa by esha")
     }
 
     private func makeStore() throws -> ServerLedgerStore {

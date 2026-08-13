@@ -3,6 +3,36 @@ import SwiftData
 import UIKit
 import Foundation
 
+enum CanonicalMemberIdentity {
+    static func memberID(
+        for person: Person,
+        canonicalGroup: SettlementCanonicalLedgerGroup,
+        currentAccountID: String
+    ) throws -> String {
+        if let serverAccountID = person.serverAccountID?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !serverAccountID.isEmpty,
+           let member = canonicalGroup.members.first(where: {
+               $0.accountID == serverAccountID
+           }) {
+            return member.memberID
+        }
+        if let localIdentityID = canonicalGroup.members.first(where: {
+            guard let raw = $0.localIdentityID else { return false }
+            return UUID(uuidString: raw) == person.id
+        })?.memberID {
+            return localIdentityID
+        }
+        if person.isCurrentUser,
+           let current = canonicalGroup.members.first(where: {
+               $0.accountID == currentAccountID
+           }) {
+            return current.memberID
+        }
+        throw T15LedgerUIError.memberIdentityUnavailable(person.name)
+    }
+}
+
 /// Add expense — mockup B4 layout. Supports equal / exact / % / shares splits.
 struct AddExpenseSheet: View {
     private enum FocusedField: Hashable { case amount, title }
@@ -11,6 +41,7 @@ struct AddExpenseSheet: View {
     @Query(sort: \Person.name) private var people: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
 
     @State private var amountText = ""
     @State private var title = ""
@@ -28,6 +59,12 @@ struct AddExpenseSheet: View {
     private let editingExpense: Expense?
 
     private let controlOutlineWidth = BrandOutline.control
+
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
 
     private var participants: [Person] {
         let source = group?.members ?? people
@@ -100,7 +137,12 @@ struct AddExpenseSheet: View {
             .padding(.bottom, 10)
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
-        .onAppear { if paidBy == nil { paidBy = you } }
+        .onAppear {
+            if paidBy == nil { paidBy = you }
+            if let group, !visibleGroups.contains(where: { $0.id == group.id }) {
+                selectGroup(nil)
+            }
+        }
         .onChange(of: people.count) {
             if paidBy == nil { paidBy = you }
         }
@@ -178,7 +220,7 @@ struct AddExpenseSheet: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     segmentChip("None", on: group == nil) { selectGroup(nil) }
-                    ForEach(groups) { g in
+                    ForEach(visibleGroups) { g in
                         segmentChip(g.name, on: group?.id == g.id) { selectGroup(g) }
                     }
                 }
@@ -447,7 +489,7 @@ struct AddExpenseSheet: View {
         activeOperationID = operationID
         isSubmitting = true
         errorMessage = nil
-        statusMessage = "Preparing a canonical shared-ledger mutation…"
+        statusMessage = "Preparing expense…"
 
         Task { @MainActor in
             var queued = false
@@ -506,7 +548,7 @@ struct AddExpenseSheet: View {
                     body: body
                 )
                 queued = true
-                statusMessage = "Saved to the durable queue. Reconciling the canonical ledger…"
+                statusMessage = "Saving expense…"
 
                 let canonicalSnapshot = try await T15CanonicalLedgerRuntime.shared.reconcile(scope: scope)
                 let reconciledGroup = try T15CanonicalLedgerRuntime.shared.validatedGroup(
@@ -519,6 +561,17 @@ struct AddExpenseSheet: View {
                     throw T15LedgerUIError.canonicalSnapshotUnavailable
                 }
 
+                var rewardOutcome: RewardOutcome?
+                if editingID == nil, let currentUser = you {
+                    rewardOutcome = try? RewardEngine.award(
+                        action: .expenseAdded,
+                        eventID: SharedRewardReconciler.eventID(for: expenseID),
+                        personID: currentUser.id,
+                        context: context
+                    )
+                    try? context.save()
+                }
+
                 let groupForRefresh = group
                 Task { @MainActor in
                     await ServerLedgerSurfaceStore.shared.refresh(groups: [groupForRefresh])
@@ -528,6 +581,9 @@ struct AddExpenseSheet: View {
                 activeOperationID = nil
                 statusMessage = nil
                 dismiss()
+                if let rewardOutcome {
+                    RewardFeedbackCenter.shared.present(rewardOutcome)
+                }
             } catch {
                 if queued && T15LedgerUIError.isOffline(error) {
                     // The row remains retryable with the same operation ID;
@@ -546,8 +602,8 @@ struct AddExpenseSheet: View {
                 if queued && T15LedgerUIError.isConflict(error) {
                     isSubmitting = false
                     activeOperationID = nil
-                    errorMessage = T15LedgerUIError.message(for: error, fallback: "The shared ledger changed.")
-                    statusMessage = "Refresh the canonical snapshot, then confirm the expense again before retrying."
+                    errorMessage = T15LedgerUIError.message(for: error, fallback: "The group changed.")
+                    statusMessage = "Refresh the group, then confirm the expense again."
                     return
                 }
                 if queued {
@@ -580,10 +636,10 @@ struct AddExpenseSheet: View {
         expenseID: String,
         operationID: UUID
     ) throws -> Data {
-        let payerMemberID = try canonicalMemberID(
+        let payerMemberID = try CanonicalMemberIdentity.memberID(
             for: payer,
             canonicalGroup: canonicalGroup,
-            accountID: accountID
+            currentAccountID: accountID
         )
         let money = try canonicalMoney(
             Money.whole(amount),
@@ -591,10 +647,10 @@ struct AddExpenseSheet: View {
             currencyExponent: canonicalGroup.baseCurrency.currencyExponent
         )
         let encodedSplits = try participants.enumerated().map { index, person in
-            let memberID = try canonicalMemberID(
+            let memberID = try CanonicalMemberIdentity.memberID(
                 for: person,
                 canonicalGroup: canonicalGroup,
-                accountID: accountID
+                currentAccountID: accountID
             )
             guard let computedAmount = computed[person.id] else {
                 throw T15LedgerUIError.canonicalSnapshotUnavailable
@@ -647,24 +703,6 @@ struct AddExpenseSheet: View {
             operationId: operationID.uuidString
         )
         return try JSONEncoder.serverLedger.encode(body)
-    }
-
-    private func canonicalMemberID(
-        for person: Person,
-        canonicalGroup: SettlementCanonicalLedgerGroup,
-        accountID: String
-    ) throws -> String {
-        if let localIdentityID = canonicalGroup.members.first(where: {
-            guard let raw = $0.localIdentityID else { return false }
-            return UUID(uuidString: raw) == person.id
-        })?.memberID {
-            return localIdentityID
-        }
-        if person.isCurrentUser,
-           let current = canonicalGroup.members.first(where: { $0.accountID == accountID }) {
-            return current.memberID
-        }
-        throw T15LedgerUIError.memberIdentityUnavailable(person.name)
     }
 
     private func canonicalMoney(

@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { profileDisplayName } from '@/lib/profile-display-name'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -9,34 +10,28 @@ export async function ensureParticipantsForGroup(
 ): Promise<void> {
   const members = await db.groupMember.findMany({
     where: { groupId },
-    include: { user: { select: { id: true, name: true } } },
+    include: {
+      user: {
+        select: { id: true, username: true, preferredName: true, name: true },
+      },
+    },
   })
 
   for (const member of members) {
-    const existing = await db.groupParticipant.findUnique({
+    const displayName = profileDisplayName(member.user)
+    await db.groupParticipant.upsert({
       where: { groupId_userId: { groupId, userId: member.userId } },
-    })
-    if (existing) {
-      if (existing.status === 'DEPARTED') {
-        await db.groupParticipant.update({
-          where: { id: existing.id },
-          data: {
-            status: 'ACTIVE',
-            departedAt: null,
-            displayName: member.user.name ?? 'Unknown member',
-          },
-        })
-      }
-      continue
-    }
-
-    await db.groupParticipant.create({
-      data: {
+      create: {
         groupId,
         userId: member.userId,
-        displayName: member.user.name ?? 'Unknown member',
+        displayName,
         status: 'ACTIVE',
         joinedAt: member.joinedAt,
+      },
+      update: {
+        displayName,
+        status: 'ACTIVE',
+        departedAt: null,
       },
     })
   }

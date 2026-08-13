@@ -133,6 +133,10 @@ export const createGroupSchema = z.object({
   description: optionalNullable(z.string().max(200)),
   currency: z.string().default('INR'),
   category: z.enum(['HOME', 'TRIP', 'COUPLE', 'WORK', 'OTHER']).default('OTHER'),
+  memberAccountIds: z
+    .array(z.string().min(1, 'Member account ID is required').max(191))
+    .max(100, 'A group can include at most 100 invited friends')
+    .default([]),
 })
 
 export const addMemberSchema = z.object({

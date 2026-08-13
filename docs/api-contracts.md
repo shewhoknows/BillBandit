@@ -3,12 +3,19 @@
 Base URL: `https://billbandit-api.contenthelper.in`
 All mobile endpoints live under `/api/mobile/...`. All requests and responses are JSON (`Content-Type: application/json`).
 
-Source of truth (read-only audit, 2026-07-08):
+Source of truth (baseline audit 2026-07-08; social-flow update 2026-08-12):
 - Routes: `apps/api/app/api/mobile/**/route.ts`
 - Auth: `apps/api/lib/mobile-auth.ts`
 - DTOs: `apps/api/lib/mobile-dto.ts`
 - Validation: `apps/api/lib/validations-mobile-auth.ts` and `apps/api/lib/validations-mobile-ledger.ts`
 - Schema: `apps/api/prisma/schema.prisma`
+
+## 2026-08-12 authority rule
+
+The mobile API is the sole authority for friends, groups and expenses. CloudKit
+and device-local records are not authorities for this flow. If an older section in
+this document conflicts with the dated social contract below, the 2026-08-12
+contract applies.
 
 ---
 
@@ -112,13 +119,130 @@ Splits semantics: every participant (including the payer, typically) has a split
 
 **Important for Codable:** `expenses` is `undefined` (key absent from JSON) when the group was loaded without expenses (GET /groups, dashboard, POST /groups). Model as optional `[MobileExpense]?`.
 
+### Shared DTO: `FriendProfile`
+
+All five keys are always present. The four profile values can be `null`.
+
+```json
+{
+  "id": "string (account ID)",
+  "username": "string | null",
+  "name": "string | null",
+  "preferredName": "string | null",
+  "image": "string | null"
+}
+```
+
 ### Error shape (universal)
 
-Every error is `{"error": "<message string>"}` with an appropriate status. Validation errors return the **first** zod issue message only. No error codes, no field maps.
+Legacy endpoints normally return `{"error":"<message>"}`. The social and
+idempotent group routes below also return a stable `code`. The failed-claim rate
+limit adds `retryAfterSeconds`. Validation errors return the first zod issue.
 
 ---
 
 ## Endpoints
+
+## 2026-08-12 social and sync endpoints
+
+All routes in this section require `Authorization: Bearer <token>`.
+
+### GET /api/mobile/friends
+
+Returns the caller's accepted friends. A claimed friendship appears for both
+accounts.
+
+- Response 200: `{ "friends": [FriendProfile] }`
+- Header: `Cache-Control: no-store`
+- Order: display name, then account ID, both ascending.
+
+### POST /api/mobile/friends/invitations
+
+No request body is required. One account has one reusable current code. The code
+stays active for seven days. A request during that time returns the same code.
+After expiry, the server rotates it atomically. The server retries a code collision.
+
+Codes have exactly five uppercase characters from
+`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. This alphabet omits `0`, `1`, `I` and `O`.
+
+Response 200:
+
+```json
+{
+  "invitation": {
+    "code": "A7BCD",
+    "createdAt": "2026-08-12T00:00:00.000Z",
+    "expiresAt": "2026-08-19T00:00:00.000Z",
+    "status": "active"
+  }
+}
+```
+
+The same current code can connect more than one account. Creating a code does not
+create a friendship. The friendship starts when another account claims the code.
+
+### POST /api/mobile/friends/invitations/{code}/claim
+
+Send `{}` or no meaningful fields. The server uppercases the path value, removes
+characters outside the code alphabet, and then requires exactly five characters.
+A client should send the five canonical characters without separators.
+
+- First successful claim: 201 `{ "friend": FriendProfile }`
+- Replay by the same account: 200 `{ "friend": FriendProfile }`
+- Invalid code shape: 400 with code `friend_invitation_invalid`
+- Unknown code: 404 with code `friend_invitation_not_found`
+- Expired code: 410 with code `friend_invitation_expired`
+- Caller uses own code: 409 with code `friend_invitation_own_code`
+
+The first claim creates one normalized `ACCEPTED` friendship. Reverse or repeated
+claims cannot create a duplicate. A success or replay clears the caller's prior
+failed-claim counter.
+
+Failed claims use a durable, account-scoped PostgreSQL limit. Invalid, unknown,
+expired and own-code attempts count. Attempt 10 within a 15-minute window returns:
+
+- Status: 429
+- Header: `Retry-After: <seconds>`
+- Body:
+
+```json
+{
+  "code": "friend_claim_rate_limited",
+  "error": "Too many failed friend code attempts. Try again in 900 seconds.",
+  "retryAfterSeconds": 900
+}
+```
+
+### DELETE /api/mobile/friends/{accountId}
+
+This operation is idempotent. It always returns 200 `{ "removed": true }`, even
+when the friendship is already absent. It removes only the social edge for both
+accounts. It does not remove `GroupMember`, `GroupParticipant`, expense, split,
+settlement or ledger-history rows.
+
+### GET /api/mobile/sync-token
+
+This endpoint is the lightweight foreground polling fallback when Pusher is not
+available.
+
+- Response 200: `{ "token": "<64 lowercase hexadecimal SHA-256 characters>" }`
+- Header: `Cache-Control: no-store`
+- The body contains no raw account, friend or group IDs.
+
+The token is deterministic. It stays the same when relevant server state does not
+change. It changes after accepted-friend add/remove/profile updates, caller group
+discovery/removal/name/member changes, or any canonical group revision change from
+an expense or settlement mutation. The client can poll this route while active.
+When the token changes, it reloads the friends and group read models.
+
+### Current validation evidence (2026-08-12)
+
+- `npm run typecheck` passes.
+- Two friend-code tests and three PostgreSQL friend-system integration tests pass.
+- The authenticated sync-token integration test passes.
+- `npm run test:ledger` passes 34/34 tests.
+- A migration rehearsal removed a self-friend edge and a reverse duplicate while
+  keeping the accepted normalized friendship.
 
 ### POST /api/mobile/auth/apple
 
@@ -357,19 +481,40 @@ Response 200: `{ "groups": [MobileGroup] }` — all non-archived groups where th
 
 Auth: Bearer required.
 
+An optional `Idempotency-Key` header makes creation safe to retry. It must have
+1 to 200 characters and no whitespace. The idempotency scope is the caller account.
+
 Request (`createGroupSchema`):
 ```json
 {
   "name": "string (1..50)",                       // REQUIRED
   "description": "string | null | absent (max 200)",
   "currency": "INR",                              // optional, default "INR"
-  "category": "HOME"|"TRIP"|"COUPLE"|"WORK"|"OTHER"  // optional, default "OTHER"
+  "category": "HOME"|"TRIP"|"COUPLE"|"WORK"|"OTHER", // optional, default "OTHER"
+  "memberAccountIds": ["accepted-friend-account-id"]    // optional, default []
 }
 ```
 
-Creator is added as the sole member with role `ADMIN`.
+The server removes the caller and duplicate values from `memberAccountIds`. Every
+remaining ID must be a current accepted friend of the caller. The server creates
+the group, the caller's `ADMIN` membership, each friend's `MEMBER` membership,
+all participants and the creation activity in one transaction.
 
-Responses: **201** `{ "group": MobileGroup }` (no `expenses` key); 400/401/500.
+Responses:
+
+- New group: 201 `{ "group": MobileGroup }` with all created members and header
+  `Idempotency-Replayed: false`.
+- Same key and same normalized request: 200 with the same group and header
+  `Idempotency-Replayed: true`.
+- A nonfriend ID: 403
+  `{ "code":"group_members_must_be_friends", "error":string, "invalidAccountIds":[string] }`.
+- Same key with a different request: 409
+  `{ "code":"idempotency_key_reused", "error":string }`.
+- Invalid key: 400 with code `invalid_idempotency_key`.
+- A matching request that is still in progress: 409 with code
+  `group_creation_in_progress`; retry the same request and key.
+
+The returned `MobileGroup` omits the `expenses` key because a new group has none.
 
 ### GET /api/mobile/groups/{id}
 
@@ -404,24 +549,23 @@ Behavior: sets `finalizedAt = now`, `finalizedById = caller` — only if not alr
 
 Response 200: same shape as GET /groups/{id} (`{ group, balances: { netBalances, simplifiedDebts } }`, group includes expenses). 404 `{"error":"Group not found"}` if group vanished.
 
-### POST /api/mobile/groups/{id}/members
+### POST/PATCH/DELETE /api/mobile/groups/{id}/members
 
-Auth: Bearer required; caller must be a member (any role) → else 403. Group must not be finalized → 409 `{"error":"Group is finalized"}`.
+These are canonical revisioned membership mutations. The old email-only POST body
+is rejected. Use `accountId`, `userId`, or `memberId` as required by the method.
+Send an operation ID through `Idempotency-Key` and the current group revision
+through `Expected-Revision`.
 
-Request (`addMemberSchema`):
-```json
-{ "email": "string (valid email)" }
-```
+- `POST` adds a member. Any active member can request it. A new result is 201; a
+  replay is 200.
+- `PATCH` changes a member role. The caller must be an administrator.
+- `DELETE` removes a group membership. The caller must be an administrator. The
+  participant becomes `DEPARTED`; financial history stays available.
+- Responses include `member`, `mutation`, `revision`, and `readModel`.
 
-Behavior: the user **must already exist** — there is no invitation/pending-member concept. Added with role `MEMBER`.
-
-Responses:
-- **201** `{ "member": MobileMember }`
-- 404 `{"error":"No user found with that email address"}`
-- 409 `{"error":"User is already a member of this group"}`
-- 400 zod; 401; 403; 409 finalized.
-
-**There is NO endpoint to remove a member, change roles, leave a group, edit a group, delete/archive a group, or list members separately** (members come embedded in group responses).
+Group creation with accepted friends should normally use `memberAccountIds` in
+`POST /api/mobile/groups`, because that creates the complete initial membership in
+the same transaction as the group.
 
 ### POST /api/mobile/transactions
 
@@ -487,17 +631,16 @@ Response 200 (always 200, never 404):
 
 **Token lifecycle:** every successful auth returns a 30-day HS256 JWT. **No refresh endpoint, no logout endpoint, no token revocation** — clients store the token, send `Authorization: Bearer <token>`, and re-authenticate on 401. `GET auth/me` validates a stored token and refreshes the user profile.
 
-## Endpoints that DO NOT exist
+## Remaining endpoint gaps (updated 2026-08-12)
 
-No backend support for any of the following (verified: the only mobile routes are the 16 files listed at top):
+The friend-code, accepted-friends and sync-token gaps from the 2026-07-08 audit
+are closed by the dated contract above. The following gaps remain:
 
-- **Friend codes / invite codes** — nothing anywhere. Members are added strictly by exact email of an existing user.
-- **Trip/group invite links** — none. No pending/invited member state; `GroupMember` rows only exist for real users.
-- **Settlements persistence/read API** — `POST /transactions` writes, but there is **no GET/list/edit/delete for transactions**; no "settlement" entity beyond the Transaction row. Simplified debts are computed on the fly, never persisted.
-- **Friends list** — the Prisma `Friendship` model (PENDING/ACCEPTED/REJECTED) exists in the schema but **no mobile endpoint reads or writes it**. "People you owe" comes from expense/transaction math, not a friends table.
 - **Avatar upload** — none. `image` is set server-side to a dicebear URL at signup and cannot be changed via the mobile API (profile PUT only accepts name/preferredName/upiID).
-- **Sync/delta endpoints** — none. No etags, no updated-since params, no websocket/push. Clients must re-fetch.
-- Also absent: member removal, role change, leave group, group edit/archive/delete, group reopen (un-finalize), expense comments (Comment model exists, no mobile route), activity feed (ActivityLog is write-only side effect), receipts (`receiptUrl` never set), password reset, logout/token revocation, token refresh, pagination cursors.
+- Also absent: standalone group edit/archive/delete, group reopen (un-finalize),
+  expense comments (Comment model exists, no mobile route), activity feed
+  (ActivityLog is a write-only side effect), receipt upload, password reset,
+  logout/token revocation, token refresh, and pagination cursors.
 
 ## Money / currency semantics
 
@@ -517,7 +660,12 @@ No backend support for any of the following (verified: the only mobile routes ar
 - **Expense**: `id, description, amount Float, currency, date, category (string, default "general"), groupId? (nullable — personal/non-group expenses allowed), paidById, splitType (EQUAL|EXACT|PERCENTAGE|SHARES), receiptUrl? (unused), notes?, isRecurring, recurringInterval? (DAILY|WEEKLY|MONTHLY|YEARLY), recurringEndDate? (unused), isDeleted (soft delete), createdAt, updatedAt`.
 - **ExpenseSplit**: `id, expenseId, userId, amount Float, percentage Float?, shares Int?, isPaid (default false, never surfaced to mobile)`; unique `(expenseId,userId)`.
 - **Transaction**: `id, senderId (payer), receiverId (payee), amount Float, currency (default "USD" at DB / "INR" via API), note?, groupId?, createdAt`. No updatedAt; immutable.
-- **Friendship**: `fromId, toId, status (PENDING|ACCEPTED|REJECTED)` — schema-only for mobile; no routes.
+- **Friendship**: one normalized unordered account pair stored with `fromId < toId`;
+  unique `(fromId,toId)`; friend-code claims set `status=ACCEPTED`.
+- **FriendInvitation**: one row per inviter; unique five-character `code`,
+  `createdAt`, `expiresAt`; a current code is reusable until expiry.
+- **FriendClaimRateLimit**: one durable row per claimant account with window start,
+  failure count and optional block expiry.
 - **Comment**, **ActivityLog**: exist; ActivityLog rows are written as side effects of mutations (types like EXPENSE_CREATED, PAYMENT_MADE) but there is no mobile read API for either.
 
 ## Gotchas
@@ -532,8 +680,13 @@ No backend support for any of the following (verified: the only mobile routes ar
 8. **Dashboard balances are approximate** (built from only the 5 most recent expenses + all transactions). Group detail balances are exact for that group.
 9. **Finalize is one-way** via mobile — no reopen endpoint; finalized groups still accept settlements (`POST /transactions` with groupId) but reject expense mutations and member adds with 409.
 10. **`splitType` is decorative server-side** — the server only validates that split `amount`s sum to the total (±0.02). Percentage/shares math is entirely the client's job.
-11. **Required headers:** just `Authorization: Bearer <jwt>` and `Content-Type: application/json`. No API key, no app-version header, no CSRF.
+11. **Required headers:** protected routes use `Authorization: Bearer <jwt>` and
+    JSON writes use `Content-Type: application/json`. Group creation can add
+    `Idempotency-Key`. Canonical ledger mutations also use `Idempotency-Key` and
+    `Expected-Revision`. There is no API key or CSRF header.
 12. **Synthetic emails:** users created via phone OTP or Apple private relay-less flow get `phone-…@phone.billbandit.local` / `apple-…@apple.billbandit.local` emails; these appear in `MobileUser.email` — don't render them as real contact info, and `users/lookup` by such an email will "work".
 13. **`recurringInterval`/`isRecurring`** are stored on create but there is no server-side recurrence engine visible in the mobile API, and PUT drops them.
 14. **Zod null preprocessing:** for fields wrapped in `optionalNullable` (group `description`, expense `groupId`/`notes`/split `percentage`/`shares`, transaction fields), sending JSON `null` is equivalent to omitting the field. Other optional fields (e.g. apple `nonce`, profile fields) must be omitted rather than null.
-15. **Duplicate settlements are unguarded** — `POST /transactions` has no idempotency key; retries create double payments.
+15. **Use canonical settlement mutations.** The legacy `POST /transactions` route
+    has no idempotency key. Canonical shared-ledger settlement mutations are
+    revisioned and idempotent.

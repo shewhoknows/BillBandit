@@ -277,10 +277,15 @@ function ledgerExpense(value: unknown, path: string): LedgerExpense {
   const amount = moneyValue(required(object, 'amount', path), `${path}.amount`)
   const splitTotal = sumMoney(splits.map((split) => split.amount), `${path}.splits`)
   if (!moneyEquals(amount, splitTotal)) return fail(`${path}.splits`, 'split amounts must equal expense amount exactly')
+  const paidByMemberId = stringValue(required(object, 'paidByMemberId', path), `${path}.paidByMemberId`)
+  const createdByMemberId = object.createdByMemberId === undefined
+    ? paidByMemberId
+    : stringValue(object.createdByMemberId, `${path}.createdByMemberId`)
   return {
     expenseId: stringValue(required(object, 'expenseId', path), `${path}.expenseId`),
     description: textValue(required(object, 'description', path), `${path}.description`),
-    paidByMemberId: stringValue(required(object, 'paidByMemberId', path), `${path}.paidByMemberId`),
+    paidByMemberId,
+    createdByMemberId,
     amount,
     splitMethod: splitMethod(required(object, 'splitMethod', path), `${path}.splitMethod`),
     splits,
@@ -420,10 +425,33 @@ function activity(value: unknown, path: string): ActivityItem {
     at: isoDate(required(object, 'at', path), `${path}.at`),
   }
   if (type === 'expense') {
-    return { ...base, type, expenseId: stringValue(required(object, 'expenseId', path), `${path}.expenseId`) }
+    return {
+      ...base,
+      type,
+      expenseId: stringValue(required(object, 'expenseId', path), `${path}.expenseId`),
+      ...(object.description === undefined
+        ? {}
+        : { description: textValue(object.description, `${path}.description`) }),
+      ...(object.actorMemberId === undefined
+        ? {}
+        : { actorMemberId: stringValue(object.actorMemberId, `${path}.actorMemberId`) }),
+    }
   }
   if (type === 'settlement') {
-    return { ...base, type, settlementId: stringValue(required(object, 'settlementId', path), `${path}.settlementId`) }
+    return {
+      ...base,
+      type,
+      settlementId: stringValue(required(object, 'settlementId', path), `${path}.settlementId`),
+      ...(object.actorMemberId === undefined
+        ? {}
+        : { actorMemberId: stringValue(object.actorMemberId, `${path}.actorMemberId`) }),
+      ...(object.payerMemberId === undefined
+        ? {}
+        : { payerMemberId: stringValue(object.payerMemberId, `${path}.payerMemberId`) }),
+      ...(object.recipientMemberId === undefined
+        ? {}
+        : { recipientMemberId: stringValue(object.recipientMemberId, `${path}.recipientMemberId`) }),
+    }
   }
   if (type === 'reversal') {
     return {
@@ -431,6 +459,15 @@ function activity(value: unknown, path: string): ActivityItem {
       type,
       reversalId: stringValue(required(object, 'reversalId', path), `${path}.reversalId`),
       settlementId: stringValue(required(object, 'settlementId', path), `${path}.settlementId`),
+      ...(object.actorMemberId === undefined
+        ? {}
+        : { actorMemberId: stringValue(object.actorMemberId, `${path}.actorMemberId`) }),
+      ...(object.payerMemberId === undefined
+        ? {}
+        : { payerMemberId: stringValue(object.payerMemberId, `${path}.payerMemberId`) }),
+      ...(object.recipientMemberId === undefined
+        ? {}
+        : { recipientMemberId: stringValue(object.recipientMemberId, `${path}.recipientMemberId`) }),
     }
   }
   return fail(`${path}.type`, 'must be expense, settlement, or reversal')

@@ -11,10 +11,16 @@ struct GroupsScreen: View {
     @State private var showAdd = false
     @State private var path = NavigationPath()
 
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if groups.isEmpty {
+                if visibleGroups.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .neutral, size: 145)
                         Text("no crews yet ")
@@ -36,7 +42,7 @@ struct GroupsScreen: View {
                     .listRowBackground(Color.Brand.cobalt)
                     .listRowSeparator(.hidden)
                 }
-                ForEach(groups) { group in
+                ForEach(visibleGroups) { group in
                     NavigationLink(value: group.id) {
                         HStack(spacing: 11) {
                             Circle()
@@ -82,21 +88,21 @@ struct GroupsScreen: View {
                 }
                 .onDelete { idx in
                     for i in idx {
-                        CloudCollaborationService.shared.groupWasDeleted(groups[i])
-                        context.delete(groups[i])
+                        CloudCollaborationService.shared.groupWasDeleted(visibleGroups[i])
+                        context.delete(visibleGroups[i])
                     }
                     try? context.save()
                 }
             }
             .listStyle(.plain)
-            .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: groups.map(\.id))
+            .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: visibleGroups.map(\.id))
             .scrollContentBackground(.hidden)
             .background(Color.Brand.cobalt)
             .refreshable {
                 await CloudCollaborationService.shared.synchronize(
                     promoteLocalChanges: true
                 )
-                await serverLedger.refresh(groups: groups)
+                await serverLedger.refresh(groups: visibleGroups)
             }
             .navigationTitle("Groups")
             .toolbar {
@@ -105,7 +111,7 @@ struct GroupsScreen: View {
                 }
             }
             .navigationDestination(for: UUID.self) { id in
-                if let group = groups.first(where: { $0.id == id }) {
+                if let group = visibleGroups.first(where: { $0.id == id }) {
                     GroupDetailScreen(group: group)
                 }
             }
@@ -116,10 +122,10 @@ struct GroupsScreen: View {
             let args = ProcessInfo.processInfo.arguments
             guard let i = args.firstIndex(of: "-openGroup"), i + 1 < args.count else { return }
             let name = args[(i + 1)...].joined(separator: " ")
-            if let g = groups.first(where: { $0.name == name }) { path.append(g.id) }
+            if let g = visibleGroups.first(where: { $0.name == name }) { path.append(g.id) }
         }
-        .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-            await serverLedger.refresh(groups: groups)
+        .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+            await serverLedger.refresh(groups: visibleGroups)
         }
     }
 }

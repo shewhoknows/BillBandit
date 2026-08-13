@@ -5,6 +5,15 @@ import CloudKit
 @testable import BillBandit
 
 final class BalanceEngineTests: XCTestCase {
+    func testServerAvatarMarkerParsesOnlyBillBanditAvatars() {
+        XCTAssertEqual(
+            ProfileAvatar(serverImage: "billbandit-avatar:headphones"),
+            .headphones
+        )
+        XCTAssertNil(ProfileAvatar(serverImage: "https://example.com/avatar.svg"))
+        XCTAssertNil(ProfileAvatar(serverImage: "billbandit-avatar:unknown"))
+    }
+
     func testUsernameHandlesNormalizeAndRejectInvalidValues() throws {
         XCTAssertEqual(try UsernameHandle("  @Bubby  ").value, "bubby")
         XCTAssertEqual(try UsernameHandle("bubby_2").value, "bubby_2")
@@ -370,6 +379,8 @@ final class BalanceEngineTests: XCTestCase {
         currentUser.cloudUserRecordName = "cloud-current-user"
         let friend = Person(name: "bubby", avatar: .bows)
         friend.cloudUserRecordName = "cloud-bubby"
+        friend.serverAccountID = "account-bubby"
+        friend.friendshipStateRaw = "accepted"
         let people = [currentUser, friend]
 
         let applied = ConnectedFriendIdentity.applyInvitationSnapshot(
@@ -384,6 +395,20 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(options.map(\.id), [currentUser.id, friend.id])
         XCTAssertEqual(options.filter { $0.id == friend.id }.count, 1)
         XCTAssertEqual(options.first { $0.id == friend.id }?.name, "bubby")
+    }
+
+    func testCloudKitOnlyFriendIsHiddenUntilMappedToServerAccount() {
+        let currentUser = Person(name: "Esha", isCurrentUser: true)
+        let legacyYou = Person(name: "You")
+        legacyYou.cloudUserRecordName = "cloud-legacy-you"
+
+        XCTAssertTrue(
+            ConnectedFriendIdentity.actualFriends(from: [currentUser, legacyYou]).isEmpty
+        )
+        XCTAssertEqual(
+            ConnectedFriendIdentity.groupMemberOptions(from: [currentUser, legacyYou]).map(\.id),
+            [currentUser.id]
+        )
     }
 
     func testIncomingFriendNormalizationRemovesLocalAccountIdentity() {
@@ -401,6 +426,420 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertNil(friend.appleUserIdentifier)
         XCTAssertNil(friend.appleSessionStateRaw)
         XCTAssertEqual(friend.cloudUserRecordName, "cloud-bubby")
+    }
+
+    func testServerFriendIdentityCanNeverBecomeCurrentUser() {
+        let friend = Person(name: "You", isCurrentUser: true)
+        friend.appleUserIdentifier = "apple-local-account"
+        friend.appleSessionStateRaw = "active"
+
+        let changed = ConnectedFriendIdentity.normalizeIncomingFriend(
+            friend,
+            serverAccountID: " account-friend ",
+            cloudUser: " cloud-friend "
+        )
+
+        XCTAssertTrue(changed)
+        XCTAssertFalse(friend.isCurrentUser)
+        XCTAssertNil(friend.appleUserIdentifier)
+        XCTAssertNil(friend.appleSessionStateRaw)
+        XCTAssertEqual(friend.serverAccountID, "account-friend")
+        XCTAssertEqual(friend.cloudUserRecordName, "cloud-friend")
+        XCTAssertEqual(friend.friendshipStateRaw, "accepted")
+        XCTAssertEqual(
+            ConnectedFriendIdentity.actualFriends(from: [friend]).map(\.id),
+            [friend.id]
+        )
+    }
+
+    @MainActor
+    func testServerAccountSwitchMergesExistingAccountRowAndRetargetsLedger() throws {
+        let configuration = ModelConfiguration(
+            "ServerAccountSwitch", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        let current = Person(name: "Previous account", isCurrentUser: true)
+        current.serverAccountID = "account-previous"
+        let newAccountRow = Person(name: "New account")
+        newAccountRow.serverAccountID = "account-new"
+        newAccountRow.friendshipStateRaw = "accepted"
+        let group = Group(name: "Historical trip", members: [current, newAccountRow])
+        let expense = Expense(
+            title: "Historical dinner", amount: 600, group: group,
+            paidBy: newAccountRow
+        )
+        let split = Split(
+            mode: .equal, computedAmount: 300, person: newAccountRow,
+            expense: expense
+        )
+        let settlement = Settlement(
+            amount: 100, from: newAccountRow, to: current, group: group
+        )
+        let activity = ActivityItem(
+            kind: .expenseAdded, summary: "New account added dinner",
+            actorID: newAccountRow.id, groupID: group.id, groupName: group.name
+        )
+        expense.splits.append(split)
+        group.expenses.append(expense)
+        group.settlements.append(settlement)
+        [current, newAccountRow].forEach(context.insert)
+        context.insert(group)
+        context.insert(expense)
+        context.insert(split)
+        context.insert(settlement)
+        context.insert(activity)
+        try context.save()
+
+        let currentID = current.id
+        let mergedID = newAccountRow.id
+        let groupID = group.id
+        let expenseID = expense.id
+        let settlementID = settlement.id
+        let activityID = activity.id
+        _ = ServerGroupCatalogProjection.applyFriends(
+            [], currentAccountID: "account-new", context: context
+        )
+
+        let freshContext = ModelContext(container)
+        let people = try freshContext.fetch(FetchDescriptor<Person>())
+        XCTAssertEqual(people.filter(\.isCurrentUser).map(\.id), [currentID])
+        XCTAssertEqual(
+            people.first(where: { $0.id == currentID })?.serverAccountID,
+            "account-new"
+        )
+        XCTAssertFalse(people.contains(where: { $0.id == mergedID }))
+
+        let savedGroup = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<Group>())
+                .first(where: { $0.id == groupID })
+        )
+        XCTAssertEqual(savedGroup.members.map(\.id), [currentID])
+        let savedExpense = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<Expense>())
+                .first(where: { $0.id == expenseID })
+        )
+        XCTAssertEqual(savedExpense.paidBy?.id, currentID)
+        XCTAssertEqual(savedExpense.splits.map { $0.person?.id }, [currentID])
+        let savedSettlement = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<Settlement>())
+                .first(where: { $0.id == settlementID })
+        )
+        XCTAssertEqual(savedSettlement.from?.id, currentID)
+        XCTAssertEqual(savedSettlement.to?.id, currentID)
+        let savedActivity = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<ActivityItem>())
+                .first(where: { $0.id == activityID })
+        )
+        XCTAssertEqual(savedActivity.actorID, currentID)
+    }
+
+    @MainActor
+    func testServerGroupCatalogMapsBothAccountsToDistinctPeople() throws {
+        let configuration = ModelConfiguration(
+            "ServerGroupCatalogPeople", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        let current = Person(name: "Esha", isCurrentUser: true)
+        context.insert(current)
+        try context.save()
+
+        let currentProfile = ServerFriendProfile(
+            id: "account-esha", username: "esha", name: "Esha",
+            preferredName: nil, image: nil
+        )
+        let friendProfile = ServerFriendProfile(
+            id: "account-bubby", username: "bubby", name: "Prateek Ranka",
+            preferredName: nil, image: "billbandit-avatar:headphones"
+        )
+        let acceptedFriends = ServerGroupCatalogProjection.applyFriends(
+            [friendProfile],
+            currentAccountID: currentProfile.id,
+            context: context
+        )
+        XCTAssertEqual(acceptedFriends.map(\.serverAccountID), [friendProfile.id])
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        let memberOptions = ConnectedFriendIdentity.groupMemberOptions(from: people)
+        let memberAccountIDs = memberOptions.filter { !$0.isCurrentUser }
+            .compactMap(\.serverAccountID)
+        XCTAssertEqual(memberAccountIDs, [friendProfile.id])
+
+        let staleGroupFriendProfile = ServerFriendProfile(
+            id: friendProfile.id, username: nil, name: "Prateek Ranka",
+            preferredName: nil, image: nil
+        )
+
+        let catalog = ServerGroupCatalogItem(
+            id: "group-dinner",
+            name: "Dinner",
+            category: "OTHER",
+            members: [
+                .init(
+                    userID: currentProfile.id, memberID: "member-esha",
+                    role: "ADMIN", user: currentProfile
+                ),
+                .init(
+                    userID: friendProfile.id, memberID: "member-bubby",
+                    role: "MEMBER", user: staleGroupFriendProfile
+                ),
+            ],
+            createdAt: "2026-08-12T00:00:00.000Z"
+        )
+
+        let groups = ServerGroupCatalogProjection.applyGroups(
+            [catalog],
+            currentAccountID: currentProfile.id,
+            context: context
+        )
+
+        let group = try XCTUnwrap(groups.first(where: {
+            $0.serverLedgerGroupID == catalog.id
+        }))
+        XCTAssertEqual(group.serverAccountId, currentProfile.id)
+        XCTAssertTrue(group.isVisible(toServerAccountID: currentProfile.id))
+        XCTAssertFalse(group.isVisible(toServerAccountID: "account-other"))
+        XCTAssertEqual(group.members.count, 2)
+        XCTAssertEqual(Set(group.members.map(\.id)).count, 2)
+        let mappedCurrent = try XCTUnwrap(group.members.first(where: {
+            $0.serverAccountID == currentProfile.id
+        }))
+        let mappedFriend = try XCTUnwrap(group.members.first(where: {
+            $0.serverAccountID == friendProfile.id
+        }))
+        XCTAssertEqual(mappedCurrent.id, current.id)
+        XCTAssertTrue(mappedCurrent.isCurrentUser)
+        XCTAssertNotEqual(mappedCurrent.id, mappedFriend.id)
+        XCTAssertFalse(mappedFriend.isCurrentUser)
+        XCTAssertEqual(mappedFriend.name, "bubby")
+        XCTAssertEqual(mappedFriend.profileAvatar, .headphones)
+    }
+
+    @MainActor
+    func testSharedRewardReconciliationIsIdempotent() throws {
+        let configuration = ModelConfiguration(
+            "SharedRewards", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        let current = Person(name: "Esha", isCurrentUser: true)
+        context.insert(current)
+        try context.save()
+        let events = [
+            ServerRewardEvent(
+                action: RewardAction.expenseAdded.rawValue,
+                eventID: "server-expense-1"
+            ),
+            ServerRewardEvent(
+                action: RewardAction.settlementRecorded.rawValue,
+                eventID: "server-settlement-1"
+            ),
+        ]
+
+        XCTAssertEqual(
+            SharedRewardReconciler.apply(events, context: context).count,
+            2
+        )
+        XCTAssertTrue(SharedRewardReconciler.apply(events, context: context).isEmpty)
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<UserProgress>()).first?.lifetimeXP,
+            15
+        )
+        XCTAssertEqual(
+            Set(try context.fetch(FetchDescriptor<AchievementUnlock>()).map(\.achievement)),
+            Set([.initiativeTaker, .settlerScion])
+        )
+    }
+
+    @MainActor
+    func testAccountSwitchHidesOldFriendsAndKeepsServerGroupScoped() throws {
+        let configuration = ModelConfiguration(
+            "ServerAccountBoundary", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        let current = Person(name: "Esha", isCurrentUser: true)
+        let oldFriend = Person(name: "Old friend")
+        oldFriend.serverAccountID = "account-old-friend"
+        oldFriend.friendshipStateRaw = "accepted"
+        let oldGroup = Group(
+            name: "Old shared group", members: [current, oldFriend],
+            serverGroupId: "group-old", serverAccountId: "account-old"
+        )
+        [current, oldFriend].forEach(context.insert)
+        context.insert(oldGroup)
+        try context.save()
+
+        _ = ServerGroupCatalogProjection.applyFriends(
+            [], currentAccountID: "account-new", context: context
+        )
+
+        let people = try context.fetch(FetchDescriptor<Person>())
+        XCTAssertTrue(ConnectedFriendIdentity.actualFriends(from: people).isEmpty)
+        XCTAssertEqual(current.serverAccountID, "account-new")
+        XCTAssertFalse(oldGroup.isVisible(toServerAccountID: "account-new"))
+        XCTAssertTrue(oldGroup.isVisible(toServerAccountID: "account-old"))
+    }
+
+    @MainActor
+    func testServerCatalogHidesArchivedGroupWhilePreservingLocalHistory() throws {
+        let configuration = ModelConfiguration(
+            "ArchivedServerGroup", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        let current = Person(name: "Esha", isCurrentUser: true)
+        current.serverAccountID = "account-esha"
+        let group = Group(
+            name: "LiveSettle-Test", members: [current],
+            serverGroupId: "group-archived", serverAccountId: "account-esha"
+        )
+        let expense = Expense(
+            title: "Old test expense", amount: 100, group: group,
+            paidBy: current
+        )
+        group.expenses.append(expense)
+        context.insert(current)
+        context.insert(group)
+        context.insert(expense)
+        try context.save()
+
+        let visible = ServerGroupCatalogProjection.applyGroups(
+            [], currentAccountID: "account-esha", context: context
+        )
+
+        XCTAssertTrue(visible.isEmpty)
+        let stored = try XCTUnwrap(
+            context.fetch(FetchDescriptor<Group>()).first(where: {
+                $0.serverLedgerGroupID == "group-archived"
+            })
+        )
+        XCTAssertNil(stored.serverAccountId)
+        XCTAssertFalse(stored.isVisible(toServerAccountID: "account-esha"))
+        XCTAssertEqual(stored.expenses.map(\.title), ["Old test expense"])
+    }
+
+    @MainActor
+    func testRemovingFriendHidesFriendAndPreservesExistingLedgerReferences() throws {
+        let configuration = ModelConfiguration(
+            "ServerFriendRemoval", schema: AppStore.schema,
+            isStoredInMemoryOnly: true, groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        let container = try ModelContainer(
+            for: AppStore.schema, configurations: configuration
+        )
+        let context = container.mainContext
+        let current = Person(name: "Esha", isCurrentUser: true)
+        current.serverAccountID = "account-esha"
+        let friend = Person(name: "Bubby")
+        friend.serverAccountID = "account-bubby"
+        friend.friendshipStateRaw = "accepted"
+        let group = Group(
+            name: "Dinner", members: [current, friend],
+            serverGroupId: "group-dinner"
+        )
+        let expense = Expense(
+            title: "Dinner", amount: 500, group: group, paidBy: friend
+        )
+        let split = Split(
+            mode: .equal, computedAmount: 250, person: friend, expense: expense
+        )
+        let settlement = Settlement(
+            amount: 100, from: current, to: friend, group: group
+        )
+        expense.splits.append(split)
+        group.expenses.append(expense)
+        group.settlements.append(settlement)
+        for value in [current, friend] { context.insert(value) }
+        context.insert(group)
+        context.insert(expense)
+        context.insert(split)
+        context.insert(settlement)
+        try context.save()
+
+        let friendID = friend.id
+        let groupID = group.id
+        let expenseID = expense.id
+        let settlementID = settlement.id
+        ServerGroupCatalogProjection.removeFriendLocally(friend, context: context)
+
+        let freshContext = ModelContext(container)
+        let people = try freshContext.fetch(FetchDescriptor<Person>())
+        let savedFriend = try XCTUnwrap(people.first(where: { $0.id == friendID }))
+        XCTAssertEqual(savedFriend.friendshipStateRaw, "removed")
+        XCTAssertFalse(
+            ConnectedFriendIdentity.actualFriends(from: people)
+                .contains(where: { $0.id == friendID })
+        )
+
+        let savedGroup = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<Group>())
+                .first(where: { $0.id == groupID })
+        )
+        XCTAssertTrue(savedGroup.members.contains(where: { $0.id == friendID }))
+        let savedExpense = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<Expense>())
+                .first(where: { $0.id == expenseID })
+        )
+        XCTAssertEqual(savedExpense.paidBy?.id, friendID)
+        XCTAssertTrue(savedExpense.splits.contains(where: {
+            $0.person?.id == friendID
+        }))
+        let savedSettlement = try XCTUnwrap(
+            freshContext.fetch(FetchDescriptor<Settlement>())
+                .first(where: { $0.id == settlementID })
+        )
+        XCTAssertEqual(savedSettlement.to?.id, friendID)
+    }
+
+    func testCanonicalMemberIdentityUsesServerAccountID() throws {
+        let current = SettlementCanonicalLedgerMember(
+            memberID: "member-esha", accountID: "account-esha",
+            localIdentityID: nil, displayName: "Esha", email: nil,
+            role: "owner", status: "active"
+        )
+        let friend = SettlementCanonicalLedgerMember(
+            memberID: "member-bubby", accountID: "account-bubby",
+            localIdentityID: nil, displayName: "Bubby", email: nil,
+            role: "member", status: "active"
+        )
+        let canonicalGroup = canonicalIdentityGroup(
+            currentAccountID: current.accountID,
+            members: [current, friend]
+        )
+        let localFriend = Person(name: "A different local label")
+        localFriend.serverAccountID = " account-bubby "
+
+        XCTAssertEqual(
+            try CanonicalMemberIdentity.memberID(
+                for: localFriend,
+                canonicalGroup: canonicalGroup,
+                currentAccountID: current.accountID
+            ),
+            friend.memberID
+        )
     }
 
     @MainActor
@@ -592,6 +1031,8 @@ final class BalanceEngineTests: XCTestCase {
         let maya = people.first { $0.id == DemoDataIntegrity.PersonKind.maya.stableID }!
         let arjun = people.first { $0.id == DemoDataIntegrity.PersonKind.arjun.stableID }!
         maya.cloudUserRecordName = "cloud-maya"
+        maya.serverAccountID = "account-maya"
+        maya.friendshipStateRaw = "accepted"
         let realGroup = Group(name: "Real ledger", members: [current, arjun])
         let realExpense = Expense(title: "Dinner", amount: 120, group: realGroup,
                                   paidBy: current)
@@ -634,6 +1075,8 @@ final class BalanceEngineTests: XCTestCase {
         current.appleUserIdentifier = "apple-owner"
         let friend = Person(name: "friend_handle")
         friend.cloudUserRecordName = "cloud-friend"
+        friend.serverAccountID = "account-friend"
+        friend.friendshipStateRaw = "accepted"
         container.mainContext.insert(current)
         container.mainContext.insert(friend)
         try container.mainContext.save()
@@ -749,6 +1192,8 @@ final class BalanceEngineTests: XCTestCase {
         current.cloudUserRecordName = "cloud-new"
         let friend = Person(name: "Alex")
         friend.cloudUserRecordName = "cloud-friend"
+        friend.serverAccountID = "account-alex"
+        friend.friendshipStateRaw = "accepted"
         [staleYou, current, friend].forEach(context.insert)
         try context.save()
 
@@ -1015,18 +1460,20 @@ final class BalanceEngineTests: XCTestCase {
     }
 
     func testFriendInviteCodesNormalizeAndValidate() {
-        XCTAssertEqual(FriendInviteCode.normalize("b4ndt-cre-w2"), "B4NDTCREW2")
-        XCTAssertEqual(FriendInviteCode.formatted("b4ndtcre-w2"), "B4NDT-CREW2")
-        XCTAssertTrue(FriendInviteCode.isValid("B4NDT-CREW2"))
-        XCTAssertFalse(FriendInviteCode.isValid("SHORT"))
+        XCTAssertEqual(FriendInviteCode.normalize("a2b-3c"), "A2B3C")
+        XCTAssertEqual(FriendInviteCode.formatted("a2b-3c"), "A2B3C")
+        XCTAssertTrue(FriendInviteCode.isValid("A2B3C"))
+        XCTAssertFalse(FriendInviteCode.isValid("A2B3"))
+        XCTAssertFalse(FriendInviteCode.isValid("A2B3C4"))
+        XCTAssertFalse(FriendInviteCode.isValid("A2B3I"))
     }
 
     func testGeneratedFriendInviteCodesAreStrongAndUnambiguous() {
         let codes = (0..<100).map { _ in FriendInviteCode.generate() }
         XCTAssertTrue(codes.allSatisfy(FriendInviteCode.isValid))
+        XCTAssertTrue(codes.allSatisfy { $0.count == 5 })
         XCTAssertTrue(codes.allSatisfy { !$0.contains("0") && !$0.contains("1") &&
             !$0.contains("I") && !$0.contains("O") })
-        XCTAssertGreaterThan(Set(codes).count, 95)
     }
 
     @MainActor
@@ -1180,6 +1627,38 @@ final class BalanceEngineTests: XCTestCase {
                                                 lastRead: lastRead), 1)
     }
 
+    func testLocalActivityHidesServerAndOrphanedGroupRows() {
+        let localGroup = Group(name: "Local")
+        let serverGroup = Group(
+            name: "Archived server group",
+            serverGroupId: "server-group",
+            serverAccountId: nil
+        )
+        let ungrouped = ActivityItem(kind: .friendAdded, summary: "Friend added")
+        let local = ActivityItem(
+            kind: .groupCreated,
+            summary: "Local group",
+            groupID: localGroup.id
+        )
+        let server = ActivityItem(
+            kind: .groupCreated,
+            summary: "Server group",
+            groupID: serverGroup.id
+        )
+        let orphaned = ActivityItem(
+            kind: .groupCreated,
+            summary: "Deleted group",
+            groupID: UUID()
+        )
+
+        let visible = ActivityData.localItems(
+            [ungrouped, local, server, orphaned],
+            groups: [localGroup, serverGroup]
+        )
+
+        XCTAssertEqual(visible.map(\.id), [ungrouped.id, local.id])
+    }
+
     func testLegacyReminderCleanupRemovesRetiredPreferences() {
         let defaults = UserDefaults.standard
         let keys = ["reminder.pay", "reminder.settle", "reminder.dues"]
@@ -1230,6 +1709,62 @@ final class BalanceEngineTests: XCTestCase {
             groupContainer: .none, cloudKitDatabase: .none
         )
         return try ModelContainer(for: schema, configurations: configuration)
+    }
+
+    private func canonicalIdentityGroup(
+        currentAccountID: String,
+        members: [SettlementCanonicalLedgerMember]
+    ) -> SettlementCanonicalLedgerGroup {
+        let zero = ServerLedgerMoneyDTO(
+            minorUnits: "0", currencyCode: "INR", currencyExponent: 2
+        )
+        return SettlementCanonicalLedgerGroup(
+            groupID: "group-identity",
+            accountID: currentAccountID,
+            name: "Identity",
+            baseCurrency: SettlementCanonicalCurrencyDescriptor(
+                currencyCode: "INR", currencyExponent: 2
+            ),
+            scope: "shared",
+            localOnly: false,
+            revision: 1,
+            readRevision: 1,
+            members: members,
+            expenses: [],
+            balances: SettlementCanonicalBalances(
+                byMember: [],
+                byCurrency: [],
+                currentAccount: SettlementCanonicalCurrentAccountBalance(
+                    accountID: currentAccountID,
+                    memberID: members.first(where: {
+                        $0.accountID == currentAccountID
+                    })?.memberID ?? "",
+                    byCurrency: [zero]
+                )
+            ),
+            settlementPlan: SettlementCanonicalSettlementPlan(
+                revision: 1, mode: "DIRECT", transfers: []
+            ),
+            settlementHistory: [],
+            activity: [],
+            pendingOperationIDs: [],
+            migration: ServerLedgerMigrationDTO(
+                status: "not_required", source: "none", migrationID: nil,
+                importedAt: nil, dualWriteEnabled: false,
+                recoveryReadOnly: false
+            ),
+            stale: ServerLedgerStaleStateDTO(
+                isStale: false, reason: "none",
+                observedAt: "2026-08-12T00:00:00.000Z",
+                readRevision: 1, serverRevision: 1
+            ),
+            authority: ServerLedgerAuthorityDTO(
+                serverAuthoritative: true, source: "server",
+                readModel: "server", ledger: "server", balances: "server",
+                settlementPlan: "server", settlementHistory: "server",
+                identity: "server", cacheRole: "read_only"
+            )
+        )
     }
 }
 

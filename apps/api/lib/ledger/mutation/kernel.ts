@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { LedgerMoneyError } from '../../ledger-contract/money'
 import { prisma } from '../../prisma'
+import { profileDisplayName } from '../../profile-display-name'
 import { parseMutationMoney, exactMoneyFields, legacyMajorUnits, sameMutationMoney, sumMutationMoney, type CanonicalMutationMoney } from './money'
 import { conflictReadModel, LedgerMutationError, MutationConflictError } from './errors'
 import {
@@ -14,6 +15,7 @@ import {
   allocateSettlementPaths,
   buildPlan,
 } from '../../settlement/ledger/projections'
+import { wakeOutboxDispatcher } from '../../settlement/outbox/dispatcher'
 import type { GroupLedgerInput, SettlementRecord } from '../../settlement/ledger/types'
 import type {
   ExpenseMutationInput,
@@ -68,6 +70,7 @@ type MutationKernelOptions = {
   now?: () => Date
   maxRetries?: number
   retentionDays?: number
+  wakeOutbox?: () => void
 }
 
 type LedgerOperationRow = {
@@ -649,7 +652,7 @@ async function prepareExpense(
       kind: 'expense.create',
       recordId,
       eventType: 'expense_created',
-      data: { ...baseData, id: recordId },
+      data: { ...baseData, id: recordId, createdById: request.actorUserId },
       splits: splitData,
     }
   }
@@ -710,7 +713,7 @@ async function prepareMembership(
     }
     const user = await tx.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true },
+      select: { id: true, username: true, preferredName: true, name: true },
     })
     if (!user) throw new LedgerMutationError('MEMBER_NOT_FOUND', 404, 'User not found')
     if (payload.role !== undefined && payload.role !== 'ADMIN' && payload.role !== 'MEMBER') {
@@ -728,7 +731,7 @@ async function prepareMembership(
         role: payload.role ?? 'MEMBER',
       },
       participantUserId: user.id,
-      participantDisplayName: payload.displayName ?? user.name ?? 'Unknown member',
+      participantDisplayName: payload.displayName ?? profileDisplayName(user),
     }
   }
 
@@ -1075,7 +1078,7 @@ async function commitPreparedMutation(
           data: {
             status: 'ACTIVE',
             departedAt: null,
-            displayName: prepared.participantDisplayName ?? 'Unknown member',
+            displayName: prepared.participantDisplayName ?? 'Member',
           },
         })
       } else {
@@ -1084,7 +1087,7 @@ async function commitPreparedMutation(
             id: randomUUID(),
             groupId: String(prepared.data.groupId),
             userId: prepared.participantUserId,
-            displayName: prepared.participantDisplayName ?? 'Unknown member',
+            displayName: prepared.participantDisplayName ?? 'Member',
             status: 'ACTIVE',
           } as unknown as Prisma.GroupParticipantUncheckedCreateInput,
         })
@@ -1290,17 +1293,26 @@ export async function executeMutation(
   const now = options.now ?? (() => new Date())
   const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS
   const maxRetries = Math.max(0, options.maxRetries ?? 2)
+  const wakeOutbox = options.wakeOutbox ?? wakeOutboxDispatcher
 
   let attempt = 0
   while (true) {
+    let result: LedgerMutationResult
     try {
-      return await db.$transaction((tx) =>
+      result = await db.$transaction((tx) =>
         executeInTransaction(tx, normalized, { now, retentionDays })
       )
     } catch (error) {
       if (!isTransientTransactionError(error) || attempt >= maxRetries) throw error
       attempt += 1
+      continue
     }
+    try {
+      wakeOutbox()
+    } catch {
+      // The durable row is committed. The periodic dispatcher will retry it.
+    }
+    return result
   }
 }
 

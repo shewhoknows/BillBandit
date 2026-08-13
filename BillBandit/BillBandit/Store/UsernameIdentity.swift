@@ -90,6 +90,7 @@ enum UsernameIdentityService {
         let username: String?
         let name: String?
         let preferredName: String?
+        let image: String?
     }
 
     enum ServiceError: LocalizedError {
@@ -117,6 +118,7 @@ enum UsernameIdentityService {
     }
 
     private struct UsernameRequest: Encodable { let username: String }
+    private struct AvatarRequest: Encodable { let avatar: String }
     private struct AuthenticationResponse: Decodable {
         let token: String
         let user: RemoteUser
@@ -151,7 +153,10 @@ enum UsernameIdentityService {
             guard MobileTokenStore.read() == response.token else {
                 throw ServiceError.missingSession
             }
+            T15CanonicalLedgerRuntime.shared.accountDidSignOut()
+            FriendInvitationService.shared.resetLocalState()
             try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+            ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
         }
         return response.user
     }
@@ -173,7 +178,25 @@ enum UsernameIdentityService {
             guard MobileTokenStore.read() == token else {
                 throw ServiceError.missingSession
             }
+            ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
             try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+        }
+        return response.user
+    }
+
+    static func updateAvatar(_ avatar: ProfileAvatar) async throws -> RemoteUser {
+        guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
+        let response: UserResponse = try await perform(
+            path: "/api/mobile/auth/me",
+            method: "PATCH",
+            body: AvatarRequest(avatar: avatar.rawValue),
+            bearerToken: token
+        )
+        try await MainActor.run {
+            guard MobileTokenStore.read() == token else {
+                throw ServiceError.missingSession
+            }
+            ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
         }
         return response.user
     }
@@ -250,7 +273,11 @@ enum UsernameIdentityService {
             throw ServiceError.response("BillBandit returned an invalid response.")
         }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 { clearSessionAndInvalidateLedger() }
+            if http.statusCode == 401,
+               let bearerToken,
+               MobileTokenStore.read() == bearerToken {
+                clearSessionAndInvalidateLedger()
+            }
             let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
             let fallback: String
             if http.statusCode == 409 {
@@ -273,6 +300,10 @@ enum UsernameIdentityService {
         MobileTokenStore.clear()
         Task { @MainActor in
             ServerLedgerAccountLifecycle.shared.signOut()
+            ServerSocialSyncService.shared.accountDidSignOut()
+            ServerLedgerSurfaceStore.shared.accountDidSignOut()
+            T15CanonicalLedgerRuntime.shared.accountDidSignOut()
+            FriendInvitationService.shared.resetLocalState()
         }
     }
 }

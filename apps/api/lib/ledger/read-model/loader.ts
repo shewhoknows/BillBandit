@@ -3,6 +3,7 @@ import { getCurrencyExponent, normalizeCurrencyCode } from '../../settlement/mon
 import { createMoney } from '../../ledger-contract/money'
 import type { CurrencyDescriptor, MigrationState, PendingOperation } from '../../ledger-contract'
 import { prisma } from '../../prisma'
+import { profileDisplayName } from '../../profile-display-name'
 import {
   buildAccountLedgerSummary,
   buildGroupLedgerProjection,
@@ -35,6 +36,7 @@ type LoadedPendingOperation = PendingOperation & { groupId: string | null }
 
 const userSelect = {
   id: true,
+  username: true,
   name: true,
   preferredName: true,
   email: true,
@@ -57,6 +59,7 @@ const groupInclude = {
       id: true,
       description: true,
       paidById: true,
+      createdById: true,
       currency: true,
       amountMinorUnits: true,
       currencyExponent: true,
@@ -153,8 +156,7 @@ function exactBaseCurrency(currencyCode: string, groupId: string): CurrencyDescr
 }
 
 function displayName(user: RawReadModelUser, fallback: string): string {
-  const value = user.name?.trim() || user.preferredName?.trim() || user.email?.trim() || fallback
-  return value || fallback
+  return profileDisplayName(user, fallback)
 }
 
 function localIdentityId(user: RawReadModelUser): string | null {
@@ -184,7 +186,10 @@ function memberSources(raw: RawReadModelGroup): ReadModelMemberSource[] {
       memberId: participant.id,
       accountId: participant.userId,
       localIdentityId: localIdentityId(participant.user),
-      displayName: participant.displayName.trim() || displayName(participant.user, participant.userId),
+      displayName: displayName(
+        participant.user,
+        participant.displayName.trim() || participant.userId
+      ),
       email: participant.user.email,
       role: groupMember ? role(groupMember.role) : 'member',
       status: status(participant.status),
@@ -225,10 +230,14 @@ function expenseSource(
     }
     return participantId
   }
+  const paidByMemberId = memberId(raw.paidById, raw.id, 'payer')
   return {
     expenseId: raw.id,
     description: raw.description,
-    paidByMemberId: memberId(raw.paidById, raw.id, 'payer'),
+    paidByMemberId,
+    createdByMemberId: raw.createdById
+      ? participants.get(raw.createdById) ?? paidByMemberId
+      : paidByMemberId,
     amount,
     splitMethod: raw.splitType as ReadModelExpenseSource['splitMethod'],
     splits: splits.map((split) => ({
@@ -314,22 +323,24 @@ function groupSource(
   }
 }
 
+function notRequiredMigration(): MigrationState {
+  return {
+    status: 'not_required',
+    source: 'none',
+    migrationId: null,
+    importedAt: null,
+    dualWriteEnabled: false,
+    recoveryReadOnly: false,
+  }
+}
+
 function migrationFromImport(input: {
   id: string
   sourceSystem: string
   state: string
   completedAt: Date | null
 } | null): MigrationState {
-  if (!input) {
-    return {
-      status: 'not_required',
-      source: 'none',
-      migrationId: null,
-      importedAt: null,
-      dualWriteEnabled: false,
-      recoveryReadOnly: false,
-    }
-  }
+  if (!input) return notRequiredMigration()
   const source = input.sourceSystem.toLowerCase() === 'cloudkit' ? 'cloudkit' : 'none'
   if (input.state === 'COMPLETED') {
     return {
@@ -419,12 +430,28 @@ async function loadMigration(accountId: string, groupIds: string[], db: ReadMode
   byGroup: Map<string, MigrationState>
   issueIds: Map<string, string[]>
 }> {
-  const [latestImport, issues] = await Promise.all([
-    db.ledgerImport.findFirst({
-      where: { accountId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, sourceSystem: true, state: true, completedAt: true },
-    }),
+  const [groupImportRecords, issues] = await Promise.all([
+    groupIds.length === 0
+      ? Promise.resolve([])
+      : db.ledgerImportRecord.findMany({
+          where: {
+            accountId,
+            targetType: 'group',
+            targetId: { in: groupIds },
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            targetId: true,
+            ledgerImport: {
+              select: {
+                id: true,
+                sourceSystem: true,
+                state: true,
+                completedAt: true,
+              },
+            },
+          },
+        }),
     groupIds.length === 0
       ? Promise.resolve([])
       : db.moneyMigrationIssue.findMany({
@@ -433,7 +460,7 @@ async function loadMigration(accountId: string, groupIds: string[], db: ReadMode
           orderBy: [{ groupId: 'asc' }, { id: 'asc' }],
         }),
   ])
-  const accountMigration = migrationFromImport(latestImport)
+  const accountMigration = notRequiredMigration()
   const issueIds = new Map<string, string[]>()
   for (const issue of issues) {
     if (!issue.groupId) continue
@@ -441,10 +468,21 @@ async function loadMigration(accountId: string, groupIds: string[], db: ReadMode
     ids.push(issue.id)
     issueIds.set(issue.groupId, ids)
   }
+  const importByGroup = new Map<string, (typeof groupImportRecords)[number]['ledgerImport']>()
+  for (const record of groupImportRecords) {
+    if (record.targetId && !importByGroup.has(record.targetId)) {
+      importByGroup.set(record.targetId, record.ledgerImport)
+    }
+  }
   const byGroup = new Map<string, MigrationState>()
   for (const groupId of groupIds) {
     const ids = issueIds.get(groupId) ?? []
-    byGroup.set(groupId, ids.length > 0 ? readOnlyMigrationState(`money-migration:${groupId}`) : accountMigration)
+    byGroup.set(
+      groupId,
+      ids.length > 0
+        ? readOnlyMigrationState(`money-migration:${groupId}`)
+        : migrationFromImport(importByGroup.get(groupId) ?? null)
+    )
   }
   return { account: accountMigration, byGroup, issueIds }
 }

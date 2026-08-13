@@ -55,5 +55,6 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Migrate, optionally seed, then start
-CMD ["sh", "-c", "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && [ \"$SEED_ON_START\" = 'true' ] && npm run db:seed; npm run start"]
+# Migrate, optionally seed, then start. A failed migration must stop the
+# container so the health check cannot accept an app with an old schema.
+CMD ["sh", "-c", "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && { if [ \"$SEED_ON_START\" = 'true' ]; then npm run db:seed; fi; } && exec npm run start"]

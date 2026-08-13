@@ -401,6 +401,19 @@ struct ServerLedgerConflictEnvelopeDTO: Codable, Equatable, Sendable {
     }
 }
 
+/// Conflict shape returned by canonical mobile expense and membership routes.
+/// The transport accepts both this shape and the richer ledger envelope above.
+struct ServerLedgerRouteConflictEnvelopeDTO: Codable, Equatable, Sendable {
+    struct Details: Codable, Equatable, Sendable {
+        let expectedRevision: Int64?
+        let currentRevision: Int64?
+    }
+
+    let error: String
+    let message: String?
+    let details: Details?
+}
+
 /// Metadata persisted inside a queue payload when a mutation needs a route
 /// or HTTP method in addition to its body. The outer queue record remains the
 /// existing SwiftData model, so older rows stay readable and retryable.

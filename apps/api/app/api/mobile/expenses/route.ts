@@ -11,6 +11,7 @@ import {
   readModelErrorResponse,
 } from '@/lib/mobile-groups'
 import { legacyAmount } from '@/lib/mobile-dto'
+import { profileDisplayName } from '@/lib/profile-display-name'
 import {
   formatCurrency,
   legacySharedLedgerWriteResponse,
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.user.id,
           type: 'EXPENSE_CREATED',
-          description: `${session.user.name ?? 'Someone'} added "${parsed.data.description}" (${formatCurrency(amount, parsed.data.amount.currencyCode)})`,
+          description: `${profileDisplayName(session.user)} added "${parsed.data.description}" (${formatCurrency(amount, parsed.data.amount.currencyCode)})`,
           metadata: {
             expenseId: result.recordId,
             groupId: parsed.data.groupId,

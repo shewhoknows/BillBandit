@@ -155,6 +155,7 @@ export class LedgerReadModelError extends Error {
 
 export type RawReadModelUser = {
   id: string
+  username?: string | null
   name: string | null
   preferredName?: string | null
   email: string | null
@@ -194,6 +195,7 @@ export type RawReadModelExpense = {
   id: string
   description: string
   paidById: string
+  createdById: string | null
   currency: string
   amountMinorUnits: bigint | null
   currencyExponent: number | null

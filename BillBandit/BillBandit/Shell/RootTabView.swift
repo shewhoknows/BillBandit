@@ -38,6 +38,15 @@ extension Group {
             serverGroupId
         )
     }
+
+    func isVisible(toServerAccountID accountID: String?) -> Bool {
+        guard serverLedgerGroupID != nil else { return true }
+        guard let accountID = accountID?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !accountID.isEmpty else {
+            return false
+        }
+        return serverAccountId == accountID
+    }
 }
 
 private enum ServerLedgerMinorUnits {
@@ -195,8 +204,63 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
     let type: String
     let groupID: String
     let groupName: String
+    let description: String?
+    let actorName: String?
+    let payerName: String?
+    let recipientName: String?
     let amount: ServerLedgerSurfaceMoney
     let at: Date
+
+    init(
+        id: String,
+        type: String,
+        groupID: String,
+        groupName: String,
+        description: String? = nil,
+        actorName: String? = nil,
+        payerName: String? = nil,
+        recipientName: String? = nil,
+        amount: ServerLedgerSurfaceMoney,
+        at: Date
+    ) {
+        self.id = id
+        self.type = type
+        self.groupID = groupID
+        self.groupName = groupName
+        self.description = description
+        self.actorName = actorName
+        self.payerName = payerName
+        self.recipientName = recipientName
+        self.amount = amount
+        self.at = at
+    }
+
+    var displaySummary: String {
+        switch type {
+        case "expense":
+            let title = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let subject = title.flatMap { $0.isEmpty ? nil : $0 } ?? "Expense"
+            if let actorName, !actorName.isEmpty {
+                return "\(subject) added in \(groupName) by \(actorName)"
+            }
+            return "\(subject) added in \(groupName)"
+        case "settlement":
+            if let payerName, let recipientName {
+                return "\(payerName) paid \(recipientName) in \(groupName)"
+            }
+            if let actorName, !actorName.isEmpty {
+                return "Payment recorded in \(groupName) by \(actorName)"
+            }
+            return "Payment recorded in \(groupName)"
+        case "reversal":
+            if let actorName, !actorName.isEmpty {
+                return "Payment reversed in \(groupName) by \(actorName)"
+            }
+            return "Payment reversed in \(groupName)"
+        default:
+            return "Activity in \(groupName)"
+        }
+    }
 }
 
 struct ServerLedgerSurfaceGroup: Identifiable, Codable, Equatable, Sendable {
@@ -277,12 +341,64 @@ struct ServerLedgerSurfaceSnapshot: Equatable, Sendable {
         groups.first { $0.localGroupID == localGroupID }
     }
 
-    func friendBalance(for localPersonID: UUID) -> [ServerLedgerSurfaceMoney]? {
+    func coversExactly(serverGroupIDs expectedGroupIDs: Set<String>) -> Bool {
+        Set(groups.map(\.serverGroupID)) == expectedGroupIDs
+    }
+
+    var accountBalanceSummaries: [ServerLedgerSurfaceAccountBalanceSummary] {
+        let groupAmounts = groups.flatMap(\.currentAccount)
+        let keys = Set((groupAmounts + balanceByCurrency).map {
+            "\($0.currencyCode):\($0.currencyExponent)"
+        })
+
+        return keys.sorted().compactMap { key in
+            guard let sample = (groupAmounts + balanceByCurrency).first(where: {
+                "\($0.currencyCode):\($0.currencyExponent)" == key
+            }),
+            let zero = ServerLedgerSurfaceMoney(
+                minorUnits: "0",
+                currencyCode: sample.currencyCode,
+                currencyExponent: sample.currencyExponent
+            ) else { return nil }
+
+            var owed = zero
+            var owe = zero
+            for amount in groupAmounts where amount.currencyCode == sample.currencyCode
+                && amount.currencyExponent == sample.currencyExponent {
+                if amount.isPositive {
+                    owed = owed.adding(amount) ?? owed
+                } else if !amount.isZero,
+                          let magnitude = ServerLedgerSurfaceMoney(
+                              minorUnits: String(amount.minorUnits.dropFirst()),
+                              currencyCode: amount.currencyCode,
+                              currencyExponent: amount.currencyExponent
+                          ) {
+                    owe = owe.adding(magnitude) ?? owe
+                }
+            }
+
+            let net = balanceByCurrency.first {
+                $0.currencyCode == sample.currencyCode
+                    && $0.currencyExponent == sample.currencyExponent
+            } ?? zero
+            return ServerLedgerSurfaceAccountBalanceSummary(net: net, owed: owed, owe: owe)
+        }
+    }
+
+    func friendBalance(
+        forAccountID rawAccountID: String?,
+        localPersonID: UUID
+    ) -> [ServerLedgerSurfaceMoney]? {
+        let accountID = rawAccountID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         var foundMember = false
         var totals: [String: ServerLedgerSurfaceMoney] = [:]
 
         for group in groups {
             guard let friend = group.members.first(where: {
+                if let accountID, !accountID.isEmpty, $0.accountID == accountID {
+                    return true
+                }
                 guard let localIdentityID = $0.localIdentityID else { return false }
                 return UUID(uuidString: localIdentityID) == localPersonID
             }) else { continue }
@@ -322,6 +438,23 @@ struct ServerLedgerSurfaceSnapshot: Equatable, Sendable {
         }
     }
 
+    func hasMembership(
+        forAccountID rawAccountID: String?,
+        localPersonID: UUID
+    ) -> Bool {
+        let accountID = rawAccountID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return groups.contains { group in
+            group.members.contains { member in
+                if let accountID, !accountID.isEmpty, member.accountID == accountID {
+                    return true
+                }
+                guard let localIdentityID = member.localIdentityID else { return false }
+                return UUID(uuidString: localIdentityID) == localPersonID
+            }
+        }
+    }
+
     var activity: [ServerLedgerSurfaceActivityItem] {
         groups.flatMap(\.activity).sorted {
             if $0.at == $1.at { return $0.id > $1.id }
@@ -330,10 +463,24 @@ struct ServerLedgerSurfaceSnapshot: Equatable, Sendable {
     }
 }
 
+struct ServerLedgerSurfaceAccountBalanceSummary: Equatable, Identifiable, Sendable {
+    let net: ServerLedgerSurfaceMoney
+    let owed: ServerLedgerSurfaceMoney
+    let owe: ServerLedgerSurfaceMoney
+
+    var id: String { "\(net.currencyCode):\(net.currencyExponent)" }
+
+    var headline: String {
+        if net.isPositive { return "you're owed overall" }
+        if !net.isZero { return "you owe overall" }
+        if !owed.isZero || !owe.isZero { return "you owe and are owed" }
+        return "all settled up"
+    }
+}
+
 enum ServerLedgerSurfaceProjectionResult: Equatable {
     case empty
     case ready(ServerLedgerSurfaceSnapshot)
-    case inconsistent(revisions: Set<Int64>)
     case invalidScope
 }
 
@@ -344,10 +491,7 @@ enum ServerLedgerSurfaceProjection {
     ) -> ServerLedgerSurfaceProjectionResult {
         guard groups.isEmpty == false else { return .empty }
         guard groups.allSatisfy({ $0.accountID == accountID }) else { return .invalidScope }
-        let revisions = Set(groups.map(\.readRevision))
-        guard revisions.count == 1, let readRevision = revisions.first else {
-            return .inconsistent(revisions: revisions)
-        }
+        guard let readRevision = groups.map(\.readRevision).max() else { return .empty }
 
         var totals: [String: ServerLedgerSurfaceMoney] = [:]
         for money in groups.flatMap(\.currentAccount) {
@@ -461,7 +605,7 @@ struct ServerLedgerSurfaceStatus: Equatable {
         case .loading:
             return ServerLedgerUserFacingCopy.loadingSharedBalances
         case .ready:
-            return "Shared balances are up to date"
+            return "Balances are current"
         case .cached:
             return ServerLedgerUserFacingCopy.offlineCachedBalances
         case .stale:
@@ -568,12 +712,20 @@ private struct ServerLedgerSurfaceReadTransfer: Decodable {
 private struct ServerLedgerSurfaceReadActivity: Decodable {
     let activityID: String
     let type: String
+    let description: String?
+    let actorMemberID: String?
+    let payerMemberID: String?
+    let recipientMemberID: String?
     let amount: ServerLedgerMoneyDTO
     let at: String
 
     private enum CodingKeys: String, CodingKey {
         case activityID = "activityId"
         case type
+        case description
+        case actorMemberID = "actorMemberId"
+        case payerMemberID = "payerMemberId"
+        case recipientMemberID = "recipientMemberId"
         case amount
         case at
     }
@@ -593,6 +745,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
     private var refreshGeneration = 0
 
     var hasSharedGroups: Bool { snapshot?.groups.isEmpty == false }
+    var activeAccountIdentifier: String? { activeAccountID }
 
     private init() {
         let store = AppStore.serverLedgerStore
@@ -646,29 +799,30 @@ final class ServerLedgerSurfaceStore: ObservableObject {
         )
     }
 
-    func friendBalancePresentation(for localPersonID: UUID) -> ServerLedgerSurfaceBalancePresentation? {
-        guard let amounts = snapshot?.friendBalance(for: localPersonID) else { return nil }
+    func friendBalancePresentation(for friend: Person) -> ServerLedgerSurfaceBalancePresentation? {
+        guard let amounts = snapshot?.friendBalance(
+            forAccountID: friend.serverAccountID,
+            localPersonID: friend.id
+        ) else { return nil }
         return ServerLedgerSurfaceBalanceFormatter.presentation(amounts: amounts, audience: .friend)
     }
 
-    func hasCanonicalMembership(for localPersonID: UUID) -> Bool {
-        snapshot?.groups.contains { group in
-            group.members.contains { member in
-                guard let localIdentityID = member.localIdentityID else { return false }
-                return UUID(uuidString: localIdentityID) == localPersonID
-            }
-        } == true
+    func hasCanonicalMembership(for friend: Person) -> Bool {
+        snapshot?.hasMembership(
+            forAccountID: friend.serverAccountID,
+            localPersonID: friend.id
+        ) == true
     }
 
     func refresh(groups: [Group]) async {
         refreshGeneration &+= 1
         let generation = refreshGeneration
-        let sharedGroups = groups.compactMap { group -> (Group, String)? in
+        let candidateGroups = groups.compactMap { group -> (Group, String)? in
             guard let serverGroupID = group.serverLedgerGroupID else { return nil }
             return (group, serverGroupID)
         }
 
-        guard sharedGroups.isEmpty == false else {
+        guard candidateGroups.isEmpty == false else {
             guard generation == refreshGeneration else { return }
             snapshot = nil
             status = ServerLedgerSurfaceStatus(phase: .empty)
@@ -677,6 +831,14 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
         guard let accountID = await ensureActiveAccount() else { return }
         guard generation == refreshGeneration else { return }
+        let sharedGroups = candidateGroups.filter { candidate in
+            candidate.0.serverAccountId == accountID
+        }
+        guard sharedGroups.isEmpty == false else {
+            snapshot = nil
+            status = ServerLedgerSurfaceStatus(phase: .empty)
+            return
+        }
 
         var cachedGroups = [ServerLedgerSurfaceGroup]()
         for (group, serverGroupID) in sharedGroups {
@@ -754,7 +916,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             // Partial success: keep the groups that loaded. Failed groups stay
             // absent from the snapshot and render as "Balance unavailable".
             switch ServerLedgerSurfaceProjection.project(accountID: accountID, groups: freshGroups) {
-            case .empty, .invalidScope, .inconsistent:
+            case .empty, .invalidScope:
                 if snapshot == nil { status = failureStatus(errors.first) }
                 else {
                     status = ServerLedgerSurfaceStatus(
@@ -782,13 +944,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             status = ServerLedgerSurfaceStatus(
                 phase: .error,
                 readRevision: snapshot?.readRevision,
-                message: "Shared ledger scope mismatch"
-            )
-        case let .inconsistent(revisions):
-            status = ServerLedgerSurfaceStatus(
-                phase: .stale,
-                readRevision: snapshot?.readRevision,
-                message: "Shared groups are at different revisions (\(revisions.sorted().map { String($0) }.joined(separator: ", ")))."
+                message: "Group data did not match this account"
             )
         case let .ready(projected):
             snapshot = projected
@@ -823,13 +979,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             status = ServerLedgerSurfaceStatus(
                 phase: .error,
                 readRevision: snapshot?.readRevision,
-                message: "Shared ledger scope mismatch"
-            )
-        case let .inconsistent(revisions):
-            status = ServerLedgerSurfaceStatus(
-                phase: .stale,
-                readRevision: snapshot?.readRevision,
-                message: "Shared groups are at different revisions (\(revisions.sorted().map { String($0) }.joined(separator: ", ")))."
+                message: "Group data did not match this account"
             )
         case let .ready(projected):
             snapshot = projected
@@ -923,11 +1073,18 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             guard let at = parseISO8601Date($0.at) else {
                 throw ServerLedgerAPIClientError.invalidResponse
             }
+            let memberByID = Dictionary(uniqueKeysWithValues: members.map {
+                ($0.memberID, $0.displayName)
+            })
             return ServerLedgerSurfaceActivityItem(
                 id: $0.activityID,
                 type: $0.type,
                 groupID: group.groupID,
                 groupName: group.name,
+                description: $0.description,
+                actorName: $0.actorMemberID.flatMap { memberByID[$0] },
+                payerName: $0.payerMemberID.flatMap { memberByID[$0] },
+                recipientName: $0.recipientMemberID.flatMap { memberByID[$0] },
                 amount: amount,
                 at: at
             )
@@ -993,14 +1150,15 @@ struct ServerLedgerSurfaceStatusView: View {
     }
 
     var body: some View {
-        if includeEmpty || ledger.status.phase != .empty {
+        if ledger.status.phase != .ready,
+           includeEmpty || ledger.status.phase != .empty {
             SwiftUI.Group {
                 if showsRetry, let onRetry {
                     Button(action: onRetry) {
                         statusContent
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Retries loading shared balances")
+                    .accessibilityHint("Retries loading balances")
                 } else {
                     statusContent
                 }
@@ -1471,6 +1629,7 @@ struct RootTabView: View {
     @StateObject private var friendInvitations = FriendInvitationService.shared
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Query(sort: \ActivityItem.timestamp, order: .reverse) private var activityItems: [ActivityItem]
+    @Query private var activityGroups: [Group]
     @AppStorage("activityLastReadTimestamp") private var activityLastReadTimestamp = 0.0
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1632,7 +1791,8 @@ struct RootTabView: View {
     private var unreadActivityCount: Int {
         guard let currentUserID = currentUsers.first?.id else { return 0 }
         let lastRead = Date(timeIntervalSince1970: activityLastReadTimestamp)
-        return ActivityData.unreadCount(in: activityItems, currentUserID: currentUserID,
+        let localItems = ActivityData.localItems(activityItems, groups: activityGroups)
+        return ActivityData.unreadCount(in: localItems, currentUserID: currentUserID,
                                         lastRead: lastRead)
     }
 

@@ -128,6 +128,35 @@ enum ConnectedFriendIdentity {
         return changed
     }
 
+    /// API identities are authoritative for social and ledger membership.
+    /// A server friend can carry a legacy CloudKit profile link, but it can
+    /// never carry this device's Apple session markers or become "You".
+    @discardableResult
+    static func normalizeIncomingFriend(
+        _ person: Person,
+        serverAccountID: String,
+        cloudUser: String? = nil
+    ) -> Bool {
+        let accountID = serverAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !accountID.isEmpty else { return false }
+        let normalizedCloudUser = cloudUser?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let usableCloudUser = normalizedCloudUser.flatMap { $0.isEmpty ? nil : $0 }
+        let changed = person.isCurrentUser ||
+            person.appleUserIdentifier != nil ||
+            person.appleSessionStateRaw != nil ||
+            person.serverAccountID != accountID ||
+            person.friendshipStateRaw != "accepted" ||
+            (usableCloudUser != nil && person.cloudUserRecordName != usableCloudUser)
+        person.isCurrentUser = false
+        person.appleUserIdentifier = nil
+        person.appleSessionStateRaw = nil
+        person.serverAccountID = accountID
+        person.friendshipStateRaw = "accepted"
+        if let usableCloudUser { person.cloudUserRecordName = usableCloudUser }
+        return changed
+    }
+
     @discardableResult
     static func applyInvitationSnapshot(name: String, avatarRaw: String?, to person: Person,
                                         isNew: Bool) -> Bool {
@@ -139,6 +168,9 @@ enum ConnectedFriendIdentity {
 
     static func preferredPerson(for person: Person, among people: [Person]) -> Person {
         guard !person.isCurrentUser else { return person }
+        if let accountID = person.serverAccountID, !accountID.isEmpty {
+            return canonicalServerPerson(for: accountID, among: people) ?? person
+        }
         if let cloudUser = person.cloudUserRecordName, !cloudUser.isEmpty {
             return canonicalConnectedPerson(for: cloudUser, among: people) ?? person
         }
@@ -166,8 +198,9 @@ enum ConnectedFriendIdentity {
     static func isConnectedFriend(_ person: Person) -> Bool {
         guard !person.isCurrentUser else { return false }
         guard person.appleUserIdentifier?.isEmpty != false else { return false }
-        guard let cloudUser = person.cloudUserRecordName?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !cloudUser.isEmpty else {
+        guard person.friendshipStateRaw == "accepted" else { return false }
+        guard let accountID = person.serverAccountID?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !accountID.isEmpty else {
             return false
         }
         return true
@@ -198,8 +231,24 @@ enum ConnectedFriendIdentity {
     private static func canonicalConnectedPerson(for cloudUser: String,
                                                  among people: [Person]) -> Person? {
         people.filter {
-            isConnectedFriend($0) && $0.cloudUserRecordName == cloudUser
+            !$0.isCurrentUser && $0.cloudUserRecordName == cloudUser
         }.sorted { lhs, rhs in
+            let lhsDate = lhs.profileUpdatedAt ?? .distantPast
+            let rhsDate = rhs.profileUpdatedAt ?? .distantPast
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }.first
+    }
+
+    private static func canonicalServerPerson(for accountID: String,
+                                              among people: [Person]) -> Person? {
+        people.filter {
+            !$0.isCurrentUser && $0.serverAccountID == accountID
+        }.sorted { lhs, rhs in
+            if (lhs.friendshipStateRaw == "accepted") !=
+                (rhs.friendshipStateRaw == "accepted") {
+                return lhs.friendshipStateRaw == "accepted"
+            }
             let lhsDate = lhs.profileUpdatedAt ?? .distantPast
             let rhsDate = rhs.profileUpdatedAt ?? .distantPast
             if lhsDate != rhsDate { return lhsDate > rhsDate }
@@ -212,13 +261,30 @@ enum ConnectedFriendIdentity {
     static func repairDuplicateAccounts(context: ModelContext) -> [Group] {
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
         var affectedByID: [UUID: Group] = [:]
-        let connected = people.filter(isConnectedFriend)
-        let accounts = Dictionary(grouping: connected, by: { $0.cloudUserRecordName! })
-
-        for (cloudUser, rows) in accounts where rows.count > 1 {
-            guard let canonical = canonicalConnectedPerson(for: cloudUser, among: rows) else {
-                continue
+        let remotePeople = people.filter { !$0.isCurrentUser }
+        let accounts = Dictionary(grouping: remotePeople.compactMap { person -> (String, Person)? in
+            if let accountID = person.serverAccountID, !accountID.isEmpty {
+                return ("server:\(accountID)", person)
             }
+            if let cloudUser = person.cloudUserRecordName, !cloudUser.isEmpty {
+                return ("cloud:\(cloudUser)", person)
+            }
+            return nil
+        }, by: { $0.0 })
+
+        for (key, keyedRows) in accounts where keyedRows.count > 1 {
+            let rows = keyedRows.map(\.1)
+            let canonical: Person?
+            if key.hasPrefix("server:") {
+                canonical = canonicalServerPerson(
+                    for: String(key.dropFirst("server:".count)), among: rows
+                )
+            } else {
+                canonical = canonicalConnectedPerson(
+                    for: String(key.dropFirst("cloud:".count)), among: rows
+                )
+            }
+            guard let canonical else { continue }
             for duplicate in rows where duplicate.id != canonical.id {
                 for group in mergeLegacyFriend(duplicate, into: canonical, context: context) {
                     affectedByID[group.id] = group
@@ -430,6 +496,7 @@ final class CloudCollaborationService: ObservableObject {
 
         if apiAccountReady {
             await runLegacyCloudKitImportIfNeeded()
+            await ServerSocialSyncService.shared.refresh()
             state = .syncing
             await ServerLedgerAccountLifecycle.shared.reconcile(trigger: .startup)
             lastSync = .now
@@ -446,7 +513,7 @@ final class CloudCollaborationService: ObservableObject {
     func startForegroundSync() {
         guard foregroundSyncWorker == nil else { return }
         foregroundSyncWorker = Task { [weak self] in
-            await self?.refreshWhileVisible(every: .seconds(30))
+            await self?.refreshWhileVisible(every: .seconds(1))
         }
     }
 
@@ -457,9 +524,16 @@ final class CloudCollaborationService: ObservableObject {
 
     /// Foreground/reconnect work is API-backed for ledger data. CloudKit is
     /// limited to non-ledger friend profiles and invitation records.
-    func refreshWhileVisible(every interval: Duration = .seconds(30)) async {
+    func refreshWhileVisible(every interval: Duration = .seconds(1)) async {
+        var tick = 0
         while !Task.isCancelled {
-            await synchronize()
+            // Keep the fast path API-only. CloudKit profile work runs once on
+            // prepare/foreground and must not run every second.
+            await ServerSocialSyncService.shared.pollForChanges()
+            tick += 1
+            if tick.isMultiple(of: 10) {
+                await ServerLedgerAccountLifecycle.shared.reconcile(trigger: .foreground)
+            }
             guard !Task.isCancelled else { return }
             do {
                 try await Task.sleep(for: interval)
@@ -481,6 +555,7 @@ final class CloudCollaborationService: ObservableObject {
             if cloudIdentityReady {
                 await runLegacyCloudKitImportIfNeeded()
             }
+            await ServerSocialSyncService.shared.refresh()
             await ServerLedgerAccountLifecycle.shared.reconcile(trigger: .reconnect)
         }
         await refreshFriendProfiles()
@@ -510,6 +585,7 @@ final class CloudCollaborationService: ObservableObject {
         _ = await prepareAPIAccount()
         _ = await prepareNonLedgerCloudIdentity()
         await runLegacyCloudKitImportIfNeeded()
+        await ServerSocialSyncService.shared.refresh()
         await ServerLedgerAccountLifecycle.shared.reconcile(trigger: .reconnect)
         state = .ready
     }
@@ -517,6 +593,8 @@ final class CloudCollaborationService: ObservableObject {
     func accountDidSignOut() {
         stopForegroundSync()
         ServerLedgerAccountLifecycle.shared.signOut()
+        ServerSocialSyncService.shared.accountDidSignOut()
+        Task { await FriendInvitationService.shared.deleteAccountData() }
         resetAccountScopedState()
         state = .idle
     }
@@ -575,7 +653,7 @@ final class CloudCollaborationService: ObservableObject {
         let context = AppStore.container.mainContext
         let friends = ConnectedFriendIdentity.actualFriends(
             from: (try? context.fetch(FetchDescriptor<Person>())) ?? []
-        )
+        ).filter { $0.serverAccountID == nil }
         let cloudUsers = friends.compactMap(\.cloudUserRecordName).filter { !$0.isEmpty }
         guard !cloudUsers.isEmpty else { return }
 
@@ -667,6 +745,7 @@ final class CloudCollaborationService: ObservableObject {
         let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
         guard let existing = people.first(where: {
             $0.cloudUserRecordName == cloudUser &&
+                $0.serverAccountID == nil &&
                 ConnectedFriendIdentity.isConnectedFriend($0)
         }) else {
             return false
@@ -692,6 +771,11 @@ final class CloudCollaborationService: ObservableObject {
             cloudUserRecordName: cloudUser,
             context: context
         ) else { return }
+        let publicName = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !publicName.isEmpty,
+              publicName.caseInsensitiveCompare("You") != .orderedSame else {
+            return
+        }
         guard generation == accountGeneration,
               currentUserRecordName == cloudUser else { return }
 
@@ -700,7 +784,7 @@ final class CloudCollaborationService: ObservableObject {
             recordID: FriendProfileSync.recordID(for: cloudUser)
         )
         record["cloudUser"] = cloudUser as CKRecordValue
-        record["name"] = profile.name as CKRecordValue
+        record["name"] = publicName as CKRecordValue
         record["avatar"] = profile.avatarRaw as CKRecordValue?
         if let profileUpdatedAt = profile.profileUpdatedAt {
             record["profileUpdatedAt"] = profileUpdatedAt as CKRecordValue
@@ -1215,6 +1299,615 @@ private extension CKRecord {
     func date(_ key: String) -> Date? { self[key] as? Date }
 }
 
+// MARK: - Server-authoritative social catalog
+
+struct ServerFriendProfile: Decodable, Equatable, Sendable {
+    let id: String
+    let username: String?
+    let name: String?
+    let preferredName: String?
+    let image: String?
+
+    var displayName: String {
+        [username, preferredName, name]
+            .compactMap { value -> String? in
+                guard let value else { return nil }
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      trimmed.caseInsensitiveCompare("You") != .orderedSame else {
+                    return nil
+                }
+                return trimmed
+            }
+            .first ?? "Friend"
+    }
+}
+
+private struct ServerFriendsEnvelope: Decodable, Sendable {
+    let friends: [ServerFriendProfile]
+}
+
+private struct ServerGroupCatalogEnvelope: Decodable, Sendable {
+    let groups: [ServerGroupCatalogItem]
+}
+
+private struct ServerSyncTokenEnvelope: Decodable, Sendable {
+    let token: String
+}
+
+private struct ServerRewardEventsEnvelope: Decodable, Sendable {
+    let events: [ServerRewardEvent]
+}
+
+struct ServerRewardEvent: Decodable, Equatable, Sendable {
+    let action: String
+    let eventID: String
+
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case eventID = "eventId"
+    }
+}
+
+enum SharedRewardReconciler {
+    static func eventID(for serverEventID: String) -> UUID {
+        if let uuid = UUID(uuidString: serverEventID) { return uuid }
+        var bytes = Array(
+            SHA256.hash(data: Data("BillBandit.reward:\(serverEventID)".utf8)).prefix(16)
+        )
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
+    @MainActor
+    @discardableResult
+    static func apply(
+        _ events: [ServerRewardEvent],
+        context: ModelContext
+    ) -> [RewardOutcome] {
+        guard let current = ((try? context.fetch(
+            FetchDescriptor<Person>(predicate: #Predicate { $0.isCurrentUser })
+        )) ?? []).first else { return [] }
+
+        var outcomes = [RewardOutcome]()
+        var attempted = false
+        for event in events {
+            guard let action = RewardAction(rawValue: event.action) else { continue }
+            attempted = true
+            if let outcome = try? RewardEngine.award(
+                action: action,
+                eventID: eventID(for: event.eventID),
+                personID: current.id,
+                context: context
+            ) {
+                outcomes.append(outcome)
+            }
+        }
+        if attempted { try? context.save() }
+        return outcomes
+    }
+}
+
+extension Notification.Name {
+    static let billBanditServerCatalogDidRefresh = Notification.Name(
+        "BillBanditServerCatalogDidRefresh"
+    )
+}
+
+struct ServerGroupCatalogItem: Decodable, Equatable, Sendable {
+    struct Member: Decodable, Equatable, Sendable {
+        let userID: String
+        let memberID: String?
+        let role: String
+        let user: ServerFriendProfile
+
+        private enum CodingKeys: String, CodingKey {
+            case userID = "userId"
+            case memberID = "memberId"
+            case role
+            case user
+        }
+    }
+
+    let id: String
+    let name: String
+    let category: String?
+    let members: [Member]
+    let createdAt: String?
+}
+
+enum ServerGroupCatalogProjection {
+    @MainActor
+    static func applyCurrentProfile(
+        _ profile: UsernameIdentityService.RemoteUser,
+        context: ModelContext
+    ) {
+        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        guard let current = people.first(where: \.isCurrentUser) else { return }
+        current.serverAccountID = profile.id
+        if let avatar = ProfileAvatar(serverImage: profile.image) {
+            current.profileAvatar = avatar
+        }
+        try? context.save()
+    }
+
+    @MainActor
+    @discardableResult
+    static func applyFriends(
+        _ profiles: [ServerFriendProfile],
+        currentAccountID: String,
+        context: ModelContext
+    ) -> [Person] {
+        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        guard let current = people.first(where: \.isCurrentUser) else { return [] }
+        current.serverAccountID = currentAccountID
+        for duplicate in people where
+            !duplicate.isCurrentUser && duplicate.serverAccountID == currentAccountID {
+            _ = ConnectedFriendIdentity.mergeLegacyFriend(
+                duplicate,
+                into: current,
+                context: context
+            )
+        }
+
+        let acceptedAccountIDs = Set(profiles.map(\.id))
+        var result = [Person]()
+        for profile in profiles where profile.id != currentAccountID {
+            result.append(
+                upsertFriend(
+                    profile,
+                    currentAccountID: currentAccountID,
+                    context: context
+                )
+            )
+        }
+
+        let refreshedPeople = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        // CloudKit-only friend rows came from the retired social authority.
+        // Keep them for ledger history, but do not show a stale or placeholder
+        // profile beside the server-authoritative friend list.
+        for person in refreshedPeople where
+            !person.isCurrentUser && person.serverAccountID == nil &&
+                person.cloudUserRecordName?.isEmpty == false {
+            person.friendshipStateRaw = "legacy"
+        }
+        for person in refreshedPeople where
+            !person.isCurrentUser && person.friendshipStateRaw == "accepted" {
+            guard let accountID = person.serverAccountID else { continue }
+            if !acceptedAccountIDs.contains(accountID) {
+                person.friendshipStateRaw = nil
+            }
+        }
+        ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
+        try? context.save()
+        return ConnectedFriendIdentity.actualFriends(
+            from: (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        )
+    }
+
+    @MainActor
+    @discardableResult
+    static func upsertFriend(
+        _ profile: ServerFriendProfile,
+        currentAccountID: String,
+        context: ModelContext
+    ) -> Person {
+        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        let current = people.first(where: \.isCurrentUser) ?? {
+            let value = Person(name: "You", isCurrentUser: true)
+            context.insert(value)
+            return value
+        }()
+        current.serverAccountID = currentAccountID
+        let friend = person(
+            for: profile,
+            current: current,
+            people: people,
+            context: context
+        )
+        _ = ConnectedFriendIdentity.normalizeIncomingFriend(
+            friend,
+            serverAccountID: profile.id
+        )
+        friend.name = profile.displayName
+        if let avatar = ProfileAvatar(serverImage: profile.image) {
+            friend.profileAvatar = avatar
+        }
+        try? context.save()
+        return friend
+    }
+
+    @MainActor
+    @discardableResult
+    static func applyGroups(
+        _ catalog: [ServerGroupCatalogItem],
+        currentAccountID: String,
+        context: ModelContext
+    ) -> [Group] {
+        let currentGroups = (try? context.fetch(FetchDescriptor<Group>())) ?? []
+        let remoteIDs = Set(catalog.map(\.id))
+
+        for item in catalog {
+            let matches = currentGroups.filter { $0.serverLedgerGroupID == item.id }
+            let group = matches.first ?? {
+                let created = Group(
+                    name: item.name,
+                    icon: icon(for: item.category),
+                    createdAt: date(item.createdAt) ?? .now,
+                    serverGroupId: item.id,
+                    serverAccountId: currentAccountID
+                )
+                context.insert(created)
+                return created
+            }()
+            group.name = item.name
+            group.serverGroupId = item.id
+            group.serverAccountId = currentAccountID
+
+            let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+            let current = people.first(where: \.isCurrentUser)
+            var members = [Person]()
+            var seen = Set<UUID>()
+            for member in item.members {
+                let accountID = member.userID.isEmpty ? member.user.id : member.userID
+                let person: Person
+                if accountID == currentAccountID, let current {
+                    current.serverAccountID = currentAccountID
+                    if let avatar = ProfileAvatar(serverImage: member.user.image) {
+                        current.profileAvatar = avatar
+                    }
+                    person = current
+                } else if let existing = people.first(where: {
+                    !$0.isCurrentUser && $0.serverAccountID == accountID
+                }) {
+                    // The friend catalog owns accepted-friend profile names.
+                    // A group projection must not replace that name with an
+                    // older participant snapshot from the ledger.
+                    if existing.friendshipStateRaw != "accepted" ||
+                        existing.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        existing.name.caseInsensitiveCompare("Unknown member") == .orderedSame {
+                        existing.name = member.user.displayName
+                    }
+                    if let avatar = ProfileAvatar(serverImage: member.user.image) {
+                        existing.profileAvatar = avatar
+                    }
+                    person = existing
+                } else {
+                    let created = Person(name: member.user.displayName)
+                    created.serverAccountID = accountID
+                    if let avatar = ProfileAvatar(serverImage: member.user.image) {
+                        created.profileAvatar = avatar
+                    }
+                    context.insert(created)
+                    person = created
+                }
+                if seen.insert(person.id).inserted { members.append(person) }
+            }
+            if let current, !members.contains(where: { $0.id == current.id }) {
+                members.insert(current, at: 0)
+            }
+            group.members = members
+
+            // Server-backed groups do not store a second local ledger. Extra
+            // routing rows from an older sync can be removed safely.
+            for duplicate in matches.dropFirst()
+            where duplicate.expenses.isEmpty && duplicate.settlements.isEmpty {
+                context.delete(duplicate)
+            }
+        }
+
+        for group in currentGroups where
+            group.serverLedgerGroupID != nil &&
+                group.serverAccountId == currentAccountID {
+            guard let serverID = group.serverLedgerGroupID else { continue }
+            if !remoteIDs.contains(serverID) {
+                if group.expenses.isEmpty && group.settlements.isEmpty {
+                    context.delete(group)
+                } else {
+                    // Keep old local history for repair or export, but remove
+                    // the account scope so an archived server group cannot
+                    // remain visible as a live shared group.
+                    group.serverAccountId = nil
+                }
+            }
+        }
+        ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
+        try? context.save()
+        return ((try? context.fetch(FetchDescriptor<Group>())) ?? [])
+            .filter {
+                $0.serverLedgerGroupID != nil &&
+                    $0.serverAccountId == currentAccountID
+            }
+    }
+
+    @MainActor
+    static func removeFriendLocally(_ friend: Person, context: ModelContext) {
+        friend.friendshipStateRaw = "removed"
+        // Keep the Person row and its API identity. Existing groups, expenses,
+        // splits, and settlements must keep their historical member links.
+        try? context.save()
+    }
+
+    @MainActor
+    private static func person(
+        for profile: ServerFriendProfile,
+        current: Person,
+        people: [Person],
+        context: ModelContext
+    ) -> Person {
+        if let existing = people.first(where: {
+            $0.id != current.id && $0.serverAccountID == profile.id
+        }) {
+            return existing
+        }
+
+        let normalizedName = ConnectedFriendIdentity.normalizedName(profile.displayName)
+        let legacyMatches = people.filter {
+            $0.id != current.id && !$0.isCurrentUser && $0.serverAccountID == nil &&
+                $0.appleUserIdentifier?.isEmpty != false &&
+                ConnectedFriendIdentity.normalizedName($0.name) == normalizedName
+        }
+        if legacyMatches.count == 1, let legacy = legacyMatches.first { return legacy }
+
+        let created = Person(name: profile.displayName)
+        context.insert(created)
+        return created
+    }
+
+    private static func icon(for category: String?) -> GroupIcon {
+        switch category?.uppercased() {
+        case "HOME": return .house
+        case "TRIP": return .plane
+        case "COUPLE": return .users
+        case "WORK": return .coffee
+        default: return .users
+        }
+    }
+
+    private static func date(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+}
+
+@MainActor
+final class ServerSocialSyncService: ObservableObject {
+    static let shared = ServerSocialSyncService()
+
+    @Published private(set) var lastError: String?
+    private let api = APIClient.live()
+    private var refreshTask: Task<Void, Never>?
+    private var activeAccountID: String?
+    private var activeRemoteUser: UsernameIdentityService.RemoteUser?
+    private var lastSyncToken: String?
+    private var pollFailureCount = 0
+    private var accountGeneration = 0
+
+    private init() {}
+
+    func accountDidAuthenticate(_ remoteUser: UsernameIdentityService.RemoteUser) {
+        let accountChanged = activeAccountID != remoteUser.id
+        if accountChanged {
+            accountGeneration &+= 1
+            refreshTask?.cancel()
+            refreshTask = nil
+            lastSyncToken = nil
+            pollFailureCount = 0
+        }
+        activeAccountID = remoteUser.id
+        activeRemoteUser = remoteUser
+        ServerGroupCatalogProjection.applyCurrentProfile(
+            remoteUser,
+            context: AppStore.container.mainContext
+        )
+        if accountChanged {
+            _ = ServerGroupCatalogProjection.applyFriends(
+                [],
+                currentAccountID: remoteUser.id,
+                context: AppStore.container.mainContext
+            )
+        }
+    }
+
+    func accountDidSignOut() {
+        accountGeneration &+= 1
+        activeAccountID = nil
+        activeRemoteUser = nil
+        lastSyncToken = nil
+        pollFailureCount = 0
+        refreshTask?.cancel()
+        refreshTask = nil
+        lastError = nil
+        hideFriendsUntilCatalogRefresh()
+    }
+
+    func refresh() async {
+        guard UsernameIdentityService.hasStoredSession else { return }
+        do {
+            let remoteUser = try await UsernameIdentityService.currentUser()
+            await refresh(remoteUser: remoteUser)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Polls one small account fingerprint. A full catalog and ledger refresh
+    /// runs only when server state changes. Four failed token polls fall back
+    /// to the full path for compatibility during a staged server rollout.
+    func pollForChanges() async {
+        guard UsernameIdentityService.hasStoredSession else { return }
+        do {
+            let remoteUser: UsernameIdentityService.RemoteUser
+            if let activeRemoteUser {
+                remoteUser = activeRemoteUser
+            } else {
+                remoteUser = try await UsernameIdentityService.currentUser()
+                accountDidAuthenticate(remoteUser)
+            }
+            let generation = accountGeneration
+            let response: ServerSyncTokenEnvelope = try await api.get(
+                "/api/mobile/sync-token"
+            )
+            guard generation == accountGeneration,
+                  activeAccountID == remoteUser.id else { return }
+            let token = response.token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else { throw SettlementAPIError.invalidResponse }
+            pollFailureCount = 0
+            if lastSyncToken == token {
+                lastError = nil
+                return
+            }
+            await refresh(remoteUser: remoteUser, observedSyncToken: token)
+        } catch {
+            guard !Task.isCancelled else { return }
+            pollFailureCount += 1
+            lastError = error.localizedDescription
+            if pollFailureCount.isMultiple(of: 4) {
+                await refresh()
+            }
+        }
+    }
+
+    func refresh(
+        remoteUser: UsernameIdentityService.RemoteUser,
+        observedSyncToken: String? = nil
+    ) async {
+        guard ServerLedgerAccountLifecycle.shared.activeAccountID == remoteUser.id else {
+            return
+        }
+        if activeAccountID != remoteUser.id {
+            accountGeneration &+= 1
+            activeAccountID = remoteUser.id
+            activeRemoteUser = remoteUser
+            lastSyncToken = nil
+            refreshTask?.cancel()
+            refreshTask = nil
+        } else {
+            activeRemoteUser = remoteUser
+        }
+        if let refreshTask {
+            await refreshTask.value
+            guard activeAccountID == remoteUser.id else { return }
+            if observedSyncToken == nil || lastSyncToken == observedSyncToken {
+                return
+            }
+        }
+        let generation = accountGeneration
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.refreshWorker(
+                remoteUser: remoteUser,
+                generation: generation,
+                observedSyncToken: observedSyncToken
+            )
+        }
+        refreshTask = task
+        await task.value
+        if generation == accountGeneration {
+            refreshTask = nil
+        }
+    }
+
+    func remove(friend: Person) async throws {
+        let context = AppStore.container.mainContext
+        let generation = accountGeneration
+        let accountIDAtStart = activeAccountID
+        if let accountID = friend.serverAccountID, !accountID.isEmpty {
+            let encoded = Self.pathComponent(accountID)
+            let _: ServerFriendRemovalResponse = try await api.delete(
+                "/api/mobile/friends/\(encoded)"
+            )
+        }
+        guard generation == accountGeneration,
+              activeAccountID == accountIDAtStart,
+              ServerLedgerAccountLifecycle.shared.activeAccountID == accountIDAtStart else {
+            return
+        }
+        ServerGroupCatalogProjection.removeFriendLocally(friend, context: context)
+        await refresh()
+    }
+
+    private func refreshWorker(
+        remoteUser: UsernameIdentityService.RemoteUser,
+        generation: Int,
+        observedSyncToken: String?
+    ) async {
+        do {
+            let friends: ServerFriendsEnvelope = try await api.get("/api/mobile/friends")
+            guard generation == accountGeneration,
+                  activeAccountID == remoteUser.id,
+                  !Task.isCancelled else { return }
+            let context = AppStore.container.mainContext
+            _ = ServerGroupCatalogProjection.applyFriends(
+                friends.friends,
+                currentAccountID: remoteUser.id,
+                context: context
+            )
+
+            let groups: ServerGroupCatalogEnvelope = try await api.get("/api/mobile/groups")
+            guard generation == accountGeneration,
+                  activeAccountID == remoteUser.id,
+                  !Task.isCancelled else { return }
+            let localGroups = ServerGroupCatalogProjection.applyGroups(
+                groups.groups,
+                currentAccountID: remoteUser.id,
+                context: context
+            )
+            await ServerLedgerSurfaceStore.shared.refresh(groups: localGroups)
+            if let rewards: ServerRewardEventsEnvelope = try? await api.get(
+                "/api/mobile/rewards"
+            ) {
+                _ = SharedRewardReconciler.apply(rewards.events, context: context)
+            }
+            lastSyncToken = observedSyncToken ?? lastSyncToken
+            pollFailureCount = 0
+            lastError = nil
+            NotificationCenter.default.post(
+                name: .billBanditServerCatalogDidRefresh,
+                object: nil,
+                userInfo: [
+                    "accountID": remoteUser.id,
+                    "groupIDs": localGroups.compactMap(\.serverLedgerGroupID),
+                ]
+            )
+        } catch {
+            guard generation == accountGeneration,
+                  activeAccountID == remoteUser.id,
+                  !Task.isCancelled else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
+    private static func pathComponent(_ value: String) -> String {
+        let allowed = CharacterSet.urlPathAllowed.subtracting(
+            CharacterSet(charactersIn: "/")
+        )
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private func hideFriendsUntilCatalogRefresh() {
+        let context = AppStore.container.mainContext
+        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
+        for person in people where
+            !person.isCurrentUser && person.friendshipStateRaw == "accepted" {
+            person.friendshipStateRaw = nil
+        }
+        try? context.save()
+    }
+}
+
+private struct ServerFriendRemovalResponse: Decodable {
+    let removed: Bool
+}
+
 // MARK: - Account-to-account friend invitations
 
 enum FriendInviteCode {
@@ -1225,18 +1918,15 @@ enum FriendInviteCode {
     }
 
     static func isValid(_ value: String) -> Bool {
-        normalize(value).count == 10
+        normalize(value).count == 5
     }
 
     static func generate() -> String {
-        String((0..<10).compactMap { _ in alphabet.randomElement() })
+        String((0..<5).compactMap { _ in alphabet.randomElement() })
     }
 
     static func formatted(_ value: String) -> String {
-        let code = normalize(value)
-        guard code.count > 5 else { return code }
-        let split = code.index(code.startIndex, offsetBy: 5)
-        return "\(code[..<split])-\(code[split...])"
+        normalize(value)
     }
 }
 
@@ -1253,16 +1943,30 @@ struct OutboundFriendInvite: Codable, Identifiable, Equatable {
     var isUsable: Bool { status == .pending && expiresAt > .now }
 }
 
+private struct ServerFriendInviteEnvelope: Decodable {
+    struct Invitation: Decodable {
+        let code: String
+        let createdAt: String
+        let expiresAt: String
+        let status: String
+    }
+
+    let invitation: Invitation
+}
+
+private struct ServerFriendClaimEnvelope: Decodable {
+    let friend: ServerFriendProfile
+}
+
+private struct ServerFriendInviteRequest: Encodable {}
+
 @MainActor
 final class FriendInvitationService: ObservableObject {
     static let shared = FriendInvitationService()
 
     static let testFlightURL = URL(string: "https://testflight.apple.com/join/JR7WttFq")!
-    private static let inviteRecordType = "BBFriendInvite"
-    private static let acceptanceRecordType = "BBFriendAcceptance"
-    private static let inviteRecordPrefix = "BBFriendInvite-"
-    private static let acceptanceRecordPrefix = "BBFriendAcceptance-"
-    private static let storageKey = "friendInvitations.outbound.v1"
+    private static let storageKey = "friendInvitations.outbound.v2"
+    private static let legacyStorageKey = "friendInvitations.outbound.v1"
 
     @Published private(set) var outboundInvites: [OutboundFriendInvite] = []
     @Published private(set) var isWorking = false
@@ -1270,14 +1974,15 @@ final class FriendInvitationService: ObservableObject {
     @Published var incomingCode = ""
     @Published var shouldPresentInviteSheet = false
 
-    private let container = CKContainer(identifier: CloudCollaborationService.containerIdentifier)
-    private var database: CKDatabase { container.publicCloudDatabase }
+    private let api = APIClient.live()
+    private var sessionGeneration = 0
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.storageKey),
            let saved = try? JSONDecoder().decode([OutboundFriendInvite].self, from: data) {
             outboundInvites = saved
         }
+        UserDefaults.standard.removeObject(forKey: Self.legacyStorageKey)
         expireOldInvites()
     }
 
@@ -1300,51 +2005,48 @@ final class FriendInvitationService: ObservableObject {
 
     func createInvite() async -> OutboundFriendInvite? {
         if ProcessInfo.processInfo.arguments.contains("-friendInvitePreview") {
-            let preview = OutboundFriendInvite(code: "B4NDTCREW2", createdAt: .now,
+            let preview = OutboundFriendInvite(code: "B4NDT", createdAt: .now,
                                                expiresAt: .now.addingTimeInterval(7 * 86_400),
                                                status: .pending)
             outboundInvites = [preview]
             persist()
             return preview
         }
-        if let currentUsableInvite { return currentUsableInvite }
 
         isWorking = true
         message = nil
         defer { isWorking = false }
         do {
-            let accountStatus = try await container.accountStatus()
-            guard accountStatus == .available else { throw FriendInviteError.iCloudUnavailable }
-            let cloudUser = try await container.userRecordID().recordName
-            guard let profile = currentProfile(cloudUserRecordName: cloudUser) else {
-                message = "Finish your profile before inviting a friend."
+            guard UsernameIdentityService.hasStoredSession else {
+                throw FriendInviteError.authenticationRequired
+            }
+            let remoteUser = try await UsernameIdentityService.currentUser()
+            let generation = sessionGeneration
+            let response: ServerFriendInviteEnvelope = try await api.post(
+                "/api/mobile/friends/invitations",
+                body: ServerFriendInviteRequest()
+            )
+            guard generation == sessionGeneration,
+                  UsernameIdentityService.hasStoredSession,
+                  ServerLedgerAccountLifecycle.shared.activeAccountID == remoteUser.id else {
                 return nil
             }
-            var invite: OutboundFriendInvite?
-            for _ in 0..<4 {
-                let code = FriendInviteCode.generate()
-                let createdAt = Date.now
-                let expiresAt = createdAt.addingTimeInterval(7 * 86_400)
-                let record = CKRecord(recordType: Self.inviteRecordType,
-                                      recordID: inviteRecordID(code))
-                record["code"] = code as CKRecordValue
-                record["inviterCloudUser"] = cloudUser as CKRecordValue
-                record["inviterName"] = profile.name as CKRecordValue
-                record["inviterAvatar"] = profile.profileAvatar.rawValue as CKRecordValue
-                record["createdAt"] = createdAt as CKRecordValue
-                record["expiresAt"] = expiresAt as CKRecordValue
-                do {
-                    _ = try await database.save(record)
-                    invite = OutboundFriendInvite(code: code, createdAt: createdAt,
-                                                  expiresAt: expiresAt, status: .pending)
-                    break
-                } catch let error as CKError where error.code == .serverRecordChanged ||
-                                                       error.code == .constraintViolation {
-                    continue
-                }
+            let code = FriendInviteCode.normalize(response.invitation.code)
+            guard FriendInviteCode.isValid(code),
+                  let createdAt = Self.date(response.invitation.createdAt),
+                  let expiresAt = Self.date(response.invitation.expiresAt) else {
+                throw FriendInviteError.invalid
             }
-            guard let invite else { throw FriendInviteError.couldNotCreateCode }
-            outboundInvites.insert(invite, at: 0)
+            let status = OutboundFriendInvite.Status(
+                rawValue: response.invitation.status.lowercased()
+            ) ?? .pending
+            let invite = OutboundFriendInvite(
+                code: code,
+                createdAt: createdAt,
+                expiresAt: expiresAt,
+                status: status
+            )
+            outboundInvites = [invite]
             persist()
             return invite
         } catch {
@@ -1356,64 +2058,36 @@ final class FriendInvitationService: ObservableObject {
     func accept(code rawCode: String) async -> Person? {
         let code = FriendInviteCode.normalize(rawCode)
         guard FriendInviteCode.isValid(code) else {
-            message = "Enter the complete 10-character invite code."
+            message = "Enter the complete 5-character invite code."
             return nil
         }
         isWorking = true
         message = nil
         defer { isWorking = false }
         do {
-            let accountStatus = try await container.accountStatus()
-            guard accountStatus == .available else { throw FriendInviteError.iCloudUnavailable }
-            let cloudUser = try await container.userRecordID().recordName
-            guard let profile = currentProfile(cloudUserRecordName: cloudUser) else {
-                message = "Finish your profile before accepting an invitation."
+            let remoteUser = try await UsernameIdentityService.currentUser()
+            let generation = sessionGeneration
+            let encoded = code.addingPercentEncoding(
+                withAllowedCharacters: .urlPathAllowed
+            ) ?? code
+            let response: ServerFriendClaimEnvelope = try await api.post(
+                "/api/mobile/friends/invitations/\(encoded)/claim",
+                body: ServerFriendInviteRequest()
+            )
+            guard generation == sessionGeneration,
+                  UsernameIdentityService.hasStoredSession,
+                  ServerLedgerAccountLifecycle.shared.activeAccountID == remoteUser.id else {
                 return nil
             }
-            let invite = try await database.record(for: inviteRecordID(code))
-            guard let expiresAt = invite["expiresAt"] as? Date, expiresAt > .now else {
-                throw FriendInviteError.expired
-            }
-            guard let inviterCloudUser = invite["inviterCloudUser"] as? String,
-                  let inviterName = invite["inviterName"] as? String else {
-                throw FriendInviteError.invalid
-            }
-            guard inviterCloudUser != cloudUser else { throw FriendInviteError.ownInvite }
-
-            let acceptanceID = acceptanceRecordID(code)
-            if let existing = try? await database.record(for: acceptanceID) {
-                guard existing["accepterCloudUser"] as? String == cloudUser else {
-                    throw FriendInviteError.alreadyAccepted
-                }
-            } else {
-                let record = CKRecord(recordType: Self.acceptanceRecordType,
-                                      recordID: acceptanceID)
-                record["inviteCode"] = code as CKRecordValue
-                record["accepterCloudUser"] = cloudUser as CKRecordValue
-                record["accepterName"] = profile.name as CKRecordValue
-                record["accepterAvatar"] = profile.profileAvatar.rawValue as CKRecordValue
-                record["acceptedAt"] = Date.now as CKRecordValue
-                do {
-                    _ = try await database.save(record)
-                } catch {
-                    guard let existing = try? await database.record(for: acceptanceID),
-                          existing["accepterCloudUser"] as? String == cloudUser else {
-                        throw FriendInviteError.alreadyAccepted
-                    }
-                }
-            }
-
-            let avatarRaw = invite["inviterAvatar"] as? String
-            let friend = linkFriend(name: inviterName, avatarRaw: avatarRaw,
-                                    cloudUser: inviterCloudUser,
-                                    currentCloudUser: cloudUser)
-            await CloudCollaborationService.shared.refreshFriendProfiles()
+            let friend = ServerGroupCatalogProjection.upsertFriend(
+                response.friend,
+                currentAccountID: remoteUser.id,
+                context: AppStore.container.mainContext
+            )
+            await ServerSocialSyncService.shared.refresh(remoteUser: remoteUser)
             incomingCode = ""
             message = "\(friend.name) is now in your crew."
             return friend
-        } catch let error as CKError where error.code == .unknownItem {
-            message = FriendInviteError.notFound.localizedDescription
-            return nil
         } catch {
             message = Self.readable(error)
             return nil
@@ -1422,27 +2096,7 @@ final class FriendInvitationService: ObservableObject {
 
     func refreshAcceptedInvites() async {
         expireOldInvites()
-        let refreshable = outboundInvites.filter { $0.status != .expired }
-        guard !refreshable.isEmpty else { return }
-        guard (try? await container.accountStatus()) == .available else { return }
-        guard let currentCloudUser = try? await container.userRecordID().recordName else { return }
-
-        var changed = false
-        for invite in refreshable {
-            guard let record = try? await database.record(for: acceptanceRecordID(invite.code)),
-                  let cloudUser = record["accepterCloudUser"] as? String,
-                  let name = record["accepterName"] as? String else { continue }
-            let avatarRaw = record["accepterAvatar"] as? String
-            let friend = linkFriend(name: name, avatarRaw: avatarRaw, cloudUser: cloudUser,
-                                    currentCloudUser: currentCloudUser)
-            if let index = outboundInvites.firstIndex(where: { $0.code == invite.code }) {
-                outboundInvites[index].status = .accepted
-                outboundInvites[index].acceptedFriendName = friend.name
-                changed = true
-            }
-        }
-        if changed { persist() }
-        if changed { await CloudCollaborationService.shared.refreshFriendProfiles() }
+        await ServerSocialSyncService.shared.refresh()
     }
 
     func shareText(for invite: OutboundFriendInvite) -> String {
@@ -1450,76 +2104,6 @@ final class FriendInvitationService: ObservableObject {
         "Invite code: \(FriendInviteCode.formatted(invite.code))\n" +
         "Already installed? billbandit://friend?code=\(invite.code)\n" +
         "This invitation expires in 7 days."
-    }
-
-    private func currentProfile(cloudUserRecordName: String) -> Person? {
-        let context = AppStore.container.mainContext
-        return AccountProfileIntegrity.canonicalCurrentPerson(
-            appleUserIdentifier: UserDefaults.standard.string(forKey: "appleUserIdentifier"),
-            cloudUserRecordName: cloudUserRecordName,
-            context: context
-        )
-    }
-
-    @discardableResult
-    private func linkFriend(name: String, avatarRaw: String?, cloudUser: String,
-                            currentCloudUser: String) -> Person {
-        let context = AppStore.container.mainContext
-        let current = AccountProfileIntegrity.canonicalCurrentPerson(
-            appleUserIdentifier: UserDefaults.standard.string(forKey: "appleUserIdentifier"),
-            cloudUserRecordName: currentCloudUser,
-            context: context
-        )
-        guard cloudUser != currentCloudUser else {
-            return current ?? Person(name: "You", isCurrentUser: true)
-        }
-        ConnectedFriendIdentity.repairDuplicateAccounts(context: context)
-        let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
-        if let existing = people.first(where: {
-            $0.id != current?.id && $0.cloudUserRecordName == cloudUser
-        }) {
-            ConnectedFriendIdentity.normalizeIncomingFriend(existing, cloudUser: cloudUser)
-            _ = ConnectedFriendIdentity.applyInvitationSnapshot(
-                name: name, avatarRaw: avatarRaw, to: existing, isNew: false
-            )
-            let legacyMatches = people.filter {
-                !$0.isCurrentUser && $0.cloudUserRecordName == nil &&
-                    $0.appleUserIdentifier?.isEmpty != false &&
-                    $0.appleSessionStateRaw == nil &&
-                    ConnectedFriendIdentity.normalizedName($0.name) ==
-                    ConnectedFriendIdentity.normalizedName(name)
-            }
-            if legacyMatches.count == 1, let legacy = legacyMatches.first {
-                ConnectedFriendIdentity.mergeLegacyFriend(legacy, into: existing,
-                                                           context: context)
-            }
-            try? context.save()
-            return existing
-        }
-
-        let legacyMatches = people.filter {
-            !$0.isCurrentUser && $0.cloudUserRecordName == nil &&
-                $0.appleUserIdentifier?.isEmpty != false &&
-                $0.appleSessionStateRaw == nil &&
-                ConnectedFriendIdentity.normalizedName($0.name) ==
-                ConnectedFriendIdentity.normalizedName(name)
-        }
-        let isNew = legacyMatches.count != 1
-        let friend = isNew ? Person(name: name.capitalizingFirstLetter) : legacyMatches[0]
-        ConnectedFriendIdentity.normalizeIncomingFriend(friend, cloudUser: cloudUser)
-        _ = ConnectedFriendIdentity.applyInvitationSnapshot(
-            name: name, avatarRaw: avatarRaw, to: friend, isNew: isNew
-        )
-        if isNew { context.insert(friend) }
-        if let actor = current {
-            context.insert(ActivityItem(kind: .friendAdded,
-                                        summary: "\(actor.name) added \(friend.name)",
-                                        refID: friend.id, actorID: actor.id))
-            _ = try? AchievementEngine.unlock(.partnerInCrime, personID: actor.id, context: context)
-        }
-        try? context.save()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        return friend
     }
 
     private func expireOldInvites() {
@@ -1537,15 +2121,10 @@ final class FriendInvitationService: ObservableObject {
         UserDefaults.standard.set(data, forKey: Self.storageKey)
     }
 
-    /// Removes local invite state and the public invite records this account
-    /// created. Failure to reach CloudKit must not prevent API account
-    /// deletion, so each record removal is intentionally best effort.
-    func deleteAccountData() async {
-        let invites = outboundInvites
-        for invite in invites {
-            try? await database.deleteRecord(withID: inviteRecordID(invite.code))
-            try? await database.deleteRecord(withID: acceptanceRecordID(invite.code))
-        }
+    /// Server account deletion removes server invitations. This only clears
+    /// the device cache so no code from the deleted session remains visible.
+    func resetLocalState() {
+        sessionGeneration &+= 1
         outboundInvites = []
         incomingCode = ""
         shouldPresentInviteSheet = false
@@ -1553,46 +2132,52 @@ final class FriendInvitationService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.storageKey)
     }
 
-    private func inviteRecordID(_ code: String) -> CKRecord.ID {
-        CKRecord.ID(recordName: Self.inviteRecordPrefix + code)
-    }
-
-    private func acceptanceRecordID(_ code: String) -> CKRecord.ID {
-        CKRecord.ID(recordName: Self.acceptanceRecordPrefix + code)
+    func deleteAccountData() async {
+        resetLocalState()
     }
 
     private static func readable(_ error: Error) -> String {
         if let invitationError = error as? FriendInviteError {
             return invitationError.localizedDescription
         }
-        if let cloudError = error as? CKError {
-            switch cloudError.code {
-            case .notAuthenticated: return "Sign in to iCloud in Settings to invite friends."
-            case .networkFailure, .networkUnavailable: return "Connect to the internet and try again."
-            case .quotaExceeded: return "Your iCloud storage is full."
-            case .permissionFailure, .serverRejectedRequest:
-                return "Invitations are temporarily unavailable. Please try again shortly."
-            case .serviceUnavailable, .requestRateLimited, .zoneBusy:
-                return "Invitations are busy right now. Please try again in a moment."
-            default: return "BillBandit couldn't reach invitations. Please try again."
+        switch error {
+        case SettlementAPIError.unauthorized:
+            return "Reconnect your Apple account before inviting friends."
+        case SettlementAPIError.offline:
+            return "Connect to the internet and try again."
+        case let SettlementAPIError.structured(code, _, body):
+            if let body,
+               let response = try? JSONDecoder().decode(ServerFriendErrorResponse.self, from: body),
+               !response.error.isEmpty {
+                return response.error
             }
+            return code
+        case let SettlementAPIError.server(message):
+            return message
+        default:
+            return error.localizedDescription
         }
-        return error.localizedDescription
+    }
+
+    private static func date(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 }
 
+private struct ServerFriendErrorResponse: Decodable {
+    let error: String
+}
+
 private enum FriendInviteError: LocalizedError {
-    case iCloudUnavailable, couldNotCreateCode, notFound, expired, invalid, ownInvite, alreadyAccepted
+    case authenticationRequired, invalid
 
     var errorDescription: String? {
         switch self {
-        case .iCloudUnavailable: return "Sign in to iCloud in Settings to invite friends."
-        case .couldNotCreateCode: return "BillBandit could not create a unique invite code. Try again."
-        case .notFound: return "That invitation was not found. Check the code and try again."
-        case .expired: return "That invitation has expired. Ask your friend for a new one."
+        case .authenticationRequired:
+            return "Reconnect your Apple account before inviting friends."
         case .invalid: return "That invitation is incomplete. Ask your friend to create a new one."
-        case .ownInvite: return "This is your own invitation. Share it with a friend instead."
-        case .alreadyAccepted: return "That invitation has already been accepted."
         }
     }
 }

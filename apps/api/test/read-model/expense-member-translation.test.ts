@@ -10,6 +10,7 @@ import type { ReadModelGroupSource } from '../../lib/ledger/read-model/types'
 
 const user = {
   id: 'user-1',
+  username: 'bubby',
   name: 'Prateek',
   preferredName: null,
   email: 'prateek@example.com',
@@ -45,7 +46,7 @@ function groupWithExpense() {
       { id: 'gm-2', userId: 'user-2', role: 'MEMBER', user: { ...user, id: 'user-2', name: 'Other' } },
     ],
     participants: [
-      { id: 'part-1', userId: 'user-1', displayName: 'Prateek', status: 'ACTIVE', user },
+      { id: 'part-1', userId: 'user-1', displayName: 'Unknown member', status: 'ACTIVE', user },
       { id: 'part-2', userId: 'user-2', displayName: 'Other', status: 'ACTIVE', user: { ...user, id: 'user-2', name: 'Other' } },
     ],
     expenses: [
@@ -53,6 +54,7 @@ function groupWithExpense() {
         id: 'exp-1',
         description: 'LiveTest-E2B',
         paidById: 'user-2', // USER id, as written by the mutation kernel
+        createdById: 'user-1',
         currency: 'INR',
         amountMinorUnits: 4200n,
         currencyExponent: 2,
@@ -71,12 +73,15 @@ function groupWithExpense() {
   }
 }
 
-function fakeDb(groups: unknown[]) {
+function fakeDb(
+  groups: unknown[],
+  groupImportRecords: unknown[] = []
+) {
   return {
     groupMember: { findUnique: async () => ({ userId: 'user-1' }) },
     group: { findMany: async () => groups },
     ledgerOperation: { findMany: async () => [] },
-    ledgerImport: { findFirst: async () => null },
+    ledgerImportRecord: { findMany: async () => groupImportRecords },
     moneyMigrationIssue: { findMany: async () => [] },
     friendship: { findMany: async () => [] },
   }
@@ -85,9 +90,14 @@ function fakeDb(groups: unknown[]) {
 test('loader translates expense payer and split user ids into participant member ids', async () => {
   const result = await loadGroupReadModel('grp-exp-001', 'user-1', {}, fakeDb([groupWithExpense()]) as never)
   const model = result.group
+  assert.equal(model.members.find((member) => member.accountId === 'user-1')?.displayName, 'bubby')
   assert.equal(model.expenses.length, 1)
   const expense = model.expenses[0]
   assert.equal(expense.paidByMemberId, 'part-2') // translated from user-2
+  assert.equal(expense.createdByMemberId, 'part-1') // creator can differ from payer
+  const activity = model.activity.find((item) => item.type === 'expense')
+  assert.equal(activity?.type === 'expense' ? activity.description : null, 'LiveTest-E2B')
+  assert.equal(activity?.type === 'expense' ? activity.actorMemberId : null, 'part-1')
   assert.deepEqual(
     expense.splits.map((split) => split.memberId).sort(),
     ['part-1', 'part-2']
@@ -95,6 +105,38 @@ test('loader translates expense payer and split user ids into participant member
   // Balances keyed by member ids and consistent: payer +4200, splits -2100 each
   const byMember = model.balances.byMember.find((entry) => entry.memberId === 'part-2')!
   assert.equal(byMember.byCurrency[0].minorUnits, '2100')
+})
+
+test('a failed import does not lock an API group that has no import record', async () => {
+  const result = await loadGroupReadModel(
+    'grp-exp-001',
+    'user-1',
+    {},
+    fakeDb([groupWithExpense()]) as never
+  )
+  assert.equal(result.group.migration.status, 'not_required')
+  assert.equal(result.group.migration.recoveryReadOnly, false)
+})
+
+test('a failed import locks only the group that the import created', async () => {
+  const result = await loadGroupReadModel(
+    'grp-exp-001',
+    'user-1',
+    {},
+    fakeDb([groupWithExpense()], [
+      {
+        targetId: 'grp-exp-001',
+        ledgerImport: {
+          id: 'import-failed',
+          sourceSystem: 'cloudkit',
+          state: 'FAILED',
+          completedAt: null,
+        },
+      },
+    ]) as never
+  )
+  assert.equal(result.group.migration.status, 'blocked')
+  assert.equal(result.group.migration.recoveryReadOnly, true)
 })
 
 test('loader fails loudly when an expense references a user with no participant row', async () => {

@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct SharedSettleUpScreen: View {
     @Bindable var group: Group
@@ -13,6 +14,8 @@ struct SharedSettleUpScreen: View {
     @State private var settledExpanded = false
     @State private var isSubmitting = false
     @State private var actionError: String?
+    @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
+    @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -107,10 +110,10 @@ struct SharedSettleUpScreen: View {
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Shared ledger unavailable")
+                    Text("Group balance unavailable")
                         .font(BrandFont.display(18, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
-                    Text("This group has no canonical server group yet. Settle Up stays local-only until the app supplies a server-backed group.")
+                    Text("This group is still getting ready. Try again after it finishes updating.")
                         .font(BrandFont.type(12))
                         .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
                     Button(action: onDismiss) {
@@ -173,7 +176,7 @@ struct SharedSettleUpScreen: View {
         if store.isLoading, store.snapshot == nil {
             settleBanner("Loading settlements…", showsProgress: true)
         } else if store.isMigrationBlocked {
-            settleBanner("Shared ledger migration is incomplete — read only.")
+            settleBanner("This group is still updating — read only.")
         } else if store.isOffline, store.snapshot != nil {
             settleBanner(
                 store.canQueueSettlement
@@ -403,12 +406,28 @@ struct SharedSettleUpScreen: View {
                             isSubmitting = true
                             defer { isSubmitting = false }
                             do {
-                                try await store.settle(
+                                let settlementEventID = try await store.settle(
                                     transfer: transfer,
                                     note: confirmationNote,
                                     expectedVersion: expectedVersion
                                 )
                                 confirmationTransfer = nil
+                                if let settlementEventID,
+                                   let currentUser = currentUsers.first {
+                                    let outcome = try? RewardEngine.award(
+                                        action: .settlementRecorded,
+                                        eventID: SharedRewardReconciler.eventID(
+                                            for: settlementEventID
+                                        ),
+                                        personID: currentUser.id,
+                                        context: context
+                                    )
+                                    try? context.save()
+                                    if let outcome {
+                                        RewardFeedbackCenter.shared.present(outcome)
+                                    }
+                                }
+                                await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
                             } catch {
                                 actionError = error.localizedDescription
                             }

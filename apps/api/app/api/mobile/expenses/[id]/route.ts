@@ -14,6 +14,7 @@ import {
   readModelErrorResponse,
 } from '@/lib/mobile-groups'
 import { legacyAmount } from '@/lib/mobile-dto'
+import { profileDisplayName } from '@/lib/profile-display-name'
 import {
   formatCurrency,
   hasExactMoney,
@@ -119,7 +120,7 @@ export async function PUT(
         data: {
           userId: session.user.id,
           type: 'EXPENSE_UPDATED',
-          description: `${session.user.name ?? 'Someone'} updated "${parsed.data.description}" (${formatCurrency(amount, parsed.data.amount.currencyCode)})`,
+          description: `${profileDisplayName(session.user)} updated "${parsed.data.description}" (${formatCurrency(amount, parsed.data.amount.currencyCode)})`,
           metadata: { expenseId: params.id, operationId: result.operationId },
         },
       })
@@ -198,7 +199,7 @@ export async function DELETE(
         data: {
           userId: session.user.id,
           type: 'EXPENSE_DELETED',
-          description: `${session.user.name ?? 'Someone'} deleted "${found.expense.description}"`,
+          description: `${profileDisplayName(session.user)} deleted "${found.expense.description}"`,
           metadata: { expenseId: params.id, operationId: result.operationId },
         },
       })

@@ -134,6 +134,8 @@ export async function deleteMobileAccount(
     await tx.externalIdentity.deleteMany({ where: { accountId } })
     await tx.account.deleteMany({ where: { userId: accountId } })
     await tx.session.deleteMany({ where: { userId: accountId } })
+    await tx.friendInvitation.deleteMany({ where: { inviterId: accountId } })
+    await tx.friendClaimRateLimit.deleteMany({ where: { accountId } })
     await tx.friendship.deleteMany({
       where: { OR: [{ fromId: accountId }, { toId: accountId }] },
     })

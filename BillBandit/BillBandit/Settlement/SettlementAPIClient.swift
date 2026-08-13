@@ -150,6 +150,21 @@ final class APIClient: Sendable {
         )
     }
 
+    func delete<Response: Decodable>(_ path: String) async throws -> Response {
+        try await request(
+            path,
+            method: "DELETE",
+            body: Optional<SettlementEmptyBody>.none
+        )
+    }
+
+    func delete<Body: Encodable, Response: Decodable>(
+        _ path: String,
+        body: Body
+    ) async throws -> Response {
+        try await request(path, method: "DELETE", body: body)
+    }
+
     private func request<Body: Encodable, Response: Decodable>(
         _ path: String,
         method: String,
@@ -264,7 +279,11 @@ final class APIClient: Sendable {
         if http.statusCode == 401 { throw SettlementAPIError.unauthorized }
         if !(200..<300).contains(http.statusCode) {
             if let error = try? JSONDecoder.settlement.decode(SettlementErrorResponse.self, from: data) {
-                throw SettlementAPIError.structured(code: error.error, status: http.statusCode, body: data)
+                throw SettlementAPIError.structured(
+                    code: error.code ?? error.error,
+                    status: http.statusCode,
+                    body: data
+                )
             }
             throw SettlementAPIError.server("Request failed with status \(http.statusCode)")
         }
@@ -326,6 +345,8 @@ extension UpdateSettlementSettingsRequest: SettlementExpectedRevisionProviding {
 
 private struct SettlementErrorResponse: Decodable {
     let error: String
+    let message: String?
+    let code: String?
 }
 
 extension APIClient {

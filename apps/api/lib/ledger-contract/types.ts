@@ -87,6 +87,7 @@ export type LedgerExpense = {
   expenseId: string
   description: string
   paidByMemberId: string
+  createdByMemberId?: string
   amount: Money
   splitMethod: SplitMethod
   splits: LedgerExpenseSplit[]
@@ -164,6 +165,8 @@ export type LedgerActivityItem =
       activityId: string
       type: 'expense'
       expenseId: string
+      description?: string
+      actorMemberId?: string
       amount: Money
       at: string
     }
@@ -171,6 +174,9 @@ export type LedgerActivityItem =
       activityId: string
       type: 'settlement'
       settlementId: string
+      actorMemberId?: string
+      payerMemberId?: string
+      recipientMemberId?: string
       amount: Money
       at: string
     }
@@ -179,6 +185,9 @@ export type LedgerActivityItem =
       type: 'reversal'
       reversalId: string
       settlementId: string
+      actorMemberId?: string
+      payerMemberId?: string
+      recipientMemberId?: string
       amount: Money
       at: string
     }

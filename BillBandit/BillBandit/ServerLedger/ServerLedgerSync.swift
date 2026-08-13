@@ -13,7 +13,7 @@ enum ServerLedgerSyncError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .snapshotScopeMismatch:
-            return "Shared balances came back for a different group."
+            return "Balances came back for a different group."
         case .accountScopeRequired:
             return ServerLedgerUserFacingCopy.signInForSharedBalances
         case .activeAccountMismatch:
@@ -23,7 +23,7 @@ enum ServerLedgerSyncError: LocalizedError, Equatable, Sendable {
         case .conflictRequiresReconfirmation:
             return "Balances changed on the server. Confirm and try again."
         case .unauthorized:
-            return "Your session expired. Sign in again to refresh shared balances."
+            return "Your session expired. Sign in again to refresh balances."
         case .offline:
             return "You're offline. Saved balances may be shown until you're back online."
         case .staleRevision:

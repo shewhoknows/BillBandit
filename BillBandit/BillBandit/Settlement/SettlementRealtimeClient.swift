@@ -51,8 +51,8 @@ func makeDefaultSettlementRealtimeClient() -> SettlementRealtimeClient {
     return SettlementPollingRealtimeClient()
 }
 
-/// Polling-only adapter used when Pusher is unavailable or not yet configured (Ticket 09).
-/// Subscribes to nothing; SettlementStore handles ten-second REST polling instead.
+/// Polling-only adapter used when Pusher is unavailable or not yet configured.
+/// Subscribes to nothing; SettlementStore owns the REST fallback interval.
 @MainActor
 final class SettlementPollingRealtimeClient: SettlementRealtimeClient {
     var onVersion: ((SettlementRealtimeEvent) -> Void)?

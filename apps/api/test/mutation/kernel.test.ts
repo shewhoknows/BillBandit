@@ -260,6 +260,37 @@ test('one transaction applies an exact-money expense and journals invalidation',
   assert.equal(db.state.outbox.length, 1)
 })
 
+test('a successful outer transaction wakes the outbox dispatcher once', async () => {
+  const db = database()
+  let wakeCount = 0
+
+  await executeMutation(request('op-wake'), {
+    db: db as never,
+    wakeOutbox: () => {
+      wakeCount += 1
+    },
+  })
+
+  assert.equal(wakeCount, 1)
+  assert.equal(db.state.outbox.length, 1)
+})
+
+test('a rejected outer transaction does not wake the outbox dispatcher', async () => {
+  const db = database()
+  let wakeCount = 0
+  const options = {
+    db: db as never,
+    wakeOutbox: () => {
+      wakeCount += 1
+    },
+  }
+
+  await executeMutation(request('op-first'), options)
+  await assert.rejects(executeMutation(request('op-stale'), options))
+
+  assert.equal(wakeCount, 1)
+})
+
 test('identical retry replays without a second financial record', async () => {
   const db = database()
   const first = await executeMutation(request('op-replay'), { db: db as never })

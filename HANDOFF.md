@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-07-20, automatic connected-friend group sharing build 1.0 (8) signed, tested and published.**
+> shared memory for all agents working on this repo. Last updated: **2026-08-12, server-authoritative social and shared-ledger flow completed and tested.**
 
 ---
 
@@ -15,6 +15,7 @@ poster-like aesthetic ("Direction B — Cobalt Club").
 | Thing | Location |
 |---|---|
 | iOS app + Xcode project | `BillBandit/` (project root of this folder) |
+| Server-authoritative mobile API | `apps/api/` |
 | Official mascot SVGs (source of truth) | `BillBandit-Raccoon-SVG/*.svg` (6 poses) |
 | Contextual mascot scene SVGs | `BillBandit-Raccoon-Scene-Variations-SVG/*.svg` (4 scenes) |
 | Throwaway mockup board | `mockups/index.html` (open in browser; `#shot1`–`#shot7` jump to a screen) |
@@ -27,8 +28,9 @@ directly; regenerate them from sources (see §5).
 ## 2. Locked decisions (don't relitigate)
 
 - **Stack:** SwiftUI + SwiftData · iPhone portrait · **iOS 18+** · light-only v1.
-- **Data:** SwiftData, local-first. **Balances are computed, never stored** — money
-  math lives in a pure, unit-tested engine. CloudKit sync is a v2 option.
+- **Data:** The mobile API is the sole authority for friends, groups and expenses.
+  SwiftData is a local cache and offline aid only. Canonical shared-ledger balances
+  are derived from API ledger records. CloudKit is not an authority for this flow.
 - **Mascot:** 6 official core poses — `greeting, thinking, confused, celebrating,
   neutral, grumpy` — plus 4 supplied contextual scenes (`bill-cross-legged`,
   `overdue-bell`, `searching-couch`, `sleepy-bed`). All use two flat colours
@@ -48,6 +50,57 @@ directly; regenerate them from sources (see §5).
   (half-up total rounding + deterministic whole-unit remainder allocation).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
+
+### 2026-08-12 — canonical social and shared-ledger authority
+
+This section supersedes all older CloudKit-only and local-only collaboration notes
+below. Those notes remain only as build history.
+
+- The API is the sole authority for the complete social flow: add a friend, list
+  the friend on both accounts, create a group with that friend, and create shared
+  expenses that both accounts read from the same canonical ledger.
+- Friend codes are reusable five-character uppercase alphanumeric codes. The code
+  alphabet is `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The mobile routes are:
+  `GET /api/mobile/friends`, `POST /api/mobile/friends/invitations`,
+  `POST /api/mobile/friends/invitations/{code}/claim`, and
+  `DELETE /api/mobile/friends/{accountId}`.
+- Claims create one normalized `ACCEPTED` friendship that is visible to both
+  accounts. Repeat claims and repeat deletes are safe. Failed claims use a durable
+  per-account limit of 10 failures in 15 minutes. A valid claim clears prior
+  failures.
+- Friend deletion removes only the social connection. It does not remove group
+  membership, participants, expenses, splits, settlements, or ledger history.
+- `POST /api/mobile/groups` accepts `memberAccountIds`. It removes the caller and
+  duplicate IDs, requires each remaining account to be an accepted friend, and
+  creates the caller as `ADMIN` plus each friend as `MEMBER` in one transaction.
+  `Idempotency-Key` makes a retry return the first group instead of a duplicate.
+- `GET /api/mobile/sync-token` is the lightweight foreground polling fallback when
+  Pusher is unavailable. It returns only a SHA-256 token. A changed token tells the
+  client to reload friends and shared groups. It changes for accepted-friend
+  add/remove/profile changes, group discovery/name/member changes, and every
+  canonical group revision change caused by expenses or settlements.
+- Current API evidence: TypeScript typecheck passes; the focused friend tests pass
+  (two code tests plus three PostgreSQL integration tests); the authenticated sync
+  token integration test passes; and the full API ledger suite passes **34/34**.
+  The migration rehearsal also kept the accepted edge while removing a reverse
+  duplicate and a self-friend edge.
+- Current iOS evidence: the canonical unit bundle passes **118/118** on iPhone 17
+  with iOS 26.5. The focused XCUITests for the five-character invite flow and
+  shared-group Add Expense action pass **2/2**. Account-switch, stale-revision,
+  friend-removal, group-discovery, and API-account identity cases are included in
+  the unit gate.
+- Production deployment `d730859c-9c33-437a-9b00-8505e7bbb758` completed on
+  Railway. Migration `20260812000000_server_friends` ran successfully before the
+  server started. `/api/health` returns 200, and the new authenticated friend and
+  sync-token routes return the expected 401 response without a bearer token.
+- Release build 18 archived, exported, and uploaded through Sqim. Its manifest
+  confirms bundle `com.billbandit.app`, version 1.0, build 18, and the expected
+  development profile. Install URL:
+  `https://build.sqim.dev/sqim/install/ZCM3L7sUi2oc`.
+- TestFlight upload: production archive `/tmp/BillBandit-1.0-18.xcarchive` was
+  exported with `ExportOptions-AppStore-Upload.plist` and uploaded to App Store
+  Connect on 2026-08-12. Apple returned `Upload succeeded` for BillBandit 1.0
+  build 18. The build then entered normal App Store Connect processing.
 
 ## 3. Status — Phase 5 + pre-beta polish shipped ✅
 
@@ -357,10 +410,10 @@ simulator build + screenshots → user sign-off before continuing.
   bundle version `2`. Published install (superseded below):
   `https://build.sqim.dev/sqim/install/E063Sb9yuuYG`.
 
-  This is the final internal direct-install beta gate, not an external beta. The
-  current product remains local-only: Sign in with Apple stores identity locally,
-  and groups, friends, expenses and activity do not sync between people/devices.
-  External TestFlight beta requires a shared backend/sync and invite model,
+  Historical note, superseded by the 2026-08-12 authority section above: this was
+  the final internal direct-install beta gate, not an external beta. At this build,
+  the product was local-only and groups, friends, expenses and activity did not
+  sync between people/devices. External TestFlight beta then required a shared backend/sync and invite model,
   versioned data migration, App Store Connect/privacy metadata, distribution
   signing, crash/feedback telemetry and a defined tester cohort.
 - [x] **Live settlement amount suggestions** ✅ 2026-07-19
@@ -389,8 +442,9 @@ simulator build + screenshots → user sign-off before continuing.
   rejection of a ₹9 payment against an ₹8 debt. Release **1.0 (4)** was signed,
   exported and its uploaded manifest verified. Current install:
   `https://build.sqim.dev/sqim/install/r9VlqikAcTJ1`.
-- [ ] **External beta collaboration & TestFlight** — in progress 2026-07-20
-  The app now keeps SwiftData explicitly local and mirrors each group into its
+- [ ] **External beta collaboration & TestFlight** — historical 2026-07-20 work,
+  superseded as architecture by the 2026-08-12 API authority section above.
+  This build kept SwiftData explicitly local and mirrored each group into its
   own shareable CloudKit record zone. Group owners can invite collaborators from
   the invoice; accepted shares sync members, expenses, splits, settlements and
   group-labelled activity through the private/shared CloudKit databases. Local

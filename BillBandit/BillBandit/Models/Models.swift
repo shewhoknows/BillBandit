@@ -4,6 +4,8 @@ import SwiftData
 // MARK: - Enums (stored as raw strings for SwiftData stability)
 
 enum ProfileAvatar: String, Codable, CaseIterable, Identifiable {
+    static let serverImagePrefix = "billbandit-avatar:"
+
     case sunglasses
     case bucketHat = "bucket-hat"
     case bows
@@ -14,6 +16,15 @@ enum ProfileAvatar: String, Codable, CaseIterable, Identifiable {
     case flower
 
     var id: String { rawValue }
+
+    init?(serverImage: String?) {
+        guard let serverImage else { return nil }
+        let value = serverImage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.hasPrefix(Self.serverImagePrefix) else { return nil }
+        self.init(rawValue: String(value.dropFirst(Self.serverImagePrefix.count)))
+    }
+
+    var serverImage: String { Self.serverImagePrefix + rawValue }
 
     var displayName: String {
         switch self {
@@ -218,6 +229,14 @@ final class Person {
     /// CloudKit's user-record name links the same person across invited devices.
     /// It stays optional so local-only profiles and existing stores remain valid.
     var cloudUserRecordName: String?
+    /// The canonical BillBandit API account. Shared groups and expenses use
+    /// this identity; a local UUID or display name must never identify a
+    /// server member.
+    var serverAccountID: String?
+    /// Accepted friendships are server-owned. Keeping this optional lets old
+    /// CloudKit-only stores migrate without turning every group member into a
+    /// friend.
+    var friendshipStateRaw: String?
     /// Stable Sign in with Apple subject for the local account. This is never
     /// shared with collaborators; it only prevents duplicate local profiles.
     var appleUserIdentifier: String?
@@ -236,6 +255,8 @@ final class Person {
         self.isCurrentUser = isCurrentUser
         self.avatarRaw = avatar?.rawValue
         self.cloudUserRecordName = nil
+        self.serverAccountID = nil
+        self.friendshipStateRaw = nil
         self.appleUserIdentifier = nil
         self.appleSessionStateRaw = nil
         self.profileUpdatedAt = nil
@@ -265,12 +286,15 @@ final class Group {
     var cloudDatabaseScopeRaw: String?
     /// BillBandit API group id for a server-backed shared ledger.
     var serverGroupId: String?
+    /// API account that owns this local catalog projection.
+    var serverAccountId: String?
     var members: [Person]
     @Relationship(deleteRule: .cascade, inverse: \Expense.group) var expenses: [Expense]
     @Relationship(deleteRule: .cascade, inverse: \Settlement.group) var settlements: [Settlement]
 
     init(id: UUID = UUID(), name: String, icon: GroupIcon = .users, simplifyDebts: Bool = true,
-         createdAt: Date = .now, members: [Person] = [], serverGroupId: String? = nil) {
+         createdAt: Date = .now, members: [Person] = [], serverGroupId: String? = nil,
+         serverAccountId: String? = nil) {
         self.id = id
         self.name = name
         self.iconRaw = icon.rawValue
@@ -280,6 +304,7 @@ final class Group {
         self.cloudZoneOwnerName = nil
         self.cloudDatabaseScopeRaw = nil
         self.serverGroupId = serverGroupId
+        self.serverAccountId = serverAccountId
         self.members = members
         self.expenses = []
         self.settlements = []

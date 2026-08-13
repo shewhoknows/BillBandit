@@ -5,6 +5,45 @@ import XCTest
 
 @MainActor
 final class SettlementStoreTests: XCTestCase {
+    func testRealtimeRefreshPolicyUsesFastFallbackUnlessBothEndsAreConfigured() {
+        XCTAssertFalse(
+            SettlementRealtimeRefreshPolicy.canUseRealtime(
+                serverAvailable: true,
+                localPusherConfigured: false
+            )
+        )
+        XCTAssertEqual(
+            SettlementRealtimeRefreshPolicy.pollingInterval(
+                serverAvailable: true,
+                localPusherConfigured: false
+            ),
+            .seconds(4)
+        )
+        XCTAssertEqual(
+            SettlementRealtimeRefreshPolicy.pollingInterval(
+                serverAvailable: false,
+                localPusherConfigured: true
+            ),
+            .seconds(4)
+        )
+    }
+
+    func testRealtimeRefreshPolicyKeepsSafetyPollWhenRealtimeIsConfigured() {
+        XCTAssertTrue(
+            SettlementRealtimeRefreshPolicy.canUseRealtime(
+                serverAvailable: true,
+                localPusherConfigured: true
+            )
+        )
+        XCTAssertEqual(
+            SettlementRealtimeRefreshPolicy.pollingInterval(
+                serverAvailable: true,
+                localPusherConfigured: true
+            ),
+            .seconds(15)
+        )
+    }
+
     func testCanonicalDisplayUsesLedgerSnapshotAndReadRevision() throws {
         let cache = try makeCacheStore()
         let api = RecordingCanonicalLedgerAPI()

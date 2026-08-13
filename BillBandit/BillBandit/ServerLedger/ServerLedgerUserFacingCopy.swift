@@ -2,18 +2,18 @@ import Foundation
 
 /// Maps server/API ledger codes and internal status strings to copy safe for UI.
 enum ServerLedgerUserFacingCopy {
-    static let sharedBalancesTitle = "Shared balances"
+    static let sharedBalancesTitle = "Balances"
     static let onDevice = "On this device"
-    static let sharedGroup = "Shared group"
+    static let sharedGroup = "Synced"
     static let loadingBalance = "Loading balance…"
     static let balanceUnavailable = "Balance unavailable"
-    static let loadingSharedBalances = "Loading shared balances…"
-    static let sharedBalancesUnavailable = "Couldn't load shared balances"
-    static let sharedBalancesRetryHint = "Couldn't load shared balances · pull to refresh"
+    static let loadingSharedBalances = "Loading balances…"
+    static let sharedBalancesUnavailable = "Couldn't load balances"
+    static let sharedBalancesRetryHint = "Couldn't load balances · pull to refresh"
     static let offlineCachedBalances = "Showing saved balances · offline"
     static let staleBalances = "Balances may be outdated · pull to refresh"
-    static let noSharedGroups = "No shared groups yet"
-    static let signInForSharedBalances = "Sign in to view shared balances"
+    static let noSharedGroups = "No groups yet"
+    static let signInForSharedBalances = "Sign in to view balances"
 
     static func message(forAPIErrorCode code: String) -> String? {
         switch code.uppercased() {
@@ -26,11 +26,11 @@ enum ServerLedgerUserFacingCopy {
         case "IDEMPOTENCY_KEY_REUSED":
             return "That action was already sent. Refresh to see the latest balances."
         case "FORBIDDEN":
-            return "You don't have access to this shared group."
+            return "You don't have access to this group."
         case "GROUP NOT FOUND":
-            return "This shared group is no longer available."
+            return "This group is no longer available."
         case "INTERNAL SERVER ERROR":
-            return "Something went wrong loading shared balances. Try again."
+            return "Something went wrong loading balances. Try again."
         default:
             return nil
         }

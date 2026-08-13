@@ -16,6 +16,8 @@ async function clearDatabase() {
   await prisma.expense.deleteMany()
   await prisma.groupMember.deleteMany()
   await prisma.group.deleteMany()
+  await prisma.friendClaimRateLimit.deleteMany()
+  await prisma.friendInvitation.deleteMany()
   await prisma.friendship.deleteMany()
   await prisma.session.deleteMany()
   await prisma.account.deleteMany()
@@ -37,12 +39,21 @@ async function createUsers(users: FixtureUser[]) {
 }
 
 async function createFriendships() {
+  const accepted = (leftAccountId: string, rightAccountId: string) => {
+    const [fromId, toId] = [leftAccountId, rightAccountId].sort()
+    return {
+      fromId,
+      toId,
+      status: FriendshipStatus.ACCEPTED,
+    }
+  }
+
   await prisma.friendship.createMany({
     data: [
-      { fromId: 'user-alice', toId: 'user-bob', status: FriendshipStatus.ACCEPTED },
-      { fromId: 'user-alice', toId: 'user-carol', status: FriendshipStatus.ACCEPTED },
-      { fromId: 'user-alice', toId: 'user-dave', status: FriendshipStatus.ACCEPTED },
-      { fromId: 'user-bob', toId: 'user-carol', status: FriendshipStatus.ACCEPTED },
+      accepted('user-alice', 'user-bob'),
+      accepted('user-alice', 'user-carol'),
+      accepted('user-alice', 'user-dave'),
+      accepted('user-bob', 'user-carol'),
     ],
   })
 }

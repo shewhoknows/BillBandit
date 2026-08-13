@@ -423,34 +423,32 @@ struct HomeScreen: View {
         _showMotionLab = State(initialValue: ProcessInfo.processInfo.arguments.contains("-showMotionLab"))
     }
 
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
+
     private var sharedGroups: [Group] {
-        groups.filter { $0.serverLedgerGroupID != nil }
+        visibleGroups.filter { $0.serverLedgerGroupID != nil }
     }
 
     private var localGroups: [Group] {
-        groups.filter { $0.serverLedgerGroupID == nil }
+        visibleGroups.filter { $0.serverLedgerGroupID == nil }
     }
 
-    private var localGroupNets: [(Group, Decimal)] {
-        guard let me = currentUsers.first else { return [] }
-        return localGroups.map { ($0, BalanceMath.nets(in: $0)[me.id] ?? 0) }
+    private var sharedGroupIDs: Set<String> {
+        Set(sharedGroups.compactMap(\.serverLedgerGroupID))
     }
 
-    private var localOwed: Decimal {
-        Money.cents(localGroupNets.reduce(0) { $0 + max($1.1, 0) })
+    private var canonicalBalanceSummaries: [ServerLedgerSurfaceAccountBalanceSummary]? {
+        guard let snapshot = serverLedger.snapshot,
+              snapshot.coversExactly(serverGroupIDs: sharedGroupIDs) else { return nil }
+        return snapshot.accountBalanceSummaries
     }
-
-    private var localOwe: Decimal {
-        Money.cents(localGroupNets.reduce(0) { $0 + max(-$1.1, 0) })
-    }
-
-    private var localNet: Decimal { Money.cents(localOwed - localOwe) }
 
     private var localActivity: [ActivityItem] {
-        activity.filter { item in
-            guard let groupID = item.groupID else { return true }
-            return groups.first(where: { $0.id == groupID })?.serverLedgerGroupID == nil
-        }
+        ActivityData.localItems(activity, groups: groups)
     }
 
     private var sharedActivity: [ServerLedgerSurfaceActivityItem] {
@@ -477,8 +475,8 @@ struct HomeScreen: View {
             .navigationDestination(for: Group.self) { group in
                 GroupDetailScreen(group: group)
             }
-            .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-                await serverLedger.refresh(groups: groups)
+            .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+                await serverLedger.refresh(groups: visibleGroups)
             }
         }
     }
@@ -537,7 +535,27 @@ struct HomeScreen: View {
 
     private var balanceHeader: some View {
         VStack(spacing: 16) {
-            if groups.isEmpty {
+            if !sharedGroups.isEmpty {
+                if let summaries = canonicalBalanceSummaries {
+                    if summaries.isEmpty {
+                        canonicalSettledBalanceSummary
+                    } else {
+                        ForEach(summaries) { summary in
+                            canonicalBalanceSummary(
+                                summary,
+                                showsCurrencyCode: summaries.count > 1
+                            )
+                        }
+                    }
+                } else {
+                    ServerLedgerUnavailableChip(
+                        isLoading: serverLedger.status.phase == .loading
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+            if visibleGroups.isEmpty {
                 Text("no groups yet ")
                     .font(BrandFont.hand(20, weight: .semibold))
                     .opacity(0.75)
@@ -545,6 +563,73 @@ struct HomeScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .foregroundStyle(Color.Brand.creamSoft)
+    }
+
+    private func canonicalBalanceSummary(
+        _ summary: ServerLedgerSurfaceAccountBalanceSummary,
+        showsCurrencyCode: Bool
+    ) -> some View {
+        VStack(alignment: .center, spacing: 5) {
+            Text(summary.headline + "\u{00A0}")
+                .font(BrandFont.hand(20, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .allowsTightening(true)
+                .fixedSize(horizontal: true, vertical: true)
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            if showsCurrencyCode {
+                Text(summary.net.currencyCode)
+                    .font(BrandFont.type(9, bold: true))
+                    .opacity(0.68)
+            }
+
+            Text(summary.net.absoluteDisplayText)
+                .font(BrandFont.display(43, weight: .bold))
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : BrandMotion.counter,
+                           value: summary.net.minorUnits)
+
+            Squiggle()
+                .stroke(Color.Brand.creamSoft,
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .frame(width: 122, height: 12)
+
+            HStack(spacing: 8) {
+                BalancePill(
+                    text: "you owe \(summary.owe.absoluteDisplayText)",
+                    filled: false,
+                    onDark: true
+                )
+                BalancePill(
+                    text: "owed \(summary.owed.absoluteDisplayText)",
+                    filled: false,
+                    onDark: true
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("homeOverallBalance-\(summary.net.currencyCode)")
+    }
+
+    private var canonicalSettledBalanceSummary: some View {
+        VStack(alignment: .center, spacing: 5) {
+            Text("all settled up\u{00A0}")
+                .font(BrandFont.hand(20, weight: .semibold))
+
+            Text("0")
+                .font(BrandFont.display(43, weight: .bold))
+
+            Squiggle()
+                .stroke(Color.Brand.creamSoft,
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .frame(width: 122, height: 12)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("homeOverallBalance-settled")
     }
 
     private var groupGrid: some View {
@@ -644,21 +729,17 @@ struct HomeScreen: View {
                     .font(BrandFont.display(14, weight: .semibold))
                     .padding(.bottom, 4)
                 if !sharedGroups.isEmpty {
-                    Text("shared ledger")
-                        .font(BrandFont.type(9, bold: true))
-                        .opacity(0.58)
-                        .padding(.top, 4)
                     if sharedActivity.isEmpty {
                         if serverLedger.snapshot == nil {
                             ServerLedgerSurfaceStatusView(
                                 ledger: serverLedger,
                                 includeEmpty: true
                             ) {
-                                Task { await serverLedger.refresh(groups: groups) }
+                                Task { await serverLedger.refresh(groups: visibleGroups) }
                             }
                             .padding(.vertical, 7)
                         } else {
-                            Text("No shared activity yet")
+                            Text("No activity yet")
                                 .font(BrandFont.type(11))
                                 .opacity(0.55)
                                 .padding(.vertical, 8)
@@ -670,10 +751,6 @@ struct HomeScreen: View {
                     }
                 }
                 if !localActivity.isEmpty {
-                    Text("on-device activity")
-                        .font(BrandFont.type(9, bold: true))
-                        .opacity(0.58)
-                        .padding(.top, 7)
                     ForEach(Array(localActivity.prefix(3))) { item in
                         ActivityLedgerRow(item: item, compact: true)
                     }
@@ -823,6 +900,7 @@ struct ProfileScreen: View {
     @State private var showAvatarPicker: Bool
     @State private var isEditingName = false
     @State private var isSavingUsername = false
+    @State private var isSavingAvatar = false
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
     @State private var showSignOutConfirmation = false
     @State private var showDeleteAccountConfirmation = false
@@ -848,12 +926,18 @@ struct ProfileScreen: View {
     private var progressEnabled: Bool { currentProgress?.isEnabled ?? true }
     private var lifetimeXP: Int { currentProgress?.lifetimeXP ?? 0 }
 
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
+
     private var sharedGroups: [Group] {
-        groups.filter { $0.serverLedgerGroupID != nil }
+        visibleGroups.filter { $0.serverLedgerGroupID != nil }
     }
 
     private var localGroups: [Group] {
-        groups.filter { $0.serverLedgerGroupID == nil }
+        visibleGroups.filter { $0.serverLedgerGroupID == nil }
     }
 
     var body: some View {
@@ -884,6 +968,7 @@ struct ProfileScreen: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel(showAvatarPicker ? "Save avatar choice" : "Change avatar")
                         .accessibilityIdentifier("profileAvatarButton")
+                        .disabled(isSavingAvatar)
 
                         if isEditingName {
                             ProfileNameTextField(
@@ -919,10 +1004,11 @@ struct ProfileScreen: View {
                             .accessibilityIdentifier("profileNameButton")
                         }
 
-                        Text(isSavingUsername ? "reserving your handle…" :
+                        Text(isSavingAvatar ? "saving your avatar…" :
+                             (isSavingUsername ? "reserving your handle…" :
                              (isEditingName ? "press done to save" :
                              (showAvatarPicker ? "choose freely · tap big avatar to save" :
-                                "tap username to edit · tap avatar to change")))
+                                "tap username to edit · tap avatar to change"))))
                             .font(BrandFont.type(9.5, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.58))
                     }
@@ -944,7 +1030,7 @@ struct ProfileScreen: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         BrandSectionLabel("YOUR LEDGER")
-                        profileRow(leading: "#", title: "\(groups.count) groups", detail: "\(expenses.count) expenses")
+                        profileRow(leading: "#", title: "\(visibleGroups.count) groups", detail: "\(expenses.count) expenses")
                     }
                     accountSection
 
@@ -962,8 +1048,8 @@ struct ProfileScreen: View {
             loadCurrentProfileIfNeeded()
         }
         .onChange(of: currentUsers.count) { loadCurrentProfileIfNeeded() }
-        .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-            await serverLedger.refresh(groups: groups)
+        .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+            await serverLedger.refresh(groups: visibleGroups)
         }
         .alert("Sign out of BillBandit?", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -975,18 +1061,18 @@ struct ProfileScreen: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete account", role: .destructive) { deleteAccount() }
         } message: {
-            Text("This permanently removes your account and personal data. Shared ledger amounts remain for the other members, with your profile and authored text anonymized.")
+            Text("This permanently removes your account and personal data. Group amounts remain for the other members. Your profile and authored text become anonymous.")
         }
     }
 
     private var sharedLedgerSection: some View {
         VStack(alignment: .leading, spacing: 9) {
-            BrandSectionLabel("SHARED LEDGER")
+            BrandSectionLabel("BALANCE")
             if let presentation = serverLedger.accountBalancePresentation() {
                 profileRow(
                     leading: "↗",
                     title: presentation.label,
-                    detail: "Shared balances"
+                    detail: "Across all groups"
                 )
             } else {
                 HStack(spacing: 9) {
@@ -998,7 +1084,7 @@ struct ProfileScreen: View {
                 }
             }
             if !localGroups.isEmpty {
-                Text("On-device-only groups remain separate from the shared ledger.")
+                Text("Some groups are stored only on this device.")
                     .font(BrandFont.type(9.5, bold: true))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
             }
@@ -1371,18 +1457,33 @@ struct ProfileScreen: View {
     }
 
     private func confirmAvatarSelection() {
-        let activePerson = AccountProfileIntegrity.canonicalize(
-            appleUserIdentifier: appleUserIdentifier,
-            cloudUserRecordName: nil,
-            context: context
-        )
-        activePerson.profileAvatar = selectedAvatar
-        activePerson.profileUpdatedAt = .now
-        try? context.save()
-        CloudCollaborationService.shared.currentPersonDidChange()
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        withAnimation(BrandMotion.reveal(reduceMotion: reduceMotion)) {
-            showAvatarPicker = false
+        guard !isSavingAvatar else { return }
+        let avatar = selectedAvatar
+        isSavingAvatar = true
+        authMessage = nil
+        Task { @MainActor in
+            defer { isSavingAvatar = false }
+            do {
+                if UsernameIdentityService.hasStoredSession {
+                    _ = try await UsernameIdentityService.updateAvatar(avatar)
+                }
+                let activePerson = AccountProfileIntegrity.canonicalize(
+                    appleUserIdentifier: appleUserIdentifier,
+                    cloudUserRecordName: nil,
+                    context: context
+                )
+                activePerson.profileAvatar = avatar
+                activePerson.profileUpdatedAt = .now
+                try context.save()
+                CloudCollaborationService.shared.currentPersonDidChange()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                withAnimation(BrandMotion.reveal(reduceMotion: reduceMotion)) {
+                    showAvatarPicker = false
+                }
+            } catch {
+                selectedAvatar = currentUsers.first?.profileAvatar ?? avatar
+                authMessage = error.localizedDescription
+            }
         }
     }
 
@@ -2050,7 +2151,7 @@ struct ServerLedgerActivityRow: View {
                 .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
                 .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(item.type) in \(item.groupName)")
+                Text(item.displaySummary)
                     .font(BrandFont.type(compact ? 10.5 : 12, bold: true))
                     .lineLimit(compact ? 1 : 2)
                 if !compact {
@@ -2076,15 +2177,18 @@ struct ActivityScreen: View {
     @Query private var groups: [Group]
     @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
 
+    private var visibleGroups: [Group] {
+        groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }
+    }
+
     private var sharedGroups: [Group] {
-        groups.filter { $0.serverLedgerGroupID != nil }
+        visibleGroups.filter { $0.serverLedgerGroupID != nil }
     }
 
     private var localItems: [ActivityItem] {
-        items.filter { item in
-            guard let groupID = item.groupID else { return true }
-            return groups.first(where: { $0.id == groupID })?.serverLedgerGroupID == nil
-        }
+        ActivityData.localItems(items, groups: groups)
     }
 
     private var localSections: [ActivitySection] {
@@ -2103,19 +2207,16 @@ struct ActivityScreen: View {
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
                     if !sharedGroups.isEmpty {
-                        Text("shared ledger")
-                            .font(BrandFont.type(10, bold: true))
-                            .opacity(0.68)
                         ServerLedgerSurfaceStatusView(ledger: serverLedger) {
-                            Task { await serverLedger.refresh(groups: groups) }
+                            Task { await serverLedger.refresh(groups: visibleGroups) }
                         }
                         if sharedItems.isEmpty {
                             if serverLedger.snapshot == nil {
                                 ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
-                                    Task { await serverLedger.refresh(groups: groups) }
+                                    Task { await serverLedger.refresh(groups: visibleGroups) }
                                 }
                             } else {
-                                Text("no shared activity yet")
+                                Text("no activity yet")
                                     .font(BrandFont.type(11))
                                     .opacity(0.62)
                             }
@@ -2126,10 +2227,6 @@ struct ActivityScreen: View {
                         }
                     }
                     if !localItems.isEmpty {
-                        Text("on-device activity")
-                            .font(BrandFont.type(10, bold: true))
-                            .opacity(0.68)
-                            .padding(.top, 8)
                         ForEach(localSections) { section in
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(section.date.map(dayLabel) ?? "Earlier activity")
@@ -2155,8 +2252,8 @@ struct ActivityScreen: View {
             }
             .background(Color.Brand.cobalt)
             .navigationTitle("Activity")
-            .task(id: groups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-                await serverLedger.refresh(groups: groups)
+            .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
+                await serverLedger.refresh(groups: visibleGroups)
             }
         }
     }

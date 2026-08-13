@@ -97,11 +97,11 @@ enum ServerLedgerAPIClientError: LocalizedError, Equatable, Sendable {
             if let code, code.uppercased() == code, code.contains("_") {
                 return ServerLedgerUserFacingCopy.sharedBalancesRetryHint
             }
-            return code ?? "Couldn't load shared balances (HTTP \(status))."
+            return code ?? "Couldn't load balances (HTTP \(status))."
         case .contractVersionMismatch: return "The server ledger contract is not supported"
         case .snapshotScopeMismatch: return "The server returned a snapshot for another account or group"
         case .staleRevision: return "The server returned an older ledger revision"
-        case .revisionConflict: return "The shared ledger changed; refresh before retrying"
+        case .revisionConflict: return "The group changed. Refresh before retrying."
         case .idempotencyKeyReused: return "The operation ID is already bound to another request"
         }
     }
@@ -324,10 +324,43 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
                     break
                 }
             }
+            if let conflict = try? JSONDecoder.serverLedger.decode(
+                ServerLedgerRouteConflictEnvelopeDTO.self,
+                from: data
+            ) {
+                switch conflict.error {
+                case "REVISION_CONFLICT":
+                    return .revisionConflict(
+                        expectedRevision: conflict.details?.expectedRevision ?? expectedRevision ?? 0,
+                        currentRevision: conflict.details?.currentRevision,
+                        snapshot: nil
+                    )
+                case "IDEMPOTENCY_KEY_REUSED":
+                    return .idempotencyKeyReused
+                default:
+                    break
+                }
+            }
             return .server(status: status, code: Self.errorCode(from: data))
         }
         return .server(status: status, code: Self.errorCode(from: data))
     }
+
+#if DEBUG
+    func decodeHTTPErrorForTesting(
+        status: Int,
+        data: Data,
+        scope: ServerBackedLedgerScope?,
+        expectedRevision: Int64?
+    ) throws -> ServerLedgerAPIClientError {
+        try makeHTTPError(
+            status: status,
+            data: data,
+            scope: scope,
+            expectedRevision: expectedRevision
+        )
+    }
+#endif
 
     private static func errorCode(from data: Data) -> String? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }

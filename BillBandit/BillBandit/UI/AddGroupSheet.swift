@@ -116,6 +116,20 @@ struct AddGroupSheet: View {
                             .accessibilityIdentifier("groupMutationError")
                     }
 
+                    if requiresReconfirmation {
+                        Button("Try again") {
+                            requiresReconfirmation = false
+                            statusMessage = "Ready to retry with the same protected operation."
+                        }
+                        .font(BrandFont.body(12.5, weight: .extraBold))
+                        .foregroundStyle(Color.Brand.cobalt)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .overlay(Capsule().stroke(Color.Brand.cobalt,
+                                                  lineWidth: BrandOutline.control))
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("retryGroupCreationButton")
+                    }
+
                     Button(action: create) {
                         Text(isSubmitting ? "Creating…" : "Create group")
                             .font(BrandFont.display(15.5, weight: .bold))
@@ -154,11 +168,18 @@ struct AddGroupSheet: View {
 
         guard !isSubmitting, !requiresReconfirmation else { return }
         if UsernameIdentityService.hasStoredSession {
-            guard selected.isEmpty else {
-                errorMessage = "Shared groups can only use canonical server members. Create the group first, then add members from the shared group."
+            let selectedFriends = memberOptions.filter {
+                !$0.isCurrentUser && selected.contains($0.id)
+            }
+            let missingIdentity = selectedFriends.first {
+                $0.serverAccountID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false
+            }
+            guard missingIdentity == nil else {
+                errorMessage = "Refresh friends before adding \(missingIdentity?.name ?? "this friend") to a shared group."
                 statusMessage = nil
                 return
             }
+            let memberAccountIDs = selectedFriends.compactMap(\.serverAccountID)
 
             let operationID = activeOperationID ?? UUID()
             activeOperationID = operationID
@@ -170,7 +191,8 @@ struct AddGroupSheet: View {
                     name: finalName,
                     icon: icon,
                     simplifyDebts: simplify,
-                    operationID: operationID
+                    operationID: operationID,
+                    memberAccountIDs: memberAccountIDs
                 )
             }
             return
@@ -215,7 +237,8 @@ struct AddGroupSheet: View {
         name: String,
         icon: GroupIcon,
         simplifyDebts: Bool,
-        operationID: UUID
+        operationID: UUID,
+        memberAccountIDs: [String]
     ) async {
         let runtime = T15CanonicalLedgerRuntime.shared
         do {
@@ -226,42 +249,42 @@ struct AddGroupSheet: View {
                     name: name,
                     description: nil,
                     currency: Money.currentCurrency.rawValue,
-                    category: "OTHER"
+                    category: "OTHER",
+                    memberAccountIds: memberAccountIDs
                 ),
                 idempotencyKey: operationID.uuidString
             )
+            guard UsernameIdentityService.hasStoredSession,
+                  ServerLedgerAccountLifecycle.shared.activeAccountID == remoteUser.id else {
+                isSubmitting = false
+                activeOperationID = nil
+                return
+            }
             let serverGroupID = response.group.id.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !serverGroupID.isEmpty else { throw T15LedgerUIError.groupResponseMissingID }
 
-            let scope = ServerBackedLedgerScope(
-                accountID: remoteUser.id,
-                groupID: serverGroupID
-            )
-            let canonicalGroup: SettlementCanonicalLedgerGroup?
-            do {
-                let snapshot = try await runtime.refresh(scope: scope)
-                canonicalGroup = try runtime.validatedGroup(from: snapshot, scope: scope)
-            } catch {
-                // The POST has already been acknowledged. Keep only the
-                // server identity locally; the canonical read model will be
-                // refreshed by the shared surfaces when transport returns.
-                canonicalGroup = nil
-                statusMessage = "Group created. Shared details are waiting for a canonical refresh."
+            guard UsernameIdentityService.hasStoredSession,
+                  ServerLedgerAccountLifecycle.shared.activeAccountID == remoteUser.id else {
+                isSubmitting = false
+                activeOperationID = nil
+                return
             }
 
             var newlyCreatedPeople = [Person]()
             let members = localPeople(
-                for: canonicalGroup,
+                for: nil,
                 accountID: remoteUser.id,
+                fallbackMemberAccountIDs: memberAccountIDs,
                 newlyCreatedPeople: &newlyCreatedPeople
             )
             let localGroup = Group(
                 id: operationID,
-                name: canonicalGroup?.name ?? name,
+                name: name,
                 icon: icon,
                 simplifyDebts: simplifyDebts,
                 members: members,
-                serverGroupId: serverGroupID
+                serverGroupId: serverGroupID,
+                serverAccountId: remoteUser.id
             )
             for person in newlyCreatedPeople { context.insert(person) }
             context.insert(localGroup)
@@ -278,11 +301,17 @@ struct AddGroupSheet: View {
                 )
             }
             try context.save()
-            await ServerLedgerSurfaceStore.shared.refresh(groups: [localGroup])
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             isSubmitting = false
             activeOperationID = nil
+            statusMessage = nil
             dismiss()
+            // The POST is the create confirmation. The new local routing row
+            // appears at once. Canonical details can refresh after the sheet
+            // closes, without blocking the person who created the group.
+            Task { @MainActor in
+                await ServerSocialSyncService.shared.refresh()
+            }
         } catch {
             isSubmitting = false
             requiresReconfirmation = true
@@ -294,11 +323,25 @@ struct AddGroupSheet: View {
     private func localPeople(
         for canonicalGroup: SettlementCanonicalLedgerGroup?,
         accountID: String,
+        fallbackMemberAccountIDs: [String],
         newlyCreatedPeople: inout [Person]
     ) -> [Person] {
         guard let canonicalGroup else {
-            if let current = people.first(where: \.isCurrentUser) { return [current] }
+            var fallback = people.filter { person in
+                person.isCurrentUser
+                    || person.serverAccountID.map(fallbackMemberAccountIDs.contains) == true
+            }
+            if let current = fallback.first(where: \.isCurrentUser) {
+                current.serverAccountID = accountID
+            } else {
+                let current = Person(name: "You", isCurrentUser: true)
+                current.serverAccountID = accountID
+                newlyCreatedPeople.append(current)
+                fallback.insert(current, at: 0)
+            }
+            if !fallback.isEmpty { return fallback }
             let current = Person(name: "You", isCurrentUser: true)
+            current.serverAccountID = accountID
             newlyCreatedPeople.append(current)
             return [current]
         }
@@ -307,21 +350,32 @@ struct AddGroupSheet: View {
         var seen = Set<UUID>()
         for member in canonicalGroup.members {
             let localIdentityID = member.localIdentityID.flatMap(UUID.init(uuidString:))
-            let existing = localIdentityID.flatMap { id in people.first(where: { $0.id == id }) }
-                ?? (member.accountID == accountID ? people.first(where: \.isCurrentUser) : nil)
+            let existing: Person?
+            if member.accountID == accountID {
+                existing = people.first(where: \.isCurrentUser)
+            } else {
+                existing = people.first(where: {
+                    !$0.isCurrentUser && $0.serverAccountID == member.accountID
+                }) ?? localIdentityID.flatMap { id in
+                    people.first(where: { !$0.isCurrentUser && $0.id == id })
+                }
+            }
             let person: Person
             if let existing {
                 person = existing
+                person.serverAccountID = member.accountID
+                if member.accountID == accountID { person.isCurrentUser = true }
             } else if let localIdentityID {
                 person = Person(id: localIdentityID,
                                 name: member.displayName,
                                 isCurrentUser: member.accountID == accountID)
+                person.serverAccountID = member.accountID
                 newlyCreatedPeople.append(person)
             } else {
-                // There is no safe local identity for this server member.
-                // Do not invent a local UUID that could later enter a shared
-                // mutation as if it were a canonical member.
-                continue
+                person = Person(name: member.displayName,
+                                isCurrentUser: member.accountID == accountID)
+                person.serverAccountID = member.accountID
+                newlyCreatedPeople.append(person)
             }
             guard seen.insert(person.id).inserted else { continue }
             result.append(person)
@@ -359,6 +413,7 @@ private struct T15GroupCreateRequest: Encodable {
     let description: String?
     let currency: String
     let category: String
+    let memberAccountIds: [String]
 }
 
 private struct T15GroupCreateEnvelope: Decodable {
@@ -383,19 +438,19 @@ enum T15LedgerUIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unauthenticated:
-            return "Sign in before changing the shared ledger."
+            return "Sign in before changing this group."
         case .groupResponseMissingID:
             return "The server created no usable group identity."
         case .canonicalSnapshotUnavailable:
-            return "The shared ledger is not ready yet. Refresh and try again."
+            return "This group is not ready yet. Refresh and try again."
         case .canonicalReadOnly:
-            return "The shared ledger is read-only while it refreshes."
+            return "This group is updating. Try again in a moment."
         case .canonicalConflict:
-            return "The shared ledger changed. Refresh and confirm this action again."
+            return "The group changed. Refresh and confirm this action again."
         case let .memberIdentityUnavailable(name):
-            return "The server has no canonical member identity for \(name). Refresh the group before saving."
+            return "BillBandit could not find \(name) in this group. Refresh before saving."
         case .expenseNotInCanonicalSnapshot:
-            return "This expense has no canonical server identity yet. Refresh before editing it."
+            return "This expense is still updating. Refresh before editing it."
         case let .unsupportedSharedCurrency(code):
             return "This shared group uses \(code). Change the app currency before saving."
         case .nonIntegralShares:
@@ -407,13 +462,13 @@ enum T15LedgerUIError: LocalizedError {
         switch error {
         case ServerLedgerSyncError.unauthorized,
              ServerLedgerAPIClientError.unauthorized, SettlementAPIError.unauthorized:
-            return "Your shared-ledger session expired. Sign in again before retrying."
+            return "Your session expired. Sign in again before retrying."
         case ServerLedgerSyncError.offline,
              ServerLedgerAPIClientError.offline, SettlementAPIError.offline:
             return "Offline. Shared changes are waiting for a connection; local-only changes remain available."
         case ServerLedgerSyncError.conflictRequiresReconfirmation,
              ServerLedgerAPIClientError.revisionConflict:
-            return "The shared ledger changed. Refresh it, then confirm this action again."
+            return "The group changed. Refresh it, then confirm this action again."
         case ServerLedgerAPIClientError.idempotencyKeyReused:
             return "This operation ID is already bound to another request. Start again from a fresh form."
         case let localError as T15LedgerUIError:
@@ -470,6 +525,11 @@ final class T15CanonicalLedgerRuntime {
         store = AppStore.serverLedgerStore
         coordinator = ServerLedgerMutationCoordinator(store: store)
         sync = ServerLedgerSync(store: store, apiClient: URLSessionServerLedgerAPIClient.live())
+    }
+
+    func accountDidSignOut() {
+        try? coordinator.signOut()
+        try? sync.signOut()
     }
 
     func authenticatedUser() async throws -> UsernameIdentityService.RemoteUser {

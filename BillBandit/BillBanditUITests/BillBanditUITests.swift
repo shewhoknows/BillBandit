@@ -177,7 +177,7 @@ final class BillBanditUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Invite friend"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.descendants(matching: .any)["friendInviteQRCode"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["B4NDT-CREW2"].exists)
+        XCTAssertTrue(app.staticTexts["B4NDT"].exists)
         XCTAssertTrue(app.buttons["shareFriendInvitationButton"].exists)
         app.buttons["enter code"].tap()
         XCTAssertTrue(app.textFields["friendInviteCodeField"].waitForExistence(timeout: 4))
@@ -247,6 +247,25 @@ final class BillBanditUITests: XCTestCase {
         let allSquare = app.buttons["All square"]
         XCTAssertTrue(allSquare.exists)
         XCTAssertFalse(allSquare.isEnabled)
+    }
+
+    func testServerLinkedGroupKeepsAddExpenseEnabled() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-resetDemoData",
+            "-sharedSettleUpGroupId=ui-shared-group",
+            "-tab", "1",
+            "-skipOnboarding",
+            "-openGroup", "Goa Trip",
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["BILLBANDIT & CO."].waitForExistence(timeout: 10))
+        let addExpense = app.buttons["groupAddExpenseButton"]
+        XCTAssertTrue(addExpense.waitForExistence(timeout: 5))
+        XCTAssertTrue(addExpense.isEnabled)
+        addExpense.tap()
+        XCTAssertTrue(app.textFields["expenseAmountField"].waitForExistence(timeout: 5))
     }
 
     func testAvatarChoiceAppearsOnDashboard() throws {
