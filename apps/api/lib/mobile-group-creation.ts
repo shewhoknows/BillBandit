@@ -111,7 +111,11 @@ async function createGroupRows(
       userId: input.accountId,
       type: 'GROUP_CREATED',
       description: `${input.actorName ?? 'A member'} created the group "${input.name}"`,
-      metadata: { groupId: group.id },
+      metadata: {
+        groupId: group.id,
+        referenceId: group.id,
+        action: 'created',
+      },
     },
   })
 

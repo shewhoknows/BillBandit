@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { getCurrencyExponent, normalizeCurrencyCode } from '../../settlement/money/registry'
 import { createMoney } from '../../ledger-contract/money'
-import type { CurrencyDescriptor, MigrationState, PendingOperation } from '../../ledger-contract'
+import type { CurrencyDescriptor, LedgerActivityItem, MigrationState, PendingOperation } from '../../ledger-contract'
 import { prisma } from '../../prisma'
 import { profileDisplayName } from '../../profile-display-name'
 import {
@@ -33,6 +33,15 @@ import {
 type ReadModelDb = PrismaClient | Prisma.TransactionClient
 
 type LoadedPendingOperation = PendingOperation & { groupId: string | null }
+
+type RawActivityLog = {
+  id: string
+  userId: string
+  type: string
+  description: string
+  metadata: Prisma.JsonValue | null
+  createdAt: Date
+}
 
 const userSelect = {
   id: true,
@@ -297,11 +306,148 @@ function settlementSource(raw: RawReadModelTransaction, group: RawReadModelGroup
   }
 }
 
+function metadataRecord(value: Prisma.JsonValue | null): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function metadataText(metadata: Record<string, unknown>, key: string): string | undefined {
+  const value = metadata[key]
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
+function activityMoney(
+  metadata: Record<string, unknown>,
+  raw: RawReadModelGroup,
+  baseCurrency: CurrencyDescriptor,
+  referenceId?: string
+) {
+  const value = metadata.amount
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const money = value as Record<string, unknown>
+    if (
+      typeof money.minorUnits === 'string' &&
+      typeof money.currencyCode === 'string' &&
+      typeof money.currencyExponent === 'number'
+    ) {
+      try {
+        return createMoney(money.minorUnits, money.currencyCode, money.currencyExponent)
+      } catch {
+        // A malformed narrative record must not make the financial read model unavailable.
+      }
+    }
+  }
+  const expense = referenceId ? raw.expenses.find((entry) => entry.id === referenceId) : undefined
+  if (expense && expense.amountMinorUnits !== null && expense.currencyExponent !== null) {
+    return createMoney(expense.amountMinorUnits, expense.currency, expense.currencyExponent)
+  }
+  const settlement = referenceId ? raw.transactions.find((entry) => entry.id === referenceId) : undefined
+  if (settlement && settlement.amountMinorUnits !== null && settlement.currencyExponent !== null) {
+    return createMoney(settlement.amountMinorUnits, settlement.currency, settlement.currencyExponent)
+  }
+  return createMoney('0', baseCurrency.currencyCode, baseCurrency.currencyExponent)
+}
+
+function activitySource(
+  rawActivity: RawActivityLog,
+  raw: RawReadModelGroup,
+  baseCurrency: CurrencyDescriptor
+): LedgerActivityItem | null {
+  const metadata = metadataRecord(rawActivity.metadata)
+  const participants = participantByUser(raw)
+  const actorMemberId = participants.get(rawActivity.userId)
+  const action = metadataText(metadata, 'action')
+  const expenseId = metadataText(metadata, 'expenseId') ?? metadataText(metadata, 'referenceId')
+  const settlementId = metadataText(metadata, 'settlementId') ?? metadataText(metadata, 'referenceId')
+  const at = rawActivity.createdAt.toISOString()
+
+  if (rawActivity.type === 'EXPENSE_CREATED' || rawActivity.type === 'EXPENSE_UPDATED' || rawActivity.type === 'EXPENSE_DELETED') {
+    if (!expenseId) return null
+    const expenseAction = rawActivity.type === 'EXPENSE_UPDATED'
+      ? 'updated'
+      : rawActivity.type === 'EXPENSE_DELETED' ? 'deleted' : 'created'
+    const currentExpense = raw.expenses.find((expense) => expense.id === expenseId)
+    return {
+      activityId: rawActivity.id,
+      type: 'expense',
+      action: expenseAction,
+      expenseId,
+      description: metadataText(metadata, 'description') ?? currentExpense?.description,
+      ...(actorMemberId ? { actorMemberId } : {}),
+      amount: activityMoney(metadata, raw, baseCurrency, expenseId),
+      at,
+    }
+  }
+
+  if (rawActivity.type === 'PAYMENT_MADE') {
+    if (!settlementId) return null
+    const transaction = raw.transactions.find((entry) => entry.id === settlementId)
+    const payerMemberId = metadataText(metadata, 'payerMemberId') ?? transaction?.payerParticipantId ?? undefined
+    const recipientMemberId = metadataText(metadata, 'recipientMemberId') ?? transaction?.recipientParticipantId ?? undefined
+    if (action === 'reversed') {
+      const reversalId = metadataText(metadata, 'reversalId') ?? metadataText(metadata, 'referenceId')
+      if (!reversalId) return null
+      return {
+        activityId: rawActivity.id,
+        type: 'reversal',
+        reversalId,
+        settlementId,
+        ...(actorMemberId ? { actorMemberId } : {}),
+        ...(payerMemberId ? { payerMemberId } : {}),
+        ...(recipientMemberId ? { recipientMemberId } : {}),
+        amount: activityMoney(metadata, raw, baseCurrency, settlementId),
+        at,
+      }
+    }
+    return {
+      activityId: rawActivity.id,
+      type: 'settlement',
+      settlementId,
+      ...(actorMemberId ? { actorMemberId } : {}),
+      ...(payerMemberId ? { payerMemberId } : {}),
+      ...(recipientMemberId ? { recipientMemberId } : {}),
+      amount: activityMoney(metadata, raw, baseCurrency, settlementId),
+      at,
+    }
+  }
+
+  if (rawActivity.type === 'GROUP_CREATED') {
+    return {
+      activityId: rawActivity.id,
+      type: 'group',
+      action: 'created',
+      ...(actorMemberId ? { actorMemberId } : {}),
+      amount: createMoney('0', baseCurrency.currencyCode, baseCurrency.currencyExponent),
+      at,
+    }
+  }
+
+  if (rawActivity.type === 'GROUP_JOINED') {
+    const membershipAction = action === 'removed' || action === 'updated' ? action : 'added'
+    const targetAccountId = metadataText(metadata, 'targetAccountId')
+    const targetMemberId = (targetAccountId ? participants.get(targetAccountId) : undefined)
+      ?? metadataText(metadata, 'memberId')
+    return {
+      activityId: rawActivity.id,
+      type: 'membership',
+      action: membershipAction,
+      ...(actorMemberId ? { actorMemberId } : {}),
+      ...(targetMemberId ? { targetMemberId } : {}),
+      amount: createMoney('0', baseCurrency.currencyCode, baseCurrency.currencyExponent),
+      at,
+    }
+  }
+
+  return null
+}
+
 function groupSource(
   raw: RawReadModelGroup,
   accountId: string,
   migration: MigrationState,
-  migrationIssueIds: string[] = []
+  migrationIssueIds: string[] = [],
+  activityLogs: RawActivityLog[] = []
 ): ReadModelGroupSource {
   const baseCurrency = exactBaseCurrency(raw.currency, raw.id)
   const participants = participantByUser(raw)
@@ -316,6 +462,9 @@ function groupSource(
     members: memberSources(raw),
     expenses: raw.expenses.map((expense) => expenseSource(expense, raw.id, participants)),
     settlements: raw.transactions.map((transaction) => settlementSource(transaction, raw)),
+    activities: activityLogs
+      .map((activity) => activitySource(activity, raw, baseCurrency))
+      .filter((activity): activity is LedgerActivityItem => activity !== null),
     pendingOperationIds: [],
     migration,
     migrationIssueIds,
@@ -425,6 +574,51 @@ async function loadRawGroups(accountId: string, db: ReadModelDb): Promise<RawRea
   }) as unknown as Promise<RawReadModelGroup[]>
 }
 
+async function loadActivityLogs(groupIds: string[], db: ReadModelDb): Promise<Map<string, RawActivityLog[]>> {
+  const byGroup = new Map<string, RawActivityLog[]>()
+  if (groupIds.length === 0) return byGroup
+  const operations = await db.ledgerOperation.findMany({
+    where: { groupId: { in: groupIds }, state: 'COMMITTED' },
+    select: { groupId: true, operationKey: true },
+  })
+  const groupByOperation = new Map(
+    operations.flatMap((operation) => operation.groupId
+      ? [[operation.operationKey, operation.groupId] as const]
+      : [])
+  )
+  const logs = await db.activityLog.findMany({
+    where: {
+      OR: [
+        ...groupIds.map((groupId) => ({
+          metadata: { path: ['groupId'], equals: groupId },
+        })),
+        ...Array.from(groupByOperation.keys()).map((operationId) => ({
+          metadata: { path: ['operationId'], equals: operationId },
+        })),
+      ],
+    },
+    select: {
+      id: true,
+      userId: true,
+      type: true,
+      description: true,
+      metadata: true,
+      createdAt: true,
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  }) as RawActivityLog[]
+  for (const log of logs) {
+    const metadata = metadataRecord(log.metadata)
+    const groupId = metadataText(metadata, 'groupId')
+      ?? groupByOperation.get(metadataText(metadata, 'operationId') ?? '')
+    if (!groupId || !groupIds.includes(groupId)) continue
+    const groupLogs = byGroup.get(groupId) ?? []
+    groupLogs.push(log)
+    byGroup.set(groupId, groupLogs)
+  }
+  return byGroup
+}
+
 async function loadMigration(accountId: string, groupIds: string[], db: ReadModelDb): Promise<{
   account: MigrationState
   byGroup: Map<string, MigrationState>
@@ -524,19 +718,22 @@ export async function loadAccountReadModel(
   options: ReadModelBuildOptions = {},
   db: ReadModelDb = prisma
 ): Promise<AccountProjectionResult> {
-  const [rawGroups, pendingOperations, friends] = await Promise.all([
-    loadRawGroups(accountId, db),
+  const rawGroups = await loadRawGroups(accountId, db)
+  const groupIds = rawGroups.map((group) => group.id)
+  const [pendingOperations, friends, activityLogs, migration] = await Promise.all([
     loadPendingOperations(accountId, db),
     loadFriends(accountId, db),
+    loadActivityLogs(groupIds, db),
+    loadMigration(accountId, groupIds, db),
   ])
   const publicPendingOperations = pendingOperations.map(({ groupId: _groupId, ...operation }) => operation)
-  const migration = await loadMigration(accountId, rawGroups.map((group) => group.id), db)
   const groups = rawGroups.map((rawGroup) => {
     const source = groupSource(
       rawGroup,
       accountId,
       migration.byGroup.get(rawGroup.id) ?? migration.account,
-      migration.issueIds.get(rawGroup.id) ?? []
+      migration.issueIds.get(rawGroup.id) ?? [],
+      activityLogs.get(rawGroup.id) ?? []
     )
     source.pendingOperationIds = pendingOperations
       .filter((operation) => operation.groupId === rawGroup.id && operation.operationId.length > 0)
@@ -560,19 +757,22 @@ export async function loadGroupReadModel(
   if (!membership) {
     throw new LedgerReadModelError('GROUP_NOT_FOUND', 'Forbidden', { groupId, forbidden: true })
   }
-  const [rawGroups, pendingOperations] = await Promise.all([
-    loadRawGroups(accountId, db),
+  const rawGroups = await loadRawGroups(accountId, db)
+  const groupIds = rawGroups.map((group) => group.id)
+  const [pendingOperations, activityLogs, migration] = await Promise.all([
     loadPendingOperations(accountId, db),
+    loadActivityLogs(groupIds, db),
+    loadMigration(accountId, groupIds, db),
   ])
   const publicPendingOperations = pendingOperations.map(({ groupId: _groupId, ...operation }) => operation)
   const rawGroup = rawGroups.find((group) => group.id === groupId)
   if (!rawGroup) throw new LedgerReadModelError('GROUP_NOT_FOUND', 'Group not found', { groupId, notFound: true })
-  const migration = await loadMigration(accountId, rawGroups.map((group) => group.id), db)
   const sources = rawGroups.map((group) => groupSource(
     group,
     accountId,
     migration.byGroup.get(group.id) ?? migration.account,
-    migration.issueIds.get(group.id) ?? []
+    migration.issueIds.get(group.id) ?? [],
+    activityLogs.get(group.id) ?? []
   ))
   for (const source of sources) {
     source.pendingOperationIds = pendingOperations

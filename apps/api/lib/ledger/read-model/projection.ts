@@ -509,18 +509,24 @@ function historyAndActivity(source: ReadModelGroupSource): {
   activity: LedgerActivityItem[]
 } {
   const history: SettlementHistoryItem[] = []
-  const activity: LedgerActivityItem[] = []
+  const activity: LedgerActivityItem[] = [...(source.activities ?? [])]
 
   for (const expense of source.expenses) {
-    activity.push({
-      activityId: `activity-${expense.expenseId}`,
-      type: 'expense',
-      expenseId: expense.expenseId,
-      description: expense.description,
-      actorMemberId: expense.createdByMemberId ?? expense.paidByMemberId,
-      amount: expense.amount,
-      at: expense.createdAt,
-    })
+    const hasDurableActivity = activity.some(
+      (item) => item.type === 'expense' && item.expenseId === expense.expenseId
+    )
+    if (!hasDurableActivity) {
+      activity.push({
+        activityId: `activity-${expense.expenseId}`,
+        type: 'expense',
+        action: 'created',
+        expenseId: expense.expenseId,
+        description: expense.description,
+        actorMemberId: expense.createdByMemberId ?? expense.paidByMemberId,
+        amount: expense.amount,
+        at: expense.createdAt,
+      })
+    }
   }
 
   for (const settlement of source.settlements) {
@@ -535,7 +541,10 @@ function historyAndActivity(source: ReadModelGroupSource): {
       actorMemberId: settlement.actorMemberId,
       createdAt: settlement.createdAt,
     })
-    if (!settlement.reversed) {
+    const hasSettlementActivity = activity.some(
+      (item) => item.type === 'settlement' && item.settlementId === settlement.settlementId
+    )
+    if (!settlement.reversed && !hasSettlementActivity) {
       activity.push({
         activityId: `activity-${settlement.settlementId}`,
         type: 'settlement',
@@ -556,17 +565,22 @@ function historyAndActivity(source: ReadModelGroupSource): {
         actorMemberId: settlement.reversal.actorMemberId,
         createdAt: settlement.reversal.createdAt,
       })
-      activity.push({
-        activityId: `activity-${settlement.reversal.reversalId}`,
-        type: 'reversal',
-        reversalId: settlement.reversal.reversalId,
-        settlementId: settlement.settlementId,
-        actorMemberId: settlement.reversal.actorMemberId,
-        payerMemberId: settlement.payerMemberId,
-        recipientMemberId: settlement.recipientMemberId,
-        amount: settlement.amount,
-        at: settlement.reversal.createdAt,
-      })
+      const hasReversalActivity = activity.some(
+        (item) => item.type === 'reversal' && item.reversalId === settlement.reversal?.reversalId
+      )
+      if (!hasReversalActivity) {
+        activity.push({
+          activityId: `activity-${settlement.reversal.reversalId}`,
+          type: 'reversal',
+          reversalId: settlement.reversal.reversalId,
+          settlementId: settlement.settlementId,
+          actorMemberId: settlement.reversal.actorMemberId,
+          payerMemberId: settlement.payerMemberId,
+          recipientMemberId: settlement.recipientMemberId,
+          amount: settlement.amount,
+          at: settlement.reversal.createdAt,
+        })
+      }
     }
   }
 

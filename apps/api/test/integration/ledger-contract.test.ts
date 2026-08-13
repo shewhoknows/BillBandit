@@ -9,6 +9,7 @@ let db!: PrismaClient
 let executeMutation!: (typeof import('../../lib/ledger/mutation'))['executeMutation']
 let MutationConflictError!: (typeof import('../../lib/ledger/mutation'))['MutationConflictError']
 let executeSettlement!: (typeof import('../../lib/settlement/commands/settle'))['executeSettlement']
+let executeReversal!: (typeof import('../../lib/settlement/commands/reverse'))['executeReversal']
 let loadGroupReadModel!: (typeof import('../../lib/ledger/read-model/loader'))['loadGroupReadModel']
 
 test.before(async () => {
@@ -16,10 +17,12 @@ test.before(async () => {
   db = database.db
   const mutation = await import('../../lib/ledger/mutation')
   const settlement = await import('../../lib/settlement/commands/settle')
+  const reversal = await import('../../lib/settlement/commands/reverse')
   const reads = await import('../../lib/ledger/read-model/loader')
   executeMutation = mutation.executeMutation
   MutationConflictError = mutation.MutationConflictError
   executeSettlement = settlement.executeSettlement
+  executeReversal = reversal.executeReversal
   loadGroupReadModel = reads.loadGroupReadModel
 })
 
@@ -136,12 +139,27 @@ test('an active group member can edit an expense paid by another member', async 
 
   const result = await executeMutation(edit, { db })
   const stored = await db.expense.findUniqueOrThrow({ where: { id: expenseId } })
+  const read = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  const activity = read.group.activity.filter(
+    (item) => item.type === 'expense' && item.expenseId === expenseId
+  )
 
   assert.equal(result.outcome, 'applied')
   assert.equal(result.revision, 2)
   assert.equal(stored.description, 'Dinner updated by Bob')
   assert.equal(stored.amountMinorUnits, 250n)
   assert.equal(stored.paidById, fixture.aliceId)
+  assert.deepEqual(
+    activity.map((item) => item.type === 'expense' ? item.action : null),
+    ['created', 'updated']
+  )
+  assert.deepEqual(
+    activity.map((item) => item.type === 'expense' ? item.actorMemberId : null),
+    [fixture.aliceParticipantId, fixture.bobParticipantId]
+  )
+  assert.equal(await db.activityLog.count({
+    where: { metadata: { path: ['groupId'], equals: fixture.groupId } },
+  }), 2)
 })
 
 test('delete replay is idempotent and never resurrects or duplicates the expense', async () => {
@@ -161,6 +179,10 @@ test('delete replay is idempotent and never resurrects or duplicates the expense
   const first = await executeMutation(request, { db })
   const replay = await executeMutation(request, { db })
   const stored = await db.expense.findUniqueOrThrow({ where: { id: expenseId } })
+  const read = await loadGroupReadModel(fixture.groupId, fixture.aliceId, {}, db)
+  const expenseActivity = read.group.activity.filter(
+    (item) => item.type === 'expense' && item.expenseId === expenseId
+  )
 
   assert.equal(first.revision, 2)
   assert.equal(replay.outcome, 'replayed')
@@ -168,6 +190,10 @@ test('delete replay is idempotent and never resurrects or duplicates the expense
   assert.equal(stored.isDeleted, true)
   assert.equal(await db.expense.count({ where: { id: expenseId } }), 1)
   assert.equal(await db.settlementVersionJournal.count({ where: { groupId: fixture.groupId } }), 2)
+  assert.deepEqual(
+    expenseActivity.map((item) => item.type === 'expense' ? item.action : null),
+    ['created', 'deleted']
+  )
 })
 
 test('settlement replay keeps exactly one transaction, allocation, and version', async () => {
@@ -201,6 +227,80 @@ test('settlement replay keeps exactly one transaction, allocation, and version',
   assert.equal(await db.ledgerOperation.count({ where: { accountId: fixture.bobId } }), 1)
   assert.equal(await db.settlementVersionJournal.count({ where: { groupId: fixture.groupId } }), 1)
   assert.equal(await db.settlementOutbox.count({ where: { groupId: fixture.groupId } }), 1)
+})
+
+test('payments and reversals create separate durable activity events', async () => {
+  const fixture = await seedLedgerFixture(db, 'settlement-activity', { expenseMinorUnits: 1000n })
+  const before = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  const transfer = before.group.settlementPlan.transfers[0]
+  assert.ok(transfer)
+
+  const settlement = await executeSettlement({
+    groupId: fixture.groupId,
+    userId: fixture.bobId,
+    idempotencyKey: 'settlement-activity',
+    expectedVersion: before.group.revision,
+    planTransferId: transfer.planTransferId,
+    payerParticipantId: transfer.payerMemberId,
+    recipientParticipantId: transfer.recipientMemberId,
+    currencyCode: transfer.amount.currencyCode,
+    currencyExponent: transfer.amount.currencyExponent,
+    minorUnits: transfer.amount.minorUnits,
+    db,
+  })
+  await executeReversal({
+    groupId: fixture.groupId,
+    userId: fixture.bobId,
+    settlementId: settlement.recordId,
+    idempotencyKey: 'reversal-activity',
+    expectedVersion: settlement.version,
+    db,
+  })
+
+  const after = await loadGroupReadModel(fixture.groupId, fixture.aliceId, {}, db)
+  assert.deepEqual(
+    after.group.activity.map((item) => item.type),
+    ['expense', 'settlement', 'reversal']
+  )
+  assert.equal(after.group.activity[1].actorMemberId, fixture.bobParticipantId)
+  assert.equal(after.group.activity[2].actorMemberId, fixture.bobParticipantId)
+  assert.equal(await db.activityLog.count({
+    where: { metadata: { path: ['groupId'], equals: fixture.groupId } },
+  }), 2)
+})
+
+test('group and membership narratives are projected with actor and target names', async () => {
+  const fixture = await seedLedgerFixture(db, 'membership-activity', { expenseMinorUnits: null })
+  await db.activityLog.createMany({
+    data: [
+      {
+        id: `${fixture.groupId}-created`,
+        userId: fixture.aliceId,
+        type: 'GROUP_CREATED',
+        description: 'Alice created the group',
+        metadata: { groupId: fixture.groupId, referenceId: fixture.groupId, action: 'created' },
+      },
+      {
+        id: `${fixture.groupId}-member`,
+        userId: fixture.aliceId,
+        type: 'GROUP_JOINED',
+        description: 'Bob joined the group',
+        metadata: {
+          groupId: fixture.groupId,
+          referenceId: fixture.bobParticipantId,
+          memberId: fixture.bobParticipantId,
+          targetAccountId: fixture.bobId,
+          action: 'added',
+        },
+      },
+    ],
+  })
+
+  const read = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  assert.deepEqual(read.group.activity.map((item) => item.type), ['group', 'membership'])
+  const membership = read.group.activity[1]
+  assert.equal(membership.type === 'membership' ? membership.actorMemberId : null, fixture.aliceParticipantId)
+  assert.equal(membership.type === 'membership' ? membership.targetMemberId : null, fixture.bobParticipantId)
 })
 
 test('two concurrent writes at one revision produce exactly one winner', async () => {

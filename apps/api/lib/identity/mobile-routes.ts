@@ -111,7 +111,14 @@ async function afterMembershipClaim(result: ClaimedGroupInvitation, accountId: s
       userId: accountId,
       type: 'GROUP_JOINED',
       description: `${result.member.user.name ?? result.member.user.email} joined the group`,
-      metadata: { groupId: result.payload.groupId, memberId: result.member.id },
+      metadata: {
+        groupId: result.payload.groupId,
+        referenceId: result.member.id,
+        memberId: result.member.id,
+        action: 'added',
+        targetAccountId: accountId,
+        targetDisplayName: result.member.user.name ?? result.member.user.email,
+      },
     },
   })
 }

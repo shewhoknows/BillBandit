@@ -176,6 +176,17 @@ export type MutationConflictDetails = {
 
 export type MutationTransaction = Prisma.TransactionClient
 
+export type PreparedActivity = {
+  type:
+    | 'EXPENSE_CREATED'
+    | 'EXPENSE_UPDATED'
+    | 'EXPENSE_DELETED'
+    | 'PAYMENT_MADE'
+    | 'GROUP_JOINED'
+  description: string
+  metadata: Record<string, unknown>
+}
+
 export type PreparedMutation =
   | {
       kind: 'expense.create' | 'expense.edit' | 'expense.delete'
@@ -184,6 +195,7 @@ export type PreparedMutation =
       data: Record<string, unknown>
       splits?: Record<string, unknown>[]
       existingExpenseId?: string
+      activity: PreparedActivity
     }
   | {
       kind: 'membership.add' | 'membership.remove' | 'membership.update'
@@ -192,6 +204,7 @@ export type PreparedMutation =
       data: Record<string, unknown>
       participantUserId: string
       participantDisplayName?: string
+      activity: PreparedActivity
     }
   | {
       kind: 'settlement.create'
@@ -200,12 +213,14 @@ export type PreparedMutation =
       transactionData: Record<string, unknown>
       allocationData: Record<string, unknown>
       allocationId: string
+      activity: PreparedActivity
     }
   | {
       kind: 'settlement.reverse'
       recordId: string
       eventType: 'settlement_reversed'
       data: Record<string, unknown>
+      activity: PreparedActivity
     }
   | {
       kind: 'settings.update'

@@ -55,6 +55,7 @@ export type ReadModelGroupSource = {
   members: ReadModelMemberSource[]
   expenses: ReadModelExpenseSource[]
   settlements: ReadModelSettlementSource[]
+  activities?: LedgerActivityItem[]
   pendingOperationIds: string[]
   migration: MigrationState
   migrationIssueIds?: string[]

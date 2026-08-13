@@ -560,6 +560,54 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertEqual(item.displaySummary, "Lunch added in Goa by esha")
     }
 
+    func testActivitySummariesDescribeEditsDeletesAndMembership() throws {
+        let amount = try XCTUnwrap(
+            ServerLedgerSurfaceMoney(
+                minorUnits: "50000",
+                currencyCode: "INR",
+                currencyExponent: 2
+            )
+        )
+        let edited = ServerLedgerSurfaceActivityItem(
+            id: "expense-edit",
+            type: "expense",
+            action: "updated",
+            groupID: "group-goa",
+            groupName: "Goa",
+            description: "Lunch",
+            actorName: "bubby",
+            amount: amount,
+            at: .now
+        )
+        let deleted = ServerLedgerSurfaceActivityItem(
+            id: "expense-delete",
+            type: "expense",
+            action: "deleted",
+            groupID: "group-goa",
+            groupName: "Goa",
+            description: "Taxi",
+            actorName: "esha",
+            amount: amount,
+            at: .now
+        )
+        let joined = ServerLedgerSurfaceActivityItem(
+            id: "member-add",
+            type: "membership",
+            action: "added",
+            groupID: "group-goa",
+            groupName: "Goa",
+            actorName: "esha",
+            targetName: "bubby",
+            amount: amount,
+            at: .now
+        )
+
+        XCTAssertEqual(edited.displaySummary, "bubby updated Lunch in Goa")
+        XCTAssertEqual(deleted.displaySummary, "esha deleted Taxi in Goa")
+        XCTAssertEqual(joined.displaySummary, "esha added bubby to Goa")
+        XCTAssertFalse(joined.showsAmount)
+    }
+
     private func makeStore() throws -> ServerLedgerStore {
         let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
         let configuration = ModelConfiguration(

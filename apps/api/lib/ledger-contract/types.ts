@@ -164,6 +164,7 @@ export type LedgerActivityItem =
   | {
       activityId: string
       type: 'expense'
+      action?: 'created' | 'updated' | 'deleted'
       expenseId: string
       description?: string
       actorMemberId?: string
@@ -177,6 +178,23 @@ export type LedgerActivityItem =
       actorMemberId?: string
       payerMemberId?: string
       recipientMemberId?: string
+      amount: Money
+      at: string
+    }
+  | {
+      activityId: string
+      type: 'group'
+      action: 'created'
+      actorMemberId?: string
+      amount: Money
+      at: string
+    }
+  | {
+      activityId: string
+      type: 'membership'
+      action: 'added' | 'removed' | 'updated'
+      actorMemberId?: string
+      targetMemberId?: string
       amount: Money
       at: string
     }

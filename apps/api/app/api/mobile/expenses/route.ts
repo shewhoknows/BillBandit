@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { loadAccountReadModel, loadGroupReadModel } from '@/lib/ledger/read-model/loader'
 import { executeMutation } from '@/lib/ledger/mutation'
@@ -10,10 +9,7 @@ import {
   mobileExpenseFromLedger,
   readModelErrorResponse,
 } from '@/lib/mobile-groups'
-import { legacyAmount } from '@/lib/mobile-dto'
-import { profileDisplayName } from '@/lib/profile-display-name'
 import {
-  formatCurrency,
   legacySharedLedgerWriteResponse,
   migrationReadOnlyResponse,
   mutationErrorResponse,
@@ -111,22 +107,6 @@ export async function POST(req: NextRequest) {
       actorUserId: session.user.id,
       payload,
     })
-
-    if (result.outcome === 'applied') {
-      const amount = legacyAmount(parsed.data.amount) ?? 0
-      await prisma.activityLog.create({
-        data: {
-          userId: session.user.id,
-          type: 'EXPENSE_CREATED',
-          description: `${profileDisplayName(session.user)} added "${parsed.data.description}" (${formatCurrency(amount, parsed.data.amount.currencyCode)})`,
-          metadata: {
-            expenseId: result.recordId,
-            groupId: parsed.data.groupId,
-            operationId: result.operationId,
-          },
-        },
-      })
-    }
 
     const after = await loadGroupReadModel(parsed.data.groupId, session.user.id)
     const expense = findLedgerExpense(after.group, result.recordId)

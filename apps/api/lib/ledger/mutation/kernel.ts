@@ -555,7 +555,16 @@ async function prepareExpense(
     if (!expenseId) throw new LedgerMutationError('INVALID_MUTATION', 400, 'expenseId is required')
     const existing = await tx.expense.findUnique({
       where: { id: expenseId },
-      select: { id: true, groupId: true, paidById: true, isDeleted: true },
+      select: {
+        id: true,
+        groupId: true,
+        paidById: true,
+        description: true,
+        amountMinorUnits: true,
+        currencyExponent: true,
+        currency: true,
+        isDeleted: true,
+      },
     })
     if (!existing || existing.groupId !== request.groupId) {
       throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
@@ -573,6 +582,21 @@ async function prepareExpense(
       eventType: 'expense_deleted',
       data: { id: existing.id },
       existingExpenseId: existing.id,
+      activity: {
+        type: 'EXPENSE_DELETED',
+        description: `Deleted expense "${existing.description}"`,
+        metadata: {
+          action: 'deleted',
+          expenseId: existing.id,
+          description: existing.description,
+          paidByAccountId: existing.paidById,
+          amount: {
+            minorUnits: existing.amountMinorUnits?.toString() ?? '0',
+            currencyCode: existing.currency,
+            currencyExponent: existing.currencyExponent ?? 2,
+          },
+        },
+      },
     }
   }
 
@@ -654,6 +678,21 @@ async function prepareExpense(
       eventType: 'expense_created',
       data: { ...baseData, id: recordId, createdById: request.actorUserId },
       splits: splitData,
+      activity: {
+        type: 'EXPENSE_CREATED',
+        description: `Added expense "${description}"`,
+        metadata: {
+          action: 'created',
+          expenseId: recordId,
+          description,
+          paidByAccountId: paidById,
+          amount: {
+            minorUnits: amount.minorUnits.toString(),
+            currencyCode: amount.currencyCode,
+            currencyExponent: amount.currencyExponent,
+          },
+        },
+      },
     }
   }
 
@@ -673,6 +712,21 @@ async function prepareExpense(
     data: { ...baseData, id: existing.id },
     splits: splitData,
     existingExpenseId: existing.id,
+    activity: {
+      type: 'EXPENSE_UPDATED',
+      description: `Updated expense "${description}"`,
+      metadata: {
+        action: 'updated',
+        expenseId: existing.id,
+        description,
+        paidByAccountId: paidById,
+        amount: {
+          minorUnits: amount.minorUnits.toString(),
+          currencyCode: amount.currencyCode,
+          currencyExponent: amount.currencyExponent,
+        },
+      },
+    },
   }
 }
 
@@ -729,6 +783,16 @@ async function prepareMembership(
       },
       participantUserId: user.id,
       participantDisplayName: payload.displayName ?? profileDisplayName(user),
+      activity: {
+        type: 'GROUP_JOINED',
+        description: `${payload.displayName ?? profileDisplayName(user)} joined the group`,
+        metadata: {
+          action: 'added',
+          memberId: recordId,
+          targetAccountId: user.id,
+          targetDisplayName: payload.displayName ?? profileDisplayName(user),
+        },
+      },
     }
   }
 
@@ -742,6 +806,15 @@ async function prepareMembership(
       eventType: 'membership_changed',
       data: { id: existing.id, groupId: request.groupId },
       participantUserId: existing.userId,
+      activity: {
+        type: 'GROUP_JOINED',
+        description: 'Removed a group member',
+        metadata: {
+          action: 'removed',
+          memberId: existing.id,
+          targetAccountId: existing.userId,
+        },
+      },
     }
   }
   if (payload.role !== 'ADMIN' && payload.role !== 'MEMBER') {
@@ -753,6 +826,16 @@ async function prepareMembership(
     eventType: 'membership_changed',
     data: { id: existing.id, role: payload.role },
     participantUserId: existing.userId,
+    activity: {
+      type: 'GROUP_JOINED',
+      description: 'Updated a group member',
+      metadata: {
+        action: 'updated',
+        memberId: existing.id,
+        targetAccountId: existing.userId,
+        role: payload.role,
+      },
+    },
   }
 }
 
@@ -900,6 +983,21 @@ async function prepareSettlement(
         })),
       },
     },
+    activity: {
+      type: 'PAYMENT_MADE',
+      description: 'Recorded a payment',
+      metadata: {
+        action: 'created',
+        settlementId: recordId,
+        payerMemberId: payerParticipantId,
+        recipientMemberId: recipientParticipantId,
+        amount: {
+          minorUnits: amount.minorUnits.toString(),
+          currencyCode: amount.currencyCode,
+          currencyExponent: amount.currencyExponent,
+        },
+      },
+    },
   }
 }
 
@@ -921,6 +1019,9 @@ async function prepareReversal(
       groupId: true,
       payerParticipantId: true,
       recipientParticipantId: true,
+      amountMinorUnits: true,
+      currencyExponent: true,
+      currency: true,
       reversal: { select: { id: true } },
     },
   })
@@ -956,6 +1057,22 @@ async function prepareReversal(
       groupId: request.groupId,
       transactionId: transaction.id,
       actorUserId: request.actorUserId,
+    },
+    activity: {
+      type: 'PAYMENT_MADE',
+      description: 'Reversed a payment',
+      metadata: {
+        action: 'reversed',
+        reversalId,
+        settlementId: transaction.id,
+        payerMemberId: transaction.payerParticipantId,
+        recipientMemberId: transaction.recipientParticipantId,
+        amount: {
+          minorUnits: transaction.amountMinorUnits?.toString() ?? '0',
+          currencyCode: transaction.currency,
+          currencyExponent: transaction.currencyExponent ?? 2,
+        },
+      },
     },
   }
 }
@@ -1187,6 +1304,37 @@ async function journalMutation(
   })
 }
 
+async function recordMutationActivity(
+  tx: MutationTransaction,
+  request: NormalizedRequest,
+  prepared: PreparedMutation,
+  operationRowId: string,
+  createdAt: Date
+): Promise<void> {
+  if (!('activity' in prepared)) return
+  const activityLog = (tx as unknown as {
+    activityLog?: { create: (input: Record<string, unknown>) => Promise<unknown> }
+  }).activityLog
+  // Lightweight fault-test transactions omit narrative tables. A real Prisma
+  // transaction always supplies ActivityLog, so production writes stay atomic.
+  if (!activityLog) return
+  await activityLog.create({
+    data: {
+      id: `ledger-activity-${operationRowId}`,
+      userId: request.actorUserId,
+      type: prepared.activity.type,
+      description: prepared.activity.description,
+      metadata: {
+        ...prepared.activity.metadata,
+        groupId: request.groupId,
+        referenceId: prepared.recordId,
+        operationId: request.operationId,
+      } as Prisma.InputJsonValue,
+      createdAt,
+    },
+  })
+}
+
 async function executeInTransaction(
   tx: MutationTransaction,
   request: NormalizedRequest,
@@ -1243,6 +1391,8 @@ async function executeInTransaction(
 
   const revision = await reserveRevision(tx, request)
   await commitPreparedMutation(tx, prepared)
+  const committedAt = options.now()
+  await recordMutationActivity(tx, request, prepared, operation.id, committedAt)
   const mutationResult: MutationResult = {
     recordId: prepared.recordId,
     eventType: prepared.eventType,
@@ -1254,7 +1404,7 @@ async function executeInTransaction(
       state: 'COMMITTED',
       resultRevision: revision,
       resultRecordId: prepared.recordId || null,
-      completedAt: options.now(),
+      completedAt: committedAt,
     },
   })
   return buildResult({
@@ -1263,7 +1413,7 @@ async function executeInTransaction(
     revision,
     recordId: prepared.recordId,
     eventType: prepared.eventType,
-    now: options.now(),
+    now: committedAt,
     retentionDays: options.retentionDays,
   })
 }

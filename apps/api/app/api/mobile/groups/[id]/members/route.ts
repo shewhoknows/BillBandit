@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { mobileMember } from '@/lib/mobile-dto'
 import {
@@ -104,16 +103,6 @@ async function mutateMembership(
     const after = await loadGroupReadModel(groupId, session.user.id)
     const targetUserId = target.userId ?? null
     const member = targetUserId ? memberForAccount(after.group, targetUserId) : null
-    if (result.outcome === 'applied' && method === 'membership.add') {
-      await prisma.activityLog.create({
-        data: {
-          userId: session.user.id,
-          type: 'GROUP_JOINED',
-          description: `${member?.displayName ?? member?.email ?? targetUserId} joined the group`,
-          metadata: { groupId, memberId: result.recordId, operationId: result.operationId },
-        },
-      })
-    }
     return NextResponse.json(
       {
         member: member ? mobileMember(member) : null,

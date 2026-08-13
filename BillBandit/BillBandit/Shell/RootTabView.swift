@@ -202,35 +202,41 @@ struct ServerLedgerSurfaceTransfer: Codable, Equatable, Hashable, Sendable {
 struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashable, Sendable {
     let id: String
     let type: String
+    let action: String?
     let groupID: String
     let groupName: String
     let description: String?
     let actorName: String?
     let payerName: String?
     let recipientName: String?
+    let targetName: String?
     let amount: ServerLedgerSurfaceMoney
     let at: Date
 
     init(
         id: String,
         type: String,
+        action: String? = nil,
         groupID: String,
         groupName: String,
         description: String? = nil,
         actorName: String? = nil,
         payerName: String? = nil,
         recipientName: String? = nil,
+        targetName: String? = nil,
         amount: ServerLedgerSurfaceMoney,
         at: Date
     ) {
         self.id = id
         self.type = type
+        self.action = action
         self.groupID = groupID
         self.groupName = groupName
         self.description = description
         self.actorName = actorName
         self.payerName = payerName
         self.recipientName = recipientName
+        self.targetName = targetName
         self.amount = amount
         self.at = at
     }
@@ -240,6 +246,18 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
         case "expense":
             let title = description?.trimmingCharacters(in: .whitespacesAndNewlines)
             let subject = title.flatMap { $0.isEmpty ? nil : $0 } ?? "Expense"
+            if action == "updated" {
+                if let actorName, !actorName.isEmpty {
+                    return "\(actorName) updated \(subject) in \(groupName)"
+                }
+                return "\(subject) updated in \(groupName)"
+            }
+            if action == "deleted" {
+                if let actorName, !actorName.isEmpty {
+                    return "\(actorName) deleted \(subject) in \(groupName)"
+                }
+                return "\(subject) deleted in \(groupName)"
+            }
             if let actorName, !actorName.isEmpty {
                 return "\(subject) added in \(groupName) by \(actorName)"
             }
@@ -257,9 +275,39 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
                 return "Payment reversed in \(groupName) by \(actorName)"
             }
             return "Payment reversed in \(groupName)"
+        case "group":
+            if let actorName, !actorName.isEmpty {
+                return "\(actorName) created \(groupName)"
+            }
+            return "\(groupName) created"
+        case "membership":
+            let member = targetName ?? "A member"
+            if action == "removed" {
+                if let actorName, !actorName.isEmpty {
+                    return "\(actorName) removed \(member) from \(groupName)"
+                }
+                return "\(member) left \(groupName)"
+            }
+            if action == "updated" {
+                if let actorName, !actorName.isEmpty {
+                    return "\(actorName) updated \(member) in \(groupName)"
+                }
+                return "\(member) was updated in \(groupName)"
+            }
+            if actorName == targetName {
+                return "\(member) joined \(groupName)"
+            }
+            if let actorName, !actorName.isEmpty {
+                return "\(actorName) added \(member) to \(groupName)"
+            }
+            return "\(member) joined \(groupName)"
         default:
             return "Activity in \(groupName)"
         }
+    }
+
+    var showsAmount: Bool {
+        type == "expense" || type == "settlement" || type == "reversal"
     }
 }
 
@@ -712,20 +760,24 @@ private struct ServerLedgerSurfaceReadTransfer: Decodable {
 private struct ServerLedgerSurfaceReadActivity: Decodable {
     let activityID: String
     let type: String
+    let action: String?
     let description: String?
     let actorMemberID: String?
     let payerMemberID: String?
     let recipientMemberID: String?
+    let targetMemberID: String?
     let amount: ServerLedgerMoneyDTO
     let at: String
 
     private enum CodingKeys: String, CodingKey {
         case activityID = "activityId"
         case type
+        case action
         case description
         case actorMemberID = "actorMemberId"
         case payerMemberID = "payerMemberId"
         case recipientMemberID = "recipientMemberId"
+        case targetMemberID = "targetMemberId"
         case amount
         case at
     }
@@ -1079,12 +1131,14 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             return ServerLedgerSurfaceActivityItem(
                 id: $0.activityID,
                 type: $0.type,
+                action: $0.action,
                 groupID: group.groupID,
                 groupName: group.name,
                 description: $0.description,
                 actorName: $0.actorMemberID.flatMap { memberByID[$0] },
                 payerName: $0.payerMemberID.flatMap { memberByID[$0] },
                 recipientName: $0.recipientMemberID.flatMap { memberByID[$0] },
+                targetName: $0.targetMemberID.flatMap { memberByID[$0] },
                 amount: amount,
                 at: at
             )

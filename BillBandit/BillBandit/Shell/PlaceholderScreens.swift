@@ -2081,9 +2081,11 @@ struct ServerLedgerActivityRow: View {
                 }
             }
             Spacer(minLength: 4)
-            Text(item.amount.absoluteDisplayText)
-                .font(BrandFont.type(compact ? 9.5 : 10.5, bold: true))
-                .lineLimit(1)
+            if item.showsAmount {
+                Text(item.amount.absoluteDisplayText)
+                    .font(BrandFont.type(compact ? 9.5 : 10.5, bold: true))
+                    .lineLimit(1)
+            }
         }
         .padding(.vertical, compact ? 6 : 10)
         .overlay(alignment: .bottom) {
@@ -2134,7 +2136,7 @@ struct ActivityScreen: View {
                                     .opacity(0.62)
                             }
                         } else {
-                            ForEach(Array(sharedItems.prefix(20))) { item in
+                            ForEach(sharedItems) { item in
                                 ServerLedgerActivityRow(item: item)
                             }
                         }

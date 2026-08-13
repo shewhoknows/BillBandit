@@ -425,9 +425,16 @@ function activity(value: unknown, path: string): ActivityItem {
     at: isoDate(required(object, 'at', path), `${path}.at`),
   }
   if (type === 'expense') {
+    const action = object.action === undefined
+      ? undefined
+      : stringValue(object.action, `${path}.action`)
+    if (action !== undefined && !['created', 'updated', 'deleted'].includes(action)) {
+      return fail(`${path}.action`, 'must be created, updated, or deleted')
+    }
     return {
       ...base,
       type,
+      ...(action === undefined ? {} : { action: action as 'created' | 'updated' | 'deleted' }),
       expenseId: stringValue(required(object, 'expenseId', path), `${path}.expenseId`),
       ...(object.description === undefined
         ? {}
@@ -470,7 +477,35 @@ function activity(value: unknown, path: string): ActivityItem {
         : { recipientMemberId: stringValue(object.recipientMemberId, `${path}.recipientMemberId`) }),
     }
   }
-  return fail(`${path}.type`, 'must be expense, settlement, or reversal')
+  if (type === 'group') {
+    literal(object.action, 'created', `${path}.action`)
+    return {
+      ...base,
+      type,
+      action: 'created',
+      ...(object.actorMemberId === undefined
+        ? {}
+        : { actorMemberId: stringValue(object.actorMemberId, `${path}.actorMemberId`) }),
+    }
+  }
+  if (type === 'membership') {
+    const action = stringValue(required(object, 'action', path), `${path}.action`)
+    if (!['added', 'removed', 'updated'].includes(action)) {
+      return fail(`${path}.action`, 'must be added, removed, or updated')
+    }
+    return {
+      ...base,
+      type,
+      action: action as 'added' | 'removed' | 'updated',
+      ...(object.actorMemberId === undefined
+        ? {}
+        : { actorMemberId: stringValue(object.actorMemberId, `${path}.actorMemberId`) }),
+      ...(object.targetMemberId === undefined
+        ? {}
+        : { targetMemberId: stringValue(object.targetMemberId, `${path}.targetMemberId`) }),
+    }
+  }
+  return fail(`${path}.type`, 'must be expense, settlement, reversal, group, or membership')
 }
 
 function accountBalance(value: unknown, path: string): AccountBalanceSurface {

@@ -84,6 +84,7 @@ function fakeDb(
     ledgerImportRecord: { findMany: async () => groupImportRecords },
     moneyMigrationIssue: { findMany: async () => [] },
     friendship: { findMany: async () => [] },
+    activityLog: { findMany: async () => [] },
   }
 }
 
