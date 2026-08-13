@@ -882,13 +882,10 @@ private enum BillBanditLegalLinks {
 
 struct ProfileScreen: View {
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
-    @Query private var groups: [Group]
-    @Query private var expenses: [Expense]
     @Query private var progressRecords: [UserProgress]
     @Query private var achievementUnlocks: [AchievementUnlock]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
@@ -925,20 +922,6 @@ struct ProfileScreen: View {
 
     private var progressEnabled: Bool { currentProgress?.isEnabled ?? true }
     private var lifetimeXP: Int { currentProgress?.lifetimeXP ?? 0 }
-
-    private var visibleGroups: [Group] {
-        groups.filter {
-            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
-        }
-    }
-
-    private var sharedGroups: [Group] {
-        visibleGroups.filter { $0.serverLedgerGroupID != nil }
-    }
-
-    private var localGroups: [Group] {
-        visibleGroups.filter { $0.serverLedgerGroupID == nil }
-    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -1022,16 +1005,8 @@ struct ProfileScreen: View {
                         gamificationSection
                         ProfileFriendsSection()
                     }
-                    if !sharedGroups.isEmpty {
-                        sharedLedgerSection
-                    }
                     appleAccountSection
                     legalSection
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        BrandSectionLabel("YOUR LEDGER")
-                        profileRow(leading: "#", title: "\(visibleGroups.count) groups", detail: "\(expenses.count) expenses")
-                    }
                     accountSection
 
                 }
@@ -1048,9 +1023,6 @@ struct ProfileScreen: View {
             loadCurrentProfileIfNeeded()
         }
         .onChange(of: currentUsers.count) { loadCurrentProfileIfNeeded() }
-        .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
-            await serverLedger.refresh(groups: visibleGroups)
-        }
         .alert("Sign out of BillBandit?", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { signOut() }
@@ -1062,32 +1034,6 @@ struct ProfileScreen: View {
             Button("Delete account", role: .destructive) { deleteAccount() }
         } message: {
             Text("This permanently removes your account and personal data. Group amounts remain for the other members. Your profile and authored text become anonymous.")
-        }
-    }
-
-    private var sharedLedgerSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            BrandSectionLabel("BALANCE")
-            if let presentation = serverLedger.accountBalancePresentation() {
-                profileRow(
-                    leading: "↗",
-                    title: presentation.label,
-                    detail: "Across all groups"
-                )
-            } else {
-                HStack(spacing: 9) {
-                    ServerLedgerUnavailableChip(
-                        onLight: true,
-                        isLoading: serverLedger.status.phase == .loading
-                    )
-                    Spacer(minLength: 0)
-                }
-            }
-            if !localGroups.isEmpty {
-                Text("Some groups are stored only on this device.")
-                    .font(BrandFont.type(9.5, bold: true))
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
-            }
         }
     }
 
@@ -1329,13 +1275,13 @@ struct ProfileScreen: View {
             BrandSectionLabel("LEGAL & SUPPORT")
             VStack(spacing: 8) {
                 Link(destination: BillBanditLegalLinks.privacyPolicy) {
-                    legalRow(title: "Privacy Policy", detail: "How BillBandit handles your data")
+                    legalRow(title: "Privacy Policy")
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("privacyPolicyLink")
 
                 Link(destination: BillBanditLegalLinks.support) {
-                    legalRow(title: "Support", detail: "Get help or contact us")
+                    legalRow(title: "Support")
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("supportLink")
@@ -1343,34 +1289,9 @@ struct ProfileScreen: View {
         }
     }
 
-    private func legalRow(title: String, detail: String) -> some View {
+    private func legalRow(title: String) -> some View {
         HStack(spacing: 12) {
             Text("↗")
-                .font(BrandFont.display(18, weight: .bold))
-                .frame(width: 38, height: 38)
-                .background(Color.Brand.cobalt)
-                .foregroundStyle(Color.Brand.creamSoft)
-                .clipShape(Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(BrandFont.body(14, weight: .bold))
-                Text(detail)
-                    .font(BrandFont.type(9.5, bold: true))
-                    .opacity(0.58)
-            }
-            Spacer()
-            Text("→")
-                .font(BrandFont.body(17, weight: .bold))
-        }
-        .foregroundStyle(Color.Brand.cobalt)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 58)
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
-    }
-
-    private func profileRow(leading: String, title: String, detail: String) -> some View {
-        HStack(spacing: 12) {
-            Text(leading)
                 .font(BrandFont.display(18, weight: .bold))
                 .frame(width: 38, height: 38)
                 .background(Color.Brand.cobalt)
@@ -1379,13 +1300,12 @@ struct ProfileScreen: View {
             Text(title)
                 .font(BrandFont.body(14, weight: .bold))
             Spacer()
-            Text(detail)
-                .font(BrandFont.type(11, bold: true))
-                .opacity(0.58)
+            Text("→")
+                .font(BrandFont.body(17, weight: .bold))
         }
         .foregroundStyle(Color.Brand.cobalt)
         .padding(.horizontal, 14)
-        .frame(height: 58)
+        .frame(minHeight: 58)
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
     }
 
@@ -2207,15 +2127,8 @@ struct ActivityScreen: View {
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
                     if !sharedGroups.isEmpty {
-                        ServerLedgerSurfaceStatusView(ledger: serverLedger) {
-                            Task { await serverLedger.refresh(groups: visibleGroups) }
-                        }
                         if sharedItems.isEmpty {
-                            if serverLedger.snapshot == nil {
-                                ServerLedgerSurfaceStatusView(ledger: serverLedger, includeEmpty: true) {
-                                    Task { await serverLedger.refresh(groups: visibleGroups) }
-                                }
-                            } else {
+                            if serverLedger.status.phase != .loading {
                                 Text("no activity yet")
                                     .font(BrandFont.type(11))
                                     .opacity(0.62)

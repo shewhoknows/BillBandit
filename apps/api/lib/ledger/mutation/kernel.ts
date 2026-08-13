@@ -665,9 +665,6 @@ async function prepareExpense(
   if (!existing || existing.groupId !== request.groupId || existing.isDeleted) {
     throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
   }
-  if (existing.paidById !== request.actorUserId) {
-    throw new LedgerMutationError('FORBIDDEN', 403, 'Only the payer can edit an expense')
-  }
   assertNotFinalized(group)
   return {
     kind: 'expense.edit',

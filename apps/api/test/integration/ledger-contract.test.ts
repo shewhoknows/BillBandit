@@ -118,6 +118,32 @@ test('a conflicting edit loses to the committed revision and leaves the winner a
   assert.equal(await db.settlementVersionJournal.count({ where: { groupId: fixture.groupId } }), 2)
 })
 
+test('an active group member can edit an expense paid by another member', async () => {
+  const fixture = await seedLedgerFixture(db, 'member-edit', { expenseMinorUnits: null })
+  const expenseId = `${fixture.groupId}-expense`
+  await executeMutation(expenseRequest(fixture, 'expense-member-edit-create', 0, { expenseId }), { db })
+
+  const edit = {
+    ...expenseRequest(fixture, 'expense-member-edit', 1, {
+      expenseId,
+      description: 'Dinner updated by Bob',
+      amount: '250',
+    }),
+    accountId: fixture.bobId,
+    actorUserId: fixture.bobId,
+    kind: 'expense.edit' as const,
+  }
+
+  const result = await executeMutation(edit, { db })
+  const stored = await db.expense.findUniqueOrThrow({ where: { id: expenseId } })
+
+  assert.equal(result.outcome, 'applied')
+  assert.equal(result.revision, 2)
+  assert.equal(stored.description, 'Dinner updated by Bob')
+  assert.equal(stored.amountMinorUnits, 250n)
+  assert.equal(stored.paidById, fixture.aliceId)
+})
+
 test('delete replay is idempotent and never resurrects or duplicates the expense', async () => {
   const fixture = await seedLedgerFixture(db, 'delete', { expenseMinorUnits: null })
   const expenseId = `${fixture.groupId}-expense`
