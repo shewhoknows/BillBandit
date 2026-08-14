@@ -189,8 +189,6 @@ struct SharedSettleUpScreen: View {
             settleBanner("Settlement changed. Confirm again.")
         } else if store.snapshot?.lifecycle.isArchived == true {
             settleBanner("Archived — read only.")
-        } else if store.snapshot?.realtime.available == false {
-            settleBanner("Realtime unavailable — refreshing every 10 seconds.")
         } else if store.lastError != nil, store.snapshot == nil {
             settleBanner("Could not load Settle Up.")
         }

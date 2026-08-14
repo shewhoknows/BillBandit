@@ -648,25 +648,21 @@ async function prepareExpense(
     ...(input.shares !== undefined ? { shares: input.shares } : {}),
     ...(input.isPaid !== undefined ? { isPaid: input.isPaid } : {}),
   }))
-  const date = parseDate(payload.date, 'date', now)
-  const recurringEndDate =
-    payload.recurringEndDate === undefined || payload.recurringEndDate === null
-      ? payload.recurringEndDate ?? null
-      : parseDate(payload.recurringEndDate, 'recurringEndDate', now)
-  const baseData = {
+  const requestedDate =
+    payload.date === undefined ? undefined : parseDate(payload.date, 'date', now)
+  const requestedRecurringEndDate =
+    payload.recurringEndDate === undefined
+      ? undefined
+      : payload.recurringEndDate === null
+        ? null
+        : parseDate(payload.recurringEndDate, 'recurringEndDate', now)
+  const commonData = {
     description,
     amount: legacyMajorUnits(amount),
     ...exactMoneyFields(amount),
-    date,
-    category: payload.category ?? 'general',
     groupId: request.groupId,
     paidById,
     splitType: payload.splitType ?? 'EQUAL',
-    receiptUrl: payload.receiptUrl ?? null,
-    notes: payload.notes ?? null,
-    isRecurring: payload.isRecurring ?? false,
-    recurringInterval: payload.recurringInterval ?? null,
-    recurringEndDate,
   }
 
   if (request.kind === 'expense.create') {
@@ -676,7 +672,18 @@ async function prepareExpense(
       kind: 'expense.create',
       recordId,
       eventType: 'expense_created',
-      data: { ...baseData, id: recordId, createdById: request.actorUserId },
+      data: {
+        ...commonData,
+        id: recordId,
+        createdById: request.actorUserId,
+        date: requestedDate ?? now,
+        category: payload.category ?? 'general',
+        receiptUrl: payload.receiptUrl ?? null,
+        notes: payload.notes ?? null,
+        isRecurring: payload.isRecurring ?? false,
+        recurringInterval: payload.recurringInterval ?? null,
+        recurringEndDate: requestedRecurringEndDate ?? null,
+      },
       splits: splitData,
       activity: {
         type: 'EXPENSE_CREATED',
@@ -699,7 +706,19 @@ async function prepareExpense(
   if (!expenseId) throw new LedgerMutationError('INVALID_MUTATION', 400, 'expenseId is required')
   const existing = await tx.expense.findUnique({
     where: { id: expenseId },
-    select: { id: true, groupId: true, paidById: true, isDeleted: true },
+    select: {
+      id: true,
+      groupId: true,
+      paidById: true,
+      isDeleted: true,
+      date: true,
+      category: true,
+      receiptUrl: true,
+      notes: true,
+      isRecurring: true,
+      recurringInterval: true,
+      recurringEndDate: true,
+    },
   })
   if (!existing || existing.groupId !== request.groupId || existing.isDeleted) {
     throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
@@ -709,7 +728,23 @@ async function prepareExpense(
     kind: 'expense.edit',
     recordId: existing.id,
     eventType: 'expense_updated',
-    data: { ...baseData, id: existing.id },
+    data: {
+      ...commonData,
+      id: existing.id,
+      date: requestedDate ?? existing.date,
+      category: payload.category ?? existing.category,
+      receiptUrl: payload.receiptUrl === undefined ? existing.receiptUrl : payload.receiptUrl,
+      notes: payload.notes === undefined ? existing.notes : payload.notes,
+      isRecurring: payload.isRecurring ?? existing.isRecurring,
+      recurringInterval:
+        payload.recurringInterval === undefined
+          ? existing.recurringInterval
+          : payload.recurringInterval,
+      recurringEndDate:
+        requestedRecurringEndDate === undefined
+          ? existing.recurringEndDate
+          : requestedRecurringEndDate,
+    },
     splits: splitData,
     existingExpenseId: existing.id,
     activity: {

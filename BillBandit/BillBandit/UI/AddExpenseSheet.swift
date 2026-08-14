@@ -33,6 +33,64 @@ enum CanonicalMemberIdentity {
     }
 }
 
+/// A non-persistent shared-ledger expense used to prefill the editor. The
+/// server expense ID remains a string because canonical IDs are not SwiftData
+/// UUIDs.
+struct CanonicalExpenseEditDraft: Identifiable {
+    let id: String
+    let title: String
+    let amount: Decimal
+    let paidByAccountID: String
+    let mode: SplitMode
+    let inputValuesByAccountID: [String: String]
+    let originalDate: String
+
+    init?(
+        expense: SettlementCanonicalLedgerExpense,
+        canonicalGroup: SettlementCanonicalLedgerGroup
+    ) {
+        guard let mode = SplitMode(canonicalServerValue: expense.splitMethod),
+              let paidByAccountID = canonicalGroup.memberByID[expense.paidByMemberID]?.accountID,
+              let amount = Money.parseInput(
+                SettlementMoneyFormatting.decimalString(
+                    fromMinorUnits: expense.amount.minorUnits,
+                    exponent: expense.amount.currencyExponent
+                )
+              ) else {
+            return nil
+        }
+
+        var inputValuesByAccountID = [String: String]()
+        for split in expense.splits {
+            guard let accountID = canonicalGroup.memberByID[split.memberID]?.accountID else {
+                return nil
+            }
+
+            switch mode {
+            case .equal:
+                break
+            case .exact:
+                inputValuesByAccountID[accountID] = SettlementMoneyFormatting.decimalString(
+                    fromMinorUnits: split.amount.minorUnits,
+                    exponent: split.amount.currencyExponent
+                )
+            case .percent:
+                inputValuesByAccountID[accountID] = split.percentage ?? "0"
+            case .shares:
+                inputValuesByAccountID[accountID] = String(split.shares ?? 1)
+            }
+        }
+
+        self.id = expense.expenseID
+        self.title = expense.description
+        self.amount = amount
+        self.paidByAccountID = paidByAccountID
+        self.mode = mode
+        self.inputValuesByAccountID = inputValuesByAccountID
+        self.originalDate = expense.createdAt
+    }
+}
+
 /// Add expense — mockup B4 layout. Supports equal / exact / % / shares splits.
 struct AddExpenseSheet: View {
     private enum FocusedField: Hashable { case amount, title }
@@ -57,8 +115,21 @@ struct AddExpenseSheet: View {
     @FocusState private var focusedField: FocusedField?
 
     private let editingExpense: Expense?
+    private let canonicalEditingExpense: CanonicalExpenseEditDraft?
 
     private let controlOutlineWidth = BrandOutline.control
+
+    private var isEditingExpense: Bool {
+        editingExpense != nil || canonicalEditingExpense != nil
+    }
+
+    private var isCanonicalEditing: Bool {
+        canonicalEditingExpense != nil
+    }
+
+    private var editingServerExpenseID: String? {
+        canonicalEditingExpense?.id ?? editingExpense?.id.uuidString
+    }
 
     private var visibleGroups: [Group] {
         groups.filter {
@@ -81,14 +152,27 @@ struct AddExpenseSheet: View {
 
     private var you: Person? { people.first { $0.isCurrentUser } }
 
-    init(initialGroup: Group? = nil, editingExpense: Expense? = nil) {
+    init(
+        initialGroup: Group? = nil,
+        editingExpense: Expense? = nil,
+        canonicalEditingExpense: CanonicalExpenseEditDraft? = nil
+    ) {
+        precondition(
+            editingExpense == nil || canonicalEditingExpense == nil,
+            "An expense editor can have one source only."
+        )
         self.editingExpense = editingExpense
-        _amountText = State(initialValue: editingExpense.map { Money.inputString($0.amount) } ?? "")
-        _title = State(initialValue: editingExpense?.title ?? "")
+        self.canonicalEditingExpense = canonicalEditingExpense
+        _amountText = State(initialValue:
+            canonicalEditingExpense.map { Money.inputString($0.amount) }
+                ?? editingExpense.map { Money.inputString($0.amount) }
+                ?? ""
+        )
+        _title = State(initialValue: canonicalEditingExpense?.title ?? editingExpense?.title ?? "")
         _category = State(initialValue: editingExpense?.category ?? .food)
         _group = State(initialValue: editingExpense?.group ?? initialGroup)
         _paidBy = State(initialValue: editingExpense?.paidBy)
-        let initialMode = editingExpense?.splits.first?.mode ?? .equal
+        let initialMode = canonicalEditingExpense?.mode ?? editingExpense?.splits.first?.mode ?? .equal
         _mode = State(initialValue: initialMode)
         var initialInputs = [UUID: String]()
         if initialMode != .equal, let expense = editingExpense {
@@ -102,14 +186,20 @@ struct AddExpenseSheet: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            BrandModalHeader(title: editingExpense == nil ? "Add expense" : "Edit expense") { dismiss() }
+            BrandModalHeader(title: isEditingExpense ? "Edit expense" : "Add expense") { dismiss() }
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
                     amountHero
                     titleField
-                    categorySection
-                    groupRow
+                    if !isCanonicalEditing {
+                        categorySection
+                    }
+                    if isCanonicalEditing {
+                        lockedGroupRow
+                    } else {
+                        groupRow
+                    }
                     paidByRow
                     splitSection
                     if let errorMessage {
@@ -138,13 +228,24 @@ struct AddExpenseSheet: View {
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .onAppear {
+            hydrateCanonicalEditState()
             if paidBy == nil { paidBy = you }
-            if let group, !visibleGroups.contains(where: { $0.id == group.id }) {
+            if !isCanonicalEditing,
+               let group,
+               !visibleGroups.contains(where: { $0.id == group.id }) {
                 selectGroup(nil)
             }
         }
         .onChange(of: people.count) {
+            hydrateCanonicalEditState()
             if paidBy == nil { paidBy = you }
+        }
+        .onChange(of: group?.id) { _, _ in
+            hydrateCanonicalEditState()
+            seedShareInputsIfNeeded()
+        }
+        .onChange(of: mode) { _, _ in
+            seedShareInputsIfNeeded()
         }
     }
 
@@ -231,6 +332,20 @@ struct AddExpenseSheet: View {
         }
     }
 
+    private var lockedGroupRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            BrandSectionLabel("GROUP")
+            Text(group?.name ?? "Shared group")
+                .font(BrandFont.type(12, bold: true))
+                .foregroundStyle(Color.Brand.cobalt)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .overlay(Capsule().strokeBorder(Color.Brand.cobalt.opacity(0.55), lineWidth: controlOutlineWidth))
+                .accessibilityLabel("Group \(group?.name ?? "Shared group")")
+        }
+    }
+
     private var paidByRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             BrandSectionLabel("PAID BY")
@@ -270,7 +385,7 @@ struct AddExpenseSheet: View {
                     HStack {
                         Text(p.name).font(BrandFont.type(12)).foregroundStyle(Color.Brand.cobalt)
                         Spacer()
-                        TextField(mode == .percent ? "%" : (mode == .shares ? "1" : "0.00"),
+                        TextField(mode == .percent ? "%" : (mode == .shares ? "Shares" : "0.00"),
                                   text: Binding(get: { inputs[p.id] ?? "" },
                                                 set: { inputs[p.id] = $0 }))
                             .keyboardType(.decimalPad)
@@ -291,7 +406,7 @@ struct AddExpenseSheet: View {
 
     private var saveButton: some View {
         Button(action: save) {
-            Text(isSubmitting ? "Saving…" : (editingExpense == nil ? "Save expense" : "Save changes"))
+            Text(isSubmitting ? "Saving…" : (isEditingExpense ? "Save changes" : "Save expense"))
                 .font(BrandFont.display(15.5))
                 .foregroundStyle(Color.Brand.creamSoft)
                 .frame(maxWidth: .infinity, minHeight: 50)
@@ -336,6 +451,35 @@ struct AddExpenseSheet: View {
         group = selection
         guard let payer = paidBy, !participants.contains(where: { $0.id == payer.id }) else { return }
         paidBy = participants.first(where: { $0.isCurrentUser }) ?? participants.first
+    }
+
+    private func hydrateCanonicalEditState() {
+        guard let canonicalEditingExpense else { return }
+
+        if let payer = participants.first(where: {
+            $0.serverAccountID == canonicalEditingExpense.paidByAccountID
+        }) {
+            paidBy = payer
+        }
+
+        for person in participants {
+            guard inputs[person.id] == nil,
+                  let accountID = person.serverAccountID,
+                  let value = canonicalEditingExpense.inputValuesByAccountID[accountID] else {
+                continue
+            }
+            inputs[person.id] = value
+        }
+        seedShareInputsIfNeeded()
+    }
+
+    private func seedShareInputsIfNeeded() {
+        guard mode == .shares else { return }
+        for person in participants {
+            if inputs[person.id]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                inputs[person.id] = "1"
+            }
+        }
     }
 
     private func compactName(_ person: Person) -> String {
@@ -513,7 +657,7 @@ struct AddExpenseSheet: View {
                     throw T15LedgerUIError.memberIdentityUnavailable("You")
                 }
 
-                let editingID = editingExpense?.id.uuidString
+                let editingID = editingServerExpenseID
                 if let editingID,
                    !canonicalGroup.expenses.contains(where: { $0.expenseID == editingID }) {
                     throw T15LedgerUIError.expenseNotInCanonicalSnapshot
@@ -562,7 +706,14 @@ struct AddExpenseSheet: View {
                 }
 
                 var rewardOutcome: RewardOutcome?
-                if editingID == nil, let currentUser = you {
+                if isEdit, let currentUser = you {
+                    try? AchievementEngine.unlock(
+                        .highOnDetails,
+                        personID: currentUser.id,
+                        context: context
+                    )
+                    try? context.save()
+                } else if let currentUser = you {
                     rewardOutcome = try? RewardEngine.award(
                         action: .expenseAdded,
                         eventID: SharedRewardReconciler.eventID(for: expenseID),
@@ -688,18 +839,20 @@ struct AddExpenseSheet: View {
             )
         }
         let body = T15ExpenseMutationBody(
-            kind: editingExpense == nil ? "expense.create" : "expense.edit",
+            kind: editingServerExpenseID == nil ? "expense.create" : "expense.edit",
             groupId: canonicalGroup.groupID,
             expenseId: expenseID,
             paidByMemberId: payerMemberID,
             description: title,
             amount: money,
             currency: canonicalGroup.baseCurrency.currencyCode,
-            date: serverDate(editingExpense?.date ?? .now),
-            category: category.rawValue,
+            date: canonicalEditingExpense?.originalDate ?? serverDate(editingExpense?.date ?? .now),
+            category: canonicalEditingExpense == nil ? category.rawValue : nil,
             splitMethod: mode.serverValue,
             splits: encodedSplits,
-            notes: editingExpense?.notes.isEmpty == false ? editingExpense?.notes : nil,
+            notes: canonicalEditingExpense == nil && editingExpense?.notes.isEmpty == false
+                ? editingExpense?.notes
+                : nil,
             operationId: operationID.uuidString
         )
         return try JSONEncoder.serverLedger.encode(body)
@@ -733,6 +886,16 @@ struct AddExpenseSheet: View {
 }
 
 private extension SplitMode {
+    init?(canonicalServerValue: String) {
+        switch canonicalServerValue.uppercased() {
+        case "EQUAL": self = .equal
+        case "EXACT": self = .exact
+        case "PERCENTAGE": self = .percent
+        case "SHARES": self = .shares
+        default: return nil
+        }
+    }
+
     var serverValue: String {
         switch self {
         case .equal: return "EQUAL"
@@ -759,8 +922,8 @@ private struct T15ExpenseMutationBody: Encodable {
     let description: String
     let amount: ServerLedgerMoneyDTO
     let currency: String
-    let date: String
-    let category: String
+    let date: String?
+    let category: String?
     let splitMethod: String
     let splits: [T15ExpenseSplitMutation]
     let notes: String?

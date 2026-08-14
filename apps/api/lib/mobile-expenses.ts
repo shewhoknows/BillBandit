@@ -223,21 +223,21 @@ export function toKernelExpensePayload(
     record.recurringInterval === 'MONTHLY' ||
     record.recurringInterval === 'YEARLY'
       ? record.recurringInterval
-      : null
+      : undefined
   const payload: ExpenseMutationInput = {
     ...(kind === 'expense.edit' || expenseId ? { expenseId: expenseId ?? undefined } : {}),
     description: typeof record.description === 'string' ? record.description : '',
     amount,
     currency: typeof record.currency === 'string' ? record.currency : amount.currencyCode,
     date,
-    category: typeof record.category === 'string' ? record.category : 'general',
+    category: typeof record.category === 'string' ? record.category : undefined,
     groupId: model.groupId,
     paidById,
     splitType,
     splits,
-    notes: record.notes === null || typeof record.notes === 'string' ? record.notes : null,
-    receiptUrl: record.receiptUrl === null || typeof record.receiptUrl === 'string' ? record.receiptUrl : null,
-    isRecurring: typeof record.isRecurring === 'boolean' ? record.isRecurring : false,
+    notes: record.notes === null || typeof record.notes === 'string' ? record.notes : undefined,
+    receiptUrl: record.receiptUrl === null || typeof record.receiptUrl === 'string' ? record.receiptUrl : undefined,
+    isRecurring: typeof record.isRecurring === 'boolean' ? record.isRecurring : undefined,
     recurringInterval,
     recurringEndDate,
   }

@@ -15,6 +15,7 @@ struct GroupDetailScreen: View {
     @State private var revealFreshExpense = true
     @State private var balanceBreakdownExpanded = false
     @State private var canonicalSettlementStore = SettlementStore()
+    @State private var canonicalExpenseForEditing: CanonicalExpenseEditDraft?
 
     init(group: Group) {
         self.group = group
@@ -156,6 +157,9 @@ struct GroupDetailScreen: View {
         .navigationTitle(group.name)
         .fullScreenCover(isPresented: $showAddExpense, onDismiss: expenseSheetDidDismiss) {
             AddExpenseSheet(initialGroup: group)
+        }
+        .fullScreenCover(item: $canonicalExpenseForEditing, onDismiss: expenseSheetDidDismiss) { draft in
+            AddExpenseSheet(initialGroup: group, canonicalEditingExpense: draft)
         }
         .fullScreenCover(isPresented: $showSettle) {
             if prefersSharedSettleUp {
@@ -328,9 +332,16 @@ struct GroupDetailScreen: View {
             emptyInvoiceState
         } else {
             ForEach(canonicalSettlementStore.canonicalExpenses) { expense in
-                CanonicalInvoiceExpenseRow(expense: expense)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("invoiceExpense-\(expense.title)")
+                Button {
+                    beginEditingCanonicalExpense(expense.id)
+                } label: {
+                    CanonicalInvoiceExpenseRow(expense: expense)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("invoiceExpense-\(expense.title)")
+                .accessibilityHint("Edit expense")
             }
         }
     }
@@ -393,6 +404,18 @@ struct GroupDetailScreen: View {
         freshExpenseID = nil
         revealFreshExpense = true
         showAddExpense = true
+    }
+
+    private func beginEditingCanonicalExpense(_ expenseID: String) {
+        guard let canonicalGroup = canonicalSettlementStore.canonicalSnapshot?.group,
+              let expense = canonicalGroup.expenses.first(where: { $0.expenseID == expenseID }),
+              let draft = CanonicalExpenseEditDraft(
+                expense: expense,
+                canonicalGroup: canonicalGroup
+              ) else {
+            return
+        }
+        canonicalExpenseForEditing = draft
     }
 
     private func expenseSheetDidDismiss() {
