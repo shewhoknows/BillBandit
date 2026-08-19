@@ -99,9 +99,11 @@ struct SharedSettleUpScreen: View {
     private var settleHero: some View {
         ZStack(alignment: .bottomTrailing) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("settle the score")
+                Text("settle the score\u{00A0}")
                     .font(BrandFont.hand(30, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: true)
                 Text(group.name.uppercased())
                     .font(BrandFont.type(10, bold: true))
                     .tracking(1.5)
@@ -248,9 +250,13 @@ struct SharedSettleUpScreen: View {
         if let snapshot = store.snapshot, snapshot.plan.isEmpty {
             VStack(spacing: 8) {
                 MascotView(mascot: .celebrating, size: 120)
-                Text("everyone is settled")
+                Text("everyone is settled\u{00A0}")
                     .font(BrandFont.hand(28, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.horizontal, 12)
                 if let completedAt = snapshot.settlementCompletedAt {
                     Text(settleFormattedDate(completedAt))
                         .font(BrandFont.type(11))

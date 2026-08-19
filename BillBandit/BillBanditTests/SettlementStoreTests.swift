@@ -184,14 +184,17 @@ final class SettlementStoreTests: XCTestCase {
         try store.applyCanonicalForTesting(initial)
         let transfer = try XCTUnwrap(store.snapshot?.plan.first)
 
-        let refresh = Task { await store.refresh() }
-        for _ in 0..<50 where store.isUpdating == false {
+        let refresh = Task { await store.refresh(forceWritesDisabled: false) }
+        for _ in 0..<50 {
+            if await api.fetchCount > 0 { break }
             try await Task.sleep(for: .milliseconds(5))
         }
 
-        XCTAssertTrue(store.isUpdating)
+        let fetchCount = await api.fetchCount
+        XCTAssertEqual(fetchCount, 1)
+        XCTAssertFalse(store.isUpdating)
         XCTAssertTrue(store.canDisplaySettlementAction(transfer))
-        XCTAssertFalse(store.canStartSettlement(transfer))
+        XCTAssertTrue(store.canStartSettlement(transfer))
 
         await refresh.value
         XCTAssertFalse(store.isUpdating)
@@ -494,6 +497,7 @@ private actor RecordingCanonicalLedgerAPI: ServerLedgerAPIClient {
 
 private actor DelayedCanonicalLedgerAPI: ServerLedgerAPIClient {
     let snapshot: ServerLedgerSnapshot
+    private(set) var fetchCount = 0
 
     init(snapshot: ServerLedgerSnapshot) {
         self.snapshot = snapshot
@@ -501,6 +505,7 @@ private actor DelayedCanonicalLedgerAPI: ServerLedgerAPIClient {
 
     func fetchSnapshot(for scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
         _ = scope
+        fetchCount += 1
         try await Task.sleep(for: .milliseconds(250))
         return snapshot
     }

@@ -50,6 +50,7 @@ final class SettlementStore {
     private var pollingTask: Task<Void, Never>?
     private var isVisible = false
     private var isInteractionActive = false
+    private var isRefreshInFlight = false
     private var realtimeClient: SettlementRealtimeClient
     private var pendingRefreshVersion: Int?
     private var currentUserLabel = "You"
@@ -236,19 +237,31 @@ final class SettlementStore {
     }
 
     func refresh(forceWritesDisabled: Bool = false) async {
-        _ = forceWritesDisabled
         guard let scope = configuredScope, let serverLedgerSync else { return }
+        guard !isRefreshInFlight else { return }
+        isRefreshInFlight = true
+        let hadSnapshot = snapshot != nil
+        let showsVisibleActivity = hadSnapshot && forceWritesDisabled
         if snapshot == nil {
             isLoading = true
-        } else {
+        } else if showsVisibleActivity {
             isUpdating = true
         }
         defer {
             isLoading = false
-            isUpdating = false
+            if showsVisibleActivity {
+                isUpdating = false
+            }
+            isRefreshInFlight = false
+            if let pendingRefreshVersion, pendingRefreshVersion > appliedVersion {
+                self.pendingRefreshVersion = nil
+                Task { await refresh(forceWritesDisabled: false) }
+            }
         }
 
-        loadCachedSnapshot(for: scope)
+        if hadSnapshot == false {
+            loadCachedSnapshot(for: scope)
+        }
         serverLedgerSync.markReconnected()
         do {
             let serverSnapshot = try await serverLedgerSync.onForeground(scope: scope)
@@ -413,11 +426,11 @@ final class SettlementStore {
 
     func applyRealtimeVersion(_ version: Int) {
         guard version > appliedVersion else { return }
-        if isUpdating {
+        if isUpdating || isRefreshInFlight {
             pendingRefreshVersion = max(pendingRefreshVersion ?? 0, version)
             return
         }
-        Task { await refresh(forceWritesDisabled: true) }
+        Task { await refresh(forceWritesDisabled: false) }
     }
 
     func yourTransfers() -> [SettlementPlanTransferDTO] {
