@@ -49,6 +49,7 @@ final class SettlementStore {
     private var legacyAPIClient = APIClient.live()
     private var pollingTask: Task<Void, Never>?
     private var isVisible = false
+    private var isInteractionActive = false
     private var realtimeClient: SettlementRealtimeClient
     private var pendingRefreshVersion: Int?
     private var currentUserLabel = "You"
@@ -218,6 +219,17 @@ final class SettlementStore {
         }
     }
 
+    /// Keeps the confirmation flow stable while it is on screen.
+    /// Background polling resumes after the user leaves that flow.
+    func setInteractionActive(_ active: Bool) {
+        isInteractionActive = active
+        if active {
+            stopPolling()
+        } else {
+            startPollingIfNeeded()
+        }
+    }
+
     func refreshOnForeground() async {
         guard isVisible else { return }
         await refresh(forceWritesDisabled: true)
@@ -279,6 +291,10 @@ final class SettlementStore {
     func canStartSettlement(_ transfer: SettlementPlanTransferDTO) -> Bool {
         guard isCurrentTransfer(transfer), canSettle(transfer) else { return false }
         return writesEnabled || canQueueSettlement || requiresReconfirmation
+    }
+
+    func canDisplaySettlementAction(_ transfer: SettlementPlanTransferDTO) -> Bool {
+        isCurrentTransfer(transfer) && canSettle(transfer)
     }
 
     func canConfirmSettlement(_ transfer: SettlementPlanTransferDTO, expectedVersion: Int) -> Bool {
@@ -649,7 +665,9 @@ final class SettlementStore {
 
     private func startPollingIfNeeded() {
         stopPolling()
-        guard isVisible, let serverRealtimeAvailable = snapshot?.realtime.available else { return }
+        guard isVisible,
+              !isInteractionActive,
+              let serverRealtimeAvailable = snapshot?.realtime.available else { return }
         let interval = SettlementRealtimeRefreshPolicy.pollingInterval(
             serverAvailable: serverRealtimeAvailable,
             localPusherConfigured: SettlementRealtimeConfig.isPusherConfigured
@@ -661,7 +679,7 @@ final class SettlementStore {
                 } catch {
                     return
                 }
-                guard let self, self.isVisible else { continue }
+                guard let self, self.isVisible, !self.isInteractionActive else { continue }
                 await self.refresh(forceWritesDisabled: false)
             }
         }

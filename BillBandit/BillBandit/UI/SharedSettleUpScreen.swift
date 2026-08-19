@@ -10,7 +10,6 @@ struct SharedSettleUpScreen: View {
     @State private var store = SettlementStore()
     @State private var confirmationTransfer: SettlementPlanTransferDTO?
     @State private var confirmationNote = ""
-    @State private var explanationTransfer: SettlementPlanTransferDTO?
     @State private var settledExpanded = false
     @State private var isSubmitting = false
     @State private var actionError: String?
@@ -71,11 +70,10 @@ struct SharedSettleUpScreen: View {
                 Task { await store.refreshOnForeground() }
             }
         }
-        .sheet(item: $confirmationTransfer) { transfer in
+        .fullScreenCover(item: $confirmationTransfer, onDismiss: {
+            store.setInteractionActive(false)
+        }) { transfer in
             settlementConfirmationSheet(transfer)
-        }
-        .sheet(item: $explanationTransfer) { transfer in
-            transferExplanationSheet(transfer)
         }
         .accessibilityIdentifier("sharedSettleUpScreen")
     }
@@ -83,10 +81,7 @@ struct SharedSettleUpScreen: View {
     private func linkedSettleContent(serverGroupId: String) -> some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
-                Text(group.name.uppercased())
-                    .font(BrandFont.type(10, bold: true))
-                    .tracking(1.4)
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+                settleHero
 
                 statusBanner
                 simplificationPanel
@@ -99,6 +94,26 @@ struct SharedSettleUpScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.horizontal, 18)
         .padding(.bottom, 10)
+    }
+
+    private var settleHero: some View {
+        ZStack(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("settle the score")
+                    .font(BrandFont.hand(30, weight: .bold))
+                    .foregroundStyle(Color.Brand.cobalt)
+                Text(group.name.uppercased())
+                    .font(BrandFont.type(10, bold: true))
+                    .tracking(1.5)
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 88)
+
+            MascotView(mascot: .thinking, size: 88)
+                .padding(.bottom, -14)
+        }
+        .frame(maxWidth: .infinity, minHeight: 104)
     }
 
     private var localOnlySettlePanel: some View {
@@ -156,12 +171,20 @@ struct SharedSettleUpScreen: View {
                 Button {
                     Task { await store.refresh(forceWritesDisabled: true) }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color.Brand.creamSoft)
-                        .frame(width: 42, height: 42)
+                    ZStack {
+                        if store.isUpdating || store.isLoading {
+                            ProgressView()
+                                .tint(Color.Brand.creamSoft)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color.Brand.creamSoft)
+                        }
+                    }
+                    .frame(width: 42, height: 42)
                 }
                 .buttonStyle(.plain)
+                .disabled(store.isUpdating || store.isLoading)
                 .accessibilityLabel("Refresh settlements")
             } else {
                 Color.clear.frame(width: 42, height: 42)
@@ -183,8 +206,6 @@ struct SharedSettleUpScreen: View {
                     ? "Offline — cached balances shown. Payments will sync when you reconnect."
                     : "Offline — showing cached balances. Writes disabled."
             )
-        } else if store.isUpdating {
-            settleBanner("Updating…")
         } else if store.requiresReconfirmation {
             settleBanner("Settlement changed. Confirm again.")
         } else if store.snapshot?.lifecycle.isArchived == true {
@@ -197,33 +218,28 @@ struct SharedSettleUpScreen: View {
     @ViewBuilder
     private var simplificationPanel: some View {
         if let snapshot = store.snapshot {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle(isOn: Binding(
-                    get: { snapshot.simplifyDebts },
-                    set: { newValue in
-                        Task {
-                            do {
-                                try await store.updateSimplifyDebts(newValue)
-                            } catch {
-                                actionError = error.localizedDescription
-                            }
-                        }
-                    }
-                )) {
-                    Text("Simplify debts")
-                        .font(BrandFont.type(13, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt)
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(snapshot.simplifyDebts ? "Debts simplified" : "Direct payments")
+                        .font(BrandFont.display(15, weight: .semibold))
+                    Text(snapshot.simplifyDebts
+                         ? "Fewer payments between members"
+                         : "Payments follow each original balance")
+                        .font(BrandFont.type(10, bold: true))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.58))
                 }
-                .disabled(!store.writesEnabled || !snapshot.permissions.canChangeSetting)
-                if let audit = snapshot.latestSettingAudit {
-                    Text("Last changed by \(audit.actorName ?? "Unknown member") · \(settleFormattedDate(audit.createdAt))")
-                        .font(BrandFont.type(10))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
-                }
+                Spacer()
+                BrandCheckmark(isOn: snapshot.simplifyDebts)
             }
-            .padding(16)
+            .foregroundStyle(Color.Brand.cobalt)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 66)
             .background(Color.Brand.creamSoft)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Brand.cobalt, lineWidth: 2))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
+            )
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -232,7 +248,7 @@ struct SharedSettleUpScreen: View {
         if let snapshot = store.snapshot, snapshot.plan.isEmpty {
             VStack(spacing: 8) {
                 MascotView(mascot: .celebrating, size: 120)
-                Text("everyone is settled ")
+                Text("everyone is settled")
                     .font(BrandFont.hand(28, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
                 if let completedAt = snapshot.settlementCompletedAt {
@@ -263,36 +279,40 @@ struct SharedSettleUpScreen: View {
         VStack(alignment: .leading, spacing: 10) {
             BrandSectionLabel(title.uppercased())
             ForEach(transfers) { transfer in
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(transfer.payerName) → \(transfer.recipientName)")
-                                .font(BrandFont.type(12.5, bold: true))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("\(transfer.payerName) pays \(transfer.recipientName)")
+                                .font(BrandFont.display(16, weight: .semibold))
+                                .foregroundStyle(Color.Brand.cobalt)
                             Text(transferAmount(transfer))
-                                .font(BrandFont.type(16, bold: true))
+                                .font(BrandFont.display(30, weight: .bold))
+                                .foregroundStyle(Color.Brand.cobalt)
                                 .monospacedDigit()
                         }
                         Spacer(minLength: 8)
                     }
-                    HStack(spacing: 14) {
-                        Button("Details") {
-                            explanationTransfer = transfer
-                            Task { await store.loadExplanation(for: transfer) }
+
+                    if showSettle, store.canDisplaySettlementAction(transfer) {
+                        Button {
+                            store.setInteractionActive(true)
+                            confirmationNote = ""
+                            actionError = nil
+                            confirmationTransfer = transfer
+                        } label: {
+                            Text("Settle \(transferAmount(transfer))")
+                                .font(BrandFont.display(14, weight: .bold))
+                                .foregroundStyle(Color.Brand.creamSoft)
+                                .frame(maxWidth: .infinity, minHeight: 46)
+                                .background(Color.Brand.cobalt, in: Capsule())
                         }
-                        .font(BrandFont.type(11, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt)
-                        if showSettle, store.canStartSettlement(transfer) {
-                            Button("Settle") {
-                                confirmationNote = ""
-                                actionError = nil
-                                confirmationTransfer = transfer
-                            }
-                            .font(BrandFont.display(11, weight: .bold))
-                            .foregroundStyle(Color.Brand.cobaltDeep)
-                        }
+                        .buttonStyle(.plain)
+                        .disabled(!store.canStartSettlement(transfer))
+                        .opacity(store.canStartSettlement(transfer) ? 1 : 0.48)
+                        .accessibilityIdentifier("settleTransferButton-\(transfer.id)")
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 8)
                 if transfer.id != transfers.last?.id {
                     Rectangle()
                         .fill(Color.Brand.cobalt.opacity(0.12))
@@ -302,7 +322,10 @@ struct SharedSettleUpScreen: View {
         }
         .padding(16)
         .background(Color.Brand.creamSoft)
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Brand.cobalt, lineWidth: 2))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
+        )
     }
 
     @ViewBuilder
@@ -377,119 +400,103 @@ struct SharedSettleUpScreen: View {
                 BrandModalHeader(title: "Confirm settlement") {
                     confirmationTransfer = nil
                 }
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("\(transfer.payerName) pays \(transfer.recipientName)")
-                        .font(BrandFont.type(14, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt)
-                    Text(transferAmount(transfer))
-                        .font(BrandFont.type(34, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt)
-                    Text("The server records an immutable date and time when you confirm.")
-                        .font(BrandFont.type(10.5))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.66))
-                    BrandSectionLabel("NOTE (OPTIONAL)")
-                    TextField("Group-visible note", text: $confirmationNote, axis: .vertical)
-                        .lineLimit(2...4)
-                        .font(BrandFont.type(13))
-                        .foregroundStyle(Color.Brand.cobalt)
-                        .padding(14)
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.Brand.cobalt, lineWidth: 2))
-                    if let actionError {
-                        Text(actionError)
-                            .font(BrandFont.type(10.5, bold: true))
-                            .foregroundStyle(Color.red.opacity(0.82))
-                    }
-                    Button {
-                        Task {
-                            isSubmitting = true
-                            defer { isSubmitting = false }
-                            do {
-                                let settlementEventID = try await store.settle(
-                                    transfer: transfer,
-                                    note: confirmationNote,
-                                    expectedVersion: expectedVersion
-                                )
-                                confirmationTransfer = nil
-                                if let settlementEventID,
-                                   let currentUser = currentUsers.first {
-                                    let outcome = try? RewardEngine.award(
-                                        action: .settlementRecorded,
-                                        eventID: SharedRewardReconciler.eventID(
-                                            for: settlementEventID
-                                        ),
-                                        personID: currentUser.id,
-                                        context: context
-                                    )
-                                    try? context.save()
-                                    if let outcome {
-                                        RewardFeedbackCenter.shared.present(outcome)
-                                    }
-                                }
-                                await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
-                            } catch {
-                                actionError = error.localizedDescription
-                            }
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("payment ready")
+                                .font(BrandFont.hand(29, weight: .bold))
+                                .foregroundStyle(Color.Brand.cobalt)
+                            Text(group.name.uppercased())
+                                .font(BrandFont.type(10, bold: true))
+                                .tracking(1.5)
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
                         }
-                    } label: {
-                        Text(isSubmitting ? "Saving…" : "Confirm exact amount")
-                            .font(BrandFont.display(15, weight: .bold))
-                            .foregroundStyle(Color.Brand.creamSoft)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(Color.Brand.cobalt, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(
-                        isSubmitting
-                            || !store.canConfirmSettlement(transfer, expectedVersion: expectedVersion)
-                    )
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Color.Brand.creamSoft)
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .padding(.horizontal, 18)
-                .padding(.bottom, 10)
-            }
-            .background(Color.Brand.cobalt.ignoresSafeArea())
-        }
-        .presentationDetents([.medium, .large])
-    }
 
-    private func transferExplanationSheet(_ transfer: SettlementPlanTransferDTO) -> some View {
-        NavigationStack {
-            VStack(spacing: 12) {
-                BrandModalHeader(title: "Transfer details") {
-                    explanationTransfer = nil
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("\(transfer.payerName) → \(transfer.recipientName)")
-                        .font(BrandFont.type(13, bold: true))
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(transfer.payerName) pays \(transfer.recipientName)")
+                                .font(BrandFont.display(17, weight: .semibold))
+                            Text(transferAmount(transfer))
+                                .font(BrandFont.display(42, weight: .bold))
+                                .monospacedDigit()
+                            Text("This marks the payment as complete for everyone in the group.")
+                                .font(BrandFont.type(11, bold: true))
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+                        }
                         .foregroundStyle(Color.Brand.cobalt)
-                    if let explanation = store.explanation {
-                        if let expenses = explanation.directExpenses {
-                            ForEach(expenses) { expense in
-                                Text("\(expense.description): \(expense.amount)")
-                                    .font(BrandFont.type(11))
-                                    .foregroundStyle(Color.Brand.cobalt)
-                            }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
+                        )
+
+                        BrandSectionLabel("NOTE (OPTIONAL)")
+                        TextField("Add a note for the group", text: $confirmationNote, axis: .vertical)
+                            .lineLimit(2...4)
+                            .font(BrandFont.type(13))
+                            .foregroundStyle(Color.Brand.cobalt)
+                            .padding(14)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
+                            )
+                        if let actionError {
+                            Text(actionError)
+                                .font(BrandFont.type(10.5, bold: true))
+                                .foregroundStyle(Color.red.opacity(0.82))
                         }
-                        if let paths = explanation.simplifiedPaths {
-                            ForEach(paths) { path in
-                                Text("\(path.path): \(path.amount)")
-                                    .font(BrandFont.type(11))
-                                    .foregroundStyle(Color.Brand.cobalt)
+                        Button {
+                            Task {
+                                isSubmitting = true
+                                defer { isSubmitting = false }
+                                do {
+                                    let settlementEventID = try await store.settle(
+                                        transfer: transfer,
+                                        note: confirmationNote,
+                                        expectedVersion: expectedVersion
+                                    )
+                                    confirmationTransfer = nil
+                                    if let settlementEventID,
+                                       let currentUser = currentUsers.first {
+                                        let outcome = try? RewardEngine.award(
+                                            action: .settlementRecorded,
+                                            eventID: SharedRewardReconciler.eventID(
+                                                for: settlementEventID
+                                            ),
+                                            personID: currentUser.id,
+                                            context: context
+                                        )
+                                        try? context.save()
+                                        if let outcome {
+                                            RewardFeedbackCenter.shared.present(outcome)
+                                        }
+                                    }
+                                    await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
+                                } catch {
+                                    actionError = error.localizedDescription
+                                }
                             }
+                        } label: {
+                            Text(isSubmitting ? "Saving…" : "Confirm payment")
+                                .font(BrandFont.display(15, weight: .bold))
+                                .foregroundStyle(Color.Brand.creamSoft)
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .background(Color.Brand.cobalt, in: Capsule())
                         }
-                    } else if store.explanationError != nil {
-                        Text("Could not load transfer details.")
-                            .font(BrandFont.type(11))
-                            .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
-                    } else {
-                        ProgressView().tint(Color.Brand.cobalt)
+                        .buttonStyle(.plain)
+                        .disabled(
+                            isSubmitting
+                                || !store.canConfirmSettlement(transfer, expectedVersion: expectedVersion)
+                        )
+                        .opacity(
+                            isSubmitting
+                                || !store.canConfirmSettlement(transfer, expectedVersion: expectedVersion)
+                                ? 0.48 : 1
+                        )
+                        .accessibilityIdentifier("confirmSettlementButton")
                     }
+                    .padding(18)
                 }
-                .padding(18)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(Color.Brand.creamSoft)
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .padding(.horizontal, 18)
@@ -497,7 +504,6 @@ struct SharedSettleUpScreen: View {
             }
             .background(Color.Brand.cobalt.ignoresSafeArea())
         }
-        .presentationDetents([.medium])
     }
 
     private func settleBanner(_ text: String, showsProgress: Bool = false) -> some View {

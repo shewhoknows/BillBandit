@@ -169,6 +169,35 @@ final class SettlementStoreTests: XCTestCase {
         XCTAssertTrue(try cache.pendingOperations(for: "account-a").isEmpty)
     }
 
+    func testSettlementActionStaysVisibleWhileCanonicalRefreshRuns() async throws {
+        let cache = try makeCacheStore()
+        let initial = canonicalSnapshot(revision: 4, readRevision: 4)
+        let refreshed = canonicalSnapshot(revision: 5, readRevision: 5)
+        _ = try cache.cache(snapshot: initial)
+        let api = DelayedCanonicalLedgerAPI(snapshot: refreshed)
+        let store = SettlementStore(
+            realtimeClient: SettlementPollingRealtimeClient(),
+            serverLedgerStore: cache,
+            serverLedgerAPIClient: api
+        )
+        store.configure(accountID: "account-a", groupID: "group-a", currentUserLabel: "You")
+        try store.applyCanonicalForTesting(initial)
+        let transfer = try XCTUnwrap(store.snapshot?.plan.first)
+
+        let refresh = Task { await store.refresh() }
+        for _ in 0..<50 where store.isUpdating == false {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        XCTAssertTrue(store.isUpdating)
+        XCTAssertTrue(store.canDisplaySettlementAction(transfer))
+        XCTAssertFalse(store.canStartSettlement(transfer))
+
+        await refresh.value
+        XCTAssertFalse(store.isUpdating)
+        XCTAssertTrue(store.canDisplaySettlementAction(try XCTUnwrap(store.snapshot?.plan.first)))
+    }
+
     func testCanonicalSettlementDoesNotInsertLegacyLocalSettlement() async throws {
         let cache = try makeCacheStore()
         let localContainer = try makeLocalAppContainer()
@@ -460,5 +489,24 @@ private actor RecordingCanonicalLedgerAPI: ServerLedgerAPIClient {
             throw ServerLedgerAPIClientError.offline
         }
         return try submitResults.removeFirst().value()
+    }
+}
+
+private actor DelayedCanonicalLedgerAPI: ServerLedgerAPIClient {
+    let snapshot: ServerLedgerSnapshot
+
+    init(snapshot: ServerLedgerSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func fetchSnapshot(for scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
+        _ = scope
+        try await Task.sleep(for: .milliseconds(250))
+        return snapshot
+    }
+
+    func submit(_ request: ServerLedgerMutationRequest) async throws -> ServerLedgerSnapshot {
+        _ = request
+        return snapshot
     }
 }
