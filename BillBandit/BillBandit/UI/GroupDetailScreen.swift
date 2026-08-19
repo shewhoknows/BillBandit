@@ -363,7 +363,7 @@ struct GroupDetailScreen: View {
         VStack(spacing: 7) {
             SleepingMascotSceneView(width: 225)
                 .accessibilityIdentifier("emptyGroupSleepingMascot")
-            Text("no expenses on this invoice ")
+            Text(BrandFont.handText("no expenses on this invoice"))
                 .font(BrandFont.hand(19, weight: .bold))
         }
         .padding(.vertical, 10)
@@ -797,7 +797,7 @@ private struct DeleteExpenseConfirmationSheet: View {
             VStack(spacing: 18) {
                 Spacer(minLength: 28)
                 MascotView(mascot: .grumpy, size: 190)
-                Text("erase this receipt?\u{00A0}")
+                Text(BrandFont.handText("erase this receipt?"))
                     .font(BrandFont.hand(32, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
                     .lineLimit(1)
@@ -1013,7 +1013,7 @@ struct RecordPaymentSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     ZStack(alignment: .bottomTrailing) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("record payment\u{00A0}")
+                            Text(BrandFont.handText("record payment"))
                                 .font(BrandFont.hand(29, weight: .bold))
                                 .foregroundStyle(Color.Brand.cobalt)
                                 .lineLimit(1)
@@ -1198,8 +1198,12 @@ struct SettlementCelebrationScreen: View {
                 MascotView(mascot: .celebrating, size: 235, idle: false)
                     .scaleEffect(reduceMotion || burst ? 1 : 0.72)
                     .offset(y: reduceMotion || burst ? 0 : 28)
-                Text((result.fullySettled ? "all squared away!" : "payment recorded!") + " ")
+                Text(BrandFont.handText(result.fullySettled ? "all squared away!" : "payment recorded!"))
                     .font(BrandFont.hand(38, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.horizontal, 8)
                 Text("\(result.from) paid \(result.to)")
                     .font(BrandFont.display(15, weight: .medium))
                     .opacity(0.82)

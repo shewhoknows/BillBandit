@@ -59,6 +59,7 @@ final class SettlementStore {
     var writesEnabled: Bool {
         guard let snapshot, let canonicalSnapshot else { return false }
         return !isUpdating
+            && !isRefreshInFlight
             && !isOffline
             && !requiresReconfirmation
             && !isMigrationBlocked
@@ -227,7 +228,12 @@ final class SettlementStore {
         if active {
             stopPolling()
         } else {
-            startPollingIfNeeded()
+            if let pendingRefreshVersion, pendingRefreshVersion > appliedVersion {
+                self.pendingRefreshVersion = nil
+                Task { await refresh(forceWritesDisabled: false) }
+            } else {
+                startPollingIfNeeded()
+            }
         }
     }
 
@@ -253,7 +259,9 @@ final class SettlementStore {
                 isUpdating = false
             }
             isRefreshInFlight = false
-            if let pendingRefreshVersion, pendingRefreshVersion > appliedVersion {
+            if !isInteractionActive,
+               let pendingRefreshVersion,
+               pendingRefreshVersion > appliedVersion {
                 self.pendingRefreshVersion = nil
                 Task { await refresh(forceWritesDisabled: false) }
             }
@@ -426,7 +434,7 @@ final class SettlementStore {
 
     func applyRealtimeVersion(_ version: Int) {
         guard version > appliedVersion else { return }
-        if isUpdating || isRefreshInFlight {
+        if isInteractionActive || isUpdating || isRefreshInFlight {
             pendingRefreshVersion = max(pendingRefreshVersion ?? 0, version)
             return
         }

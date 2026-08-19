@@ -144,7 +144,7 @@ struct OnboardingScreen: View {
                 .offset(y: reduceMotion ? 0 : (mascotRaised ? -7 : 7))
                 .frame(height: 194)
                 .accessibilityIdentifier("onboardingMascot-\(index)")
-            Text(pages[index].1)
+            Text(BrandFont.handText(pages[index].1))
                 .font(BrandFont.hand(28, weight: .bold))
                 .multilineTextAlignment(.center)
                 .frame(height: 42)
@@ -556,7 +556,7 @@ struct HomeScreen: View {
             }
 
             if visibleGroups.isEmpty {
-                Text("no groups yet ")
+                Text(BrandFont.handText("no groups yet"))
                     .font(BrandFont.hand(20, weight: .semibold))
                     .opacity(0.75)
             }
@@ -570,7 +570,7 @@ struct HomeScreen: View {
         showsCurrencyCode: Bool
     ) -> some View {
         VStack(alignment: .center, spacing: 5) {
-            Text(summary.headline + "\u{00A0}")
+            Text(BrandFont.handText(summary.headline))
                 .font(BrandFont.hand(20, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
@@ -616,7 +616,7 @@ struct HomeScreen: View {
 
     private var canonicalSettledBalanceSummary: some View {
         VStack(alignment: .center, spacing: 5) {
-            Text("all settled up\u{00A0}")
+            Text(BrandFont.handText("all settled up"))
                 .font(BrandFont.hand(20, weight: .semibold))
 
             Text("0")
@@ -807,6 +807,16 @@ private struct VerticalCollapseLayout: Layout {
 }
 
 private final class ProfileNameUITextField: UITextField {
+    private let glyphInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 10)
+
+    override func textRect(forBounds bounds: CGRect) -> CGRect {
+        super.textRect(forBounds: bounds.inset(by: glyphInsets))
+    }
+
+    override func editingRect(forBounds bounds: CGRect) -> CGRect {
+        super.editingRect(forBounds: bounds.inset(by: glyphInsets))
+    }
+
     override func caretRect(for position: UITextPosition) -> CGRect {
         var rect = super.caretRect(for: position)
         if offset(from: position, to: endOfDocument) == 0 {
@@ -972,7 +982,7 @@ struct ProfileScreen: View {
                             Button {
                                 beginNameEdit()
                             } label: {
-                                Text((trimmedName.isEmpty ? "your profile" : trimmedName) + " ")
+                                Text(BrandFont.handText(trimmedName.isEmpty ? "your profile" : trimmedName))
                                     .font(BrandFont.hand(24, weight: .bold))
                                     .foregroundStyle(Color.Brand.cobalt)
                                     .lineLimit(1)
@@ -2125,7 +2135,7 @@ struct ActivityScreen: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    Text("recent activity ")
+                    Text(BrandFont.handText("recent activity"))
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
                     if !sharedGroups.isEmpty {
@@ -2154,7 +2164,7 @@ struct ActivityScreen: View {
                     if sharedGroups.isEmpty && localItems.isEmpty {
                         VStack(spacing: 10) {
                             MascotView(mascot: .neutral, size: 160)
-                            Text("nothing in the ledger yet ")
+                            Text(BrandFont.handText("nothing in the ledger yet"))
                                 .font(BrandFont.hand(22, weight: .bold))
                         }
                         .frame(maxWidth: .infinity)

@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// Brand typography — bundled TTFs (SIL OFL), registered via UIAppFonts.
@@ -20,6 +21,12 @@ enum BrandFont {
     /// Caveat — handwritten accents ("you're owed overall", captions)
     static func hand(_ size: CGFloat, weight: Weight = .semibold) -> Font {
         .custom(caveat(weight), size: size * scale, relativeTo: .title3)
+    }
+
+    /// Caveat has glyphs that can extend beyond SwiftUI's measured text
+    /// bounds. A non-breaking trailing space reserves the required room.
+    static func handText(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines) + "\u{00A0}"
     }
 
     /// Courier Prime — typewriter ledger: invoice lines, activity rows, stamps

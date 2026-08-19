@@ -99,7 +99,7 @@ struct SharedSettleUpScreen: View {
     private var settleHero: some View {
         ZStack(alignment: .bottomTrailing) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("settle the score\u{00A0}")
+                Text(BrandFont.handText("settle the score"))
                     .font(BrandFont.hand(30, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
                     .lineLimit(1)
@@ -250,7 +250,7 @@ struct SharedSettleUpScreen: View {
         if let snapshot = store.snapshot, snapshot.plan.isEmpty {
             VStack(spacing: 8) {
                 MascotView(mascot: .celebrating, size: 120)
-                Text("everyone is settled\u{00A0}")
+                Text(BrandFont.handText("everyone is settled"))
                     .font(BrandFont.hand(28, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
                     .lineLimit(1)
@@ -409,9 +409,11 @@ struct SharedSettleUpScreen: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("payment ready")
+                            Text(BrandFont.handText("payment ready"))
                                 .font(BrandFont.hand(29, weight: .bold))
                                 .foregroundStyle(Color.Brand.cobalt)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: true)
                             Text(group.name.uppercased())
                                 .font(BrandFont.type(10, bold: true))
                                 .tracking(1.5)

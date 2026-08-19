@@ -1452,7 +1452,7 @@ struct AppRootView: View {
             Color.Brand.cobalt.ignoresSafeArea()
             VStack(spacing: 16) {
                 MascotView(mascot: .thinking, size: 152, idle: false)
-                Text("checking your lookout pass…")
+                Text(BrandFont.handText("checking your lookout pass…"))
                     .font(BrandFont.hand(25, weight: .bold))
                     .foregroundStyle(Color.Brand.creamSoft)
                 ProgressView().tint(Color.Brand.creamSoft)
@@ -1875,7 +1875,7 @@ private struct MemberClaimView: View {
                 Spacer(minLength: 12)
                 MascotView(mascot: .greeting, size: 154, idle: false)
                 VStack(spacing: 7) {
-                    Text("which member are you? ")
+                    Text(BrandFont.handText("which member are you?"))
                         .font(BrandFont.hand(30, weight: .bold))
                     Text("Match your profile to the name used on \(group?.name ?? "this shared bill").")
                         .font(BrandFont.body(14, weight: .semibold))

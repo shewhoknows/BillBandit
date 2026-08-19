@@ -169,7 +169,7 @@ final class SettlementStoreTests: XCTestCase {
         XCTAssertTrue(try cache.pendingOperations(for: "account-a").isEmpty)
     }
 
-    func testSettlementActionStaysVisibleWhileCanonicalRefreshRuns() async throws {
+    func testSettlementActionStaysVisibleButCannotStartWhileCanonicalRefreshRuns() async throws {
         let cache = try makeCacheStore()
         let initial = canonicalSnapshot(revision: 4, readRevision: 4)
         let refreshed = canonicalSnapshot(revision: 5, readRevision: 5)
@@ -194,11 +194,49 @@ final class SettlementStoreTests: XCTestCase {
         XCTAssertEqual(fetchCount, 1)
         XCTAssertFalse(store.isUpdating)
         XCTAssertTrue(store.canDisplaySettlementAction(transfer))
-        XCTAssertTrue(store.canStartSettlement(transfer))
+        XCTAssertFalse(store.canStartSettlement(transfer))
 
         await refresh.value
         XCTAssertFalse(store.isUpdating)
         XCTAssertTrue(store.canDisplaySettlementAction(try XCTUnwrap(store.snapshot?.plan.first)))
+        XCTAssertTrue(store.canStartSettlement(try XCTUnwrap(store.snapshot?.plan.first)))
+    }
+
+    func testRealtimeRefreshWaitsUntilSettlementConfirmationCloses() async throws {
+        let cache = try makeCacheStore()
+        let initial = canonicalSnapshot(revision: 4, readRevision: 4)
+        let refreshed = canonicalSnapshot(revision: 5, readRevision: 5)
+        _ = try cache.cache(snapshot: initial)
+        let api = DelayedCanonicalLedgerAPI(snapshot: refreshed)
+        let store = SettlementStore(
+            realtimeClient: SettlementPollingRealtimeClient(),
+            serverLedgerStore: cache,
+            serverLedgerAPIClient: api
+        )
+        store.configure(accountID: "account-a", groupID: "group-a", currentUserLabel: "You")
+        try store.applyCanonicalForTesting(initial)
+
+        store.setInteractionActive(true)
+        store.applyRealtimeVersion(5)
+        try await Task.sleep(for: .milliseconds(30))
+
+        let fetchCountWhileConfirming = await api.fetchCount
+        XCTAssertEqual(fetchCountWhileConfirming, 0)
+        XCTAssertEqual(store.snapshot?.version, 4)
+
+        store.setInteractionActive(false)
+        for _ in 0..<50 {
+            if await api.fetchCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        let fetchCountAfterClosing = await api.fetchCount
+        XCTAssertEqual(fetchCountAfterClosing, 1)
+        for _ in 0..<80 {
+            if store.snapshot?.version == 5 { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(store.snapshot?.version, 5)
     }
 
     func testCanonicalSettlementDoesNotInsertLegacyLocalSettlement() async throws {

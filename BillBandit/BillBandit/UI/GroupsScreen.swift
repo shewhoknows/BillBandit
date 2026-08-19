@@ -23,7 +23,7 @@ struct GroupsScreen: View {
                 if visibleGroups.isEmpty {
                     VStack(spacing: 10) {
                         MascotView(mascot: .neutral, size: 145)
-                        Text("no crews yet ")
+                        Text(BrandFont.handText("no crews yet"))
                             .font(BrandFont.hand(24, weight: .bold))
                         Text("Start a group for a home, trip, or shared ritual.")
                             .font(BrandFont.body(12, weight: .semibold))
