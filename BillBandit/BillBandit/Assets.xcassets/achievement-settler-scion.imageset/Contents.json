@@ -1,0 +1,13 @@
+{
+  "images": [
+    {
+      "filename": "achievement-settler-scion.png",
+      "idiom": "universal",
+      "scale": "1x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

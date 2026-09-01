@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Xcode user state and generated products
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+*.xcresult
+
+# XcodeGen output is regenerated from project.yml (historical scaffold at repo root)
+BillBandit.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Signing material and local environment files
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+.env
+.env.*
+
+# Secrets / local overrides
+*.local.xcconfig
+
+# Separate project that is not part of BillBandit
+Daud/
+
+# Node / Next.js API (apps/api)
+node_modules/
+.next/
+*.tsbuildinfo
+npm-debug.log*

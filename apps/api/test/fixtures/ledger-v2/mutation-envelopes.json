@@ -1,0 +1,168 @@
+{
+  "fixtureId": "mutation-envelopes-v2",
+  "contractVersion": 2,
+  "kind": "mutation_fixture",
+  "request": {
+    "contractVersion": 2,
+    "kind": "mutation_request",
+    "groupId": "grp-goa-001",
+    "operationId": "op-expense-retry-001",
+    "headers": {
+      "Idempotency-Key": "idem-expense-retry-001",
+      "Expected-Revision": "7",
+      "Client-Contract": "ledger-v2",
+      "Client-Compatibility": "ledger-v2"
+    },
+    "body": {
+      "kind": "expense.create",
+      "expenseId": "exp-retried-001",
+      "paidByMemberId": "mem-alex-001",
+      "description": "Airport shuttle",
+      "amount": {
+        "minorUnits": "5000",
+        "currencyCode": "INR",
+        "currencyExponent": 2
+      },
+      "splitMethod": "EXACT",
+      "splits": [
+        {
+          "splitId": "split-retried-bea",
+          "memberId": "mem-bea-001",
+          "amount": {
+            "minorUnits": "5000",
+            "currencyCode": "INR",
+            "currencyExponent": 2
+          },
+          "percentage": null,
+          "shares": null
+        }
+      ]
+    }
+  },
+  "applied": {
+    "contractVersion": 2,
+    "kind": "mutation_result",
+    "groupId": "grp-goa-001",
+    "operationId": "op-expense-retry-001",
+    "outcome": "applied",
+    "revision": 8,
+    "readRevision": 8,
+    "idempotency": {
+      "key": "idem-expense-retry-001",
+      "requestHash": "d3b4abdf0e8ed7f92d66c5c3e9e87c80b626515d3a6bb425f5f0f26fcbbc7af1",
+      "replayed": false,
+      "resultRevision": 8,
+      "retainedUntil": "2027-08-03T10:00:00.000Z"
+    },
+    "result": {
+      "recordId": "exp-retried-001",
+      "eventType": "expense_created"
+    },
+    "authority": {
+      "serverAuthoritative": true,
+      "source": "server",
+      "readModel": "server",
+      "ledger": "server",
+      "balances": "server",
+      "settlementPlan": "server",
+      "settlementHistory": "server",
+      "identity": "server",
+      "cacheRole": "offline-cache"
+    }
+  },
+  "replayed": {
+    "contractVersion": 2,
+    "kind": "mutation_result",
+    "groupId": "grp-goa-001",
+    "operationId": "op-expense-retry-001",
+    "outcome": "replayed",
+    "revision": 8,
+    "readRevision": 8,
+    "idempotency": {
+      "key": "idem-expense-retry-001",
+      "requestHash": "d3b4abdf0e8ed7f92d66c5c3e9e87c80b626515d3a6bb425f5f0f26fcbbc7af1",
+      "replayed": true,
+      "resultRevision": 8,
+      "retainedUntil": "2027-08-03T10:00:00.000Z"
+    },
+    "result": {
+      "recordId": "exp-retried-001",
+      "eventType": "expense_created"
+    },
+    "authority": {
+      "serverAuthoritative": true,
+      "source": "server",
+      "readModel": "server",
+      "ledger": "server",
+      "balances": "server",
+      "settlementPlan": "server",
+      "settlementHistory": "server",
+      "identity": "server",
+      "cacheRole": "offline-cache"
+    }
+  },
+  "revisionConflict": {
+    "contractVersion": 2,
+    "kind": "conflict",
+    "groupId": "grp-goa-001",
+    "operationId": "op-stale-001",
+    "revision": 8,
+    "readRevision": 8,
+    "conflict": {
+      "code": "REVISION_CONFLICT",
+      "expectedRevision": 7,
+      "currentRevision": 8,
+      "retryable": true,
+      "message": "The shared ledger changed; refresh before retrying this operation.",
+      "serverAuthoritative": true
+    },
+    "idempotency": {
+      "key": "idem-stale-001",
+      "requestHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    },
+    "snapshot": null,
+    "authority": {
+      "serverAuthoritative": true,
+      "source": "server",
+      "readModel": "server",
+      "ledger": "server",
+      "balances": "server",
+      "settlementPlan": "server",
+      "settlementHistory": "server",
+      "identity": "server",
+      "cacheRole": "offline-cache"
+    }
+  },
+  "idempotencyConflict": {
+    "contractVersion": 2,
+    "kind": "conflict",
+    "groupId": "grp-goa-001",
+    "operationId": "op-different-payload-001",
+    "revision": 8,
+    "readRevision": 8,
+    "conflict": {
+      "code": "IDEMPOTENCY_KEY_REUSED",
+      "expectedRevision": 8,
+      "currentRevision": 8,
+      "retryable": false,
+      "message": "The idempotency key is already bound to a different request.",
+      "serverAuthoritative": true
+    },
+    "idempotency": {
+      "key": "idem-expense-retry-001",
+      "requestHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    },
+    "snapshot": null,
+    "authority": {
+      "serverAuthoritative": true,
+      "source": "server",
+      "readModel": "server",
+      "ledger": "server",
+      "balances": "server",
+      "settlementPlan": "server",
+      "settlementHistory": "server",
+      "identity": "server",
+      "cacheRole": "offline-cache"
+    }
+  }
+}

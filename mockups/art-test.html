@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>raccoon v2 — illustrated style</title>
+<style>
+  body{background:#1F3FC3;font-family:system-ui;display:flex;flex-wrap:wrap;gap:16px;padding:16px;}
+  .cell{background:#1F3FC3;padding:8px;text-align:center;--bbs:#1F3FC3;}
+  .cell.cream{background:#F5F3E4;--bbs:#F5F3E4;}
+  .cell.cream svg{color:#1F3FC3;}
+  svg{color:#F5F3E4;}
+  .lbl{font-size:11px;margin-top:4px;color:rgba(245,243,228,.6);}
+  .cell.cream .lbl{color:rgba(31,63,195,.55);}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+
+  <!-- ===== shared: ears ===== -->
+  <g id="r2-ears">
+    <path d="M86 64 Q80 30 104 38 Q116 42 110 62" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M174 64 Q180 30 156 38 Q144 42 150 62" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M93 54 Q92 42 102 46" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M167 54 Q168 42 158 46" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- ===== shared: head outline (cheek spikes) ===== -->
+  <g id="r2-headshape">
+    <path d="M88 66 Q72 80 74 100 L62 112 L76 113 L68 125 L82 122 Q92 142 130 144 Q168 142 178 122 L192 125 L184 113 L198 112 L186 100 Q188 80 172 66 Q154 54 130 54 Q106 54 88 66 Z"
+      fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- ===== shared: filled mask + features ===== -->
+  <g id="r2-face">
+    <path d="M84 96 Q82 78 106 78 Q124 78 128 90 L132 90 Q136 78 154 78 Q178 78 176 96 Q174 112 154 110 Q138 108 132 98 L128 98 Q122 108 106 110 Q86 112 84 96 Z"
+      fill="currentColor"/>
+    <circle cx="107" cy="95" r="4.5" fill="var(--bbs)"/>
+    <circle cx="153" cy="95" r="4.5" fill="var(--bbs)"/>
+    <path d="M124 116 Q130 112 136 116 Q136 123 130 125 Q124 123 124 116 Z" fill="currentColor"/>
+    <path d="M130 125 L130 130 M130 130 Q124 135 119 131 M130 130 Q136 135 141 131" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- ===== shared: body + fur + feet + ground ===== -->
+  <g id="r2-bodyshape">
+    <path d="M96 152 Q86 202 104 226 L156 226 Q174 202 164 152 Q150 145 130 145 Q110 145 96 152 Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g id="r2-fur">
+    <path d="M110 162 L110 170 M130 158 L130 166 M150 162 L150 170 M106 180 L106 188 M128 176 L128 184 M152 180 L152 188 M112 198 L112 206 M132 194 L132 202 M150 198 L150 206"
+      fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g id="r2-feet">
+    <path d="M108 226 Q106 240 118 240 Q128 240 126 226" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M134 226 Q132 240 144 240 Q154 240 152 226" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M84 248 L152 248" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g id="r2-tail">
+    <path d="M158 196 Q198 200 216 222 Q226 236 214 244 Q200 250 182 244 Q164 238 160 222 Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M188 204 Q196 220 188 238 M206 216 Q212 228 204 242 M170 202 Q177 216 171 232" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g id="r2-armsdown">
+    <path d="M98 160 Q90 186 96 208" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M162 160 Q170 186 164 208" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- ============ POSES ============ -->
+  <symbol id="r2-cool" viewBox="0 0 260 264">
+    <use href="#r2-tail"/><use href="#r2-bodyshape"/><use href="#r2-fur"/>
+    <path d="M108 226 Q106 240 118 240 Q128 240 126 226 M134 226 Q132 240 144 240 Q154 240 152 226" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <!-- skateboard -->
+    <path d="M92 245 Q96 253 108 253 L152 253 Q164 253 168 245" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="112" cy="258" r="4" fill="none" stroke="currentColor" stroke-width="4.5"/>
+    <circle cx="148" cy="258" r="4" fill="none" stroke="currentColor" stroke-width="4.5"/>
+    <path d="M76 250 L86 250 M174 250 L184 250" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+    <use href="#r2-armsdown"/>
+    <use href="#r2-ears"/><use href="#r2-headshape"/><use href="#r2-face"/>
+    <!-- sunglasses -->
+    <path d="M88 88 L80 82 M172 88 L180 82" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+    <path d="M88 88 L172 88" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M94 88 L126 88 L122 108 Q120 114 110 114 Q100 114 98 108 Z" fill="currentColor"/>
+    <path d="M134 88 L166 88 L162 108 Q160 114 150 114 Q140 114 138 108 Z" fill="currentColor"/>
+    <circle cx="108" cy="96" r="3" fill="var(--bbs)"/>
+    <circle cx="148" cy="96" r="3" fill="var(--bbs)"/>
+    <!-- confident grin -->
+    <path d="M118 127 Q130 136 142 127" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="r2-wave" viewBox="0 0 260 260">
+    <use href="#r2-tail"/><use href="#r2-bodyshape"/><use href="#r2-fur"/><use href="#r2-feet"/>
+    <path d="M98 160 Q90 186 96 208" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M162 160 Q188 148 196 126" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="197" cy="118" r="8" fill="none" stroke="currentColor" stroke-width="6"/>
+    <path d="M211 108 Q221 116 217 128 M223 100 Q237 112 231 130" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+    <use href="#r2-ears"/><use href="#r2-headshape"/><use href="#r2-face"/>
+  </symbol>
+
+  <symbol id="r2-peek" viewBox="0 0 260 195">
+    <use href="#r2-ears"/><use href="#r2-headshape"/><use href="#r2-face"/>
+    <path d="M72 186 L188 186" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M98 186 Q96 170 110 170 Q122 170 120 186" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M140 186 Q138 170 152 170 Q164 170 162 186" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M105 176 L105 185 M115 176 L115 185 M146 176 L146 185 M156 176 L156 185" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="r2-receipt" viewBox="0 0 260 260">
+    <use href="#r2-tail"/><use href="#r2-bodyshape"/><use href="#r2-fur"/><use href="#r2-feet"/>
+    <path d="M98 160 Q90 186 96 208" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M162 162 Q178 156 186 144" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M186 106 L228 106 L228 162 L221 157 L214 162 L207 157 L200 162 L193 157 L186 162 Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M194 118 L220 118 M194 128 L220 128 M194 138 L212 138" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+    <use href="#r2-ears"/><use href="#r2-headshape"/><use href="#r2-face"/>
+  </symbol>
+
+  <symbol id="r2-celebrate" viewBox="0 0 260 260">
+    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M38 48 L46 56 M46 48 L38 56" stroke-width="4"/>
+      <path d="M226 34 L234 42 M234 34 L226 42" stroke-width="4"/>
+      <circle cx="28" cy="90" r="3.5" stroke-width="4"/>
+      <circle cx="236" cy="86" r="3.5" stroke-width="4"/>
+      <path d="M60 24 Q64 30 60 36 Q56 30 60 24 Z" stroke-width="4"/>
+      <path d="M200 14 Q204 20 200 26 Q196 20 200 14 Z" stroke-width="4"/>
+      <circle cx="44" cy="132" r="15" stroke-width="5"/>
+      <path d="M44 122 Q38 122 38 127 Q38 131.5 44 132.5 Q50 133.5 50 138 Q50 143 44 143 M44 118.5 L44 146.5" stroke-width="4"/>
+      <circle cx="218" cy="140" r="15" stroke-width="5"/>
+      <path d="M218 130 Q212 130 212 135 Q212 139.5 218 140.5 Q224 141.5 224 146 Q224 151 218 151 M218 126.5 L218 154.5" stroke-width="4"/>
+    </g>
+    <use href="#r2-tail"/><use href="#r2-bodyshape"/><use href="#r2-fur"/>
+    <path d="M108 226 Q104 240 116 240 Q126 240 126 226 M134 226 Q134 240 146 240 Q156 240 152 226" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M98 244 L122 244 M138 244 L162 244" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+    <path d="M98 162 Q80 148 76 126" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="74" cy="117" r="8" fill="none" stroke="currentColor" stroke-width="6"/>
+    <path d="M162 162 Q180 148 184 126" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="186" cy="117" r="8" fill="none" stroke="currentColor" stroke-width="6"/>
+    <use href="#r2-ears"/><use href="#r2-headshape"/>
+    <!-- face: happy closed eyes -->
+    <path d="M84 96 Q82 78 106 78 Q124 78 128 90 L132 90 Q136 78 154 78 Q178 78 176 96 Q174 112 154 110 Q138 108 132 98 L128 98 Q122 108 106 110 Q86 112 84 96 Z" fill="currentColor"/>
+    <path d="M99 94 Q106 88 113 94 M147 94 Q154 88 161 94" fill="none" stroke="var(--bbs)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M124 116 Q130 112 136 116 Q136 123 130 125 Q124 123 124 116 Z" fill="currentColor"/>
+    <path d="M116 128 Q130 142 144 128" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+  </symbol>
+
+  <symbol id="r2-friend" viewBox="0 0 260 260">
+    <use href="#r2-tail"/><use href="#r2-bodyshape"/><use href="#r2-fur"/><use href="#r2-feet"/>
+    <path d="M130 200 Q104 183 108 164 Q112 151 123 157 Q129 160.5 130 168 Q131 160.5 137 157 Q148 151 152 164 Q156 183 130 200 Z" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M99 164 Q106 184 118 190" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M161 164 Q154 184 142 190" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+    <path d="M180 146 L180 158 M174 152 L186 152" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+    <use href="#r2-ears"/><use href="#r2-headshape"/><use href="#r2-face"/>
+  </symbol>
+
+  <symbol id="r2-grumpy" viewBox="0 0 260 260">
+    <use href="#r2-tail"/><use href="#r2-bodyshape"/><use href="#r2-fur"/><use href="#r2-feet"/>
+    <!-- crossed arms -->
+    <path d="M96 168 Q128 184 164 172" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+    <path d="M164 184 Q128 198 96 182" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+    <use href="#r2-ears"/><use href="#r2-headshape"/>
+    <!-- face: grumpy brows + frown -->
+    <path d="M84 96 Q82 78 106 78 Q124 78 128 90 L132 90 Q136 78 154 78 Q178 78 176 96 Q174 112 154 110 Q138 108 132 98 L128 98 Q122 108 106 110 Q86 112 84 96 Z" fill="currentColor"/>
+    <circle cx="107" cy="97" r="4.5" fill="var(--bbs)"/>
+    <circle cx="153" cy="97" r="4.5" fill="var(--bbs)"/>
+    <path d="M98 84 L114 89 M162 84 L146 89" fill="none" stroke="var(--bbs)" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M124 116 Q130 112 136 116 Q136 123 130 125 Q124 123 124 116 Z" fill="currentColor"/>
+    <path d="M119 132 Q130 126 141 132" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+  </symbol>
+
+</defs></svg>
+
+<div class="cell"><svg width="230" viewBox="0 0 260 264"><use href="#r2-cool"/></svg><div class="lbl">cool (onboarding)</div></div>
+<div class="cell"><svg width="230" viewBox="0 0 260 260"><use href="#r2-wave"/></svg><div class="lbl">wave</div></div>
+<div class="cell"><svg width="230" viewBox="0 0 260 195"><use href="#r2-peek"/></svg><div class="lbl">peek</div></div>
+<div class="cell"><svg width="230" viewBox="0 0 260 260"><use href="#r2-receipt"/></svg><div class="lbl">receipt</div></div>
+<div class="cell"><svg width="230" viewBox="0 0 260 260"><use href="#r2-celebrate"/></svg><div class="lbl">celebrate</div></div>
+<div class="cell"><svg width="230" viewBox="0 0 260 260"><use href="#r2-friend"/></svg><div class="lbl">friend</div></div>
+<div class="cell"><svg width="230" viewBox="0 0 260 260"><use href="#r2-grumpy"/></svg><div class="lbl">grumpy (owe)</div></div>
+<div class="cell cream"><svg width="230" viewBox="0 0 260 264"><use href="#r2-cool"/></svg><div class="lbl">cool on cream</div></div>
+<div class="cell cream"><svg width="230" viewBox="0 0 260 260"><use href="#r2-celebrate"/></svg><div class="lbl">celebrate on cream</div></div>
+<div class="cell cream"><svg width="230" viewBox="0 0 260 260"><use href="#r2-grumpy"/></svg><div class="lbl">grumpy on cream</div></div>
+</body></html>
