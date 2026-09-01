@@ -30,6 +30,12 @@ struct OnboardingScreen: View {
         (.celebrating, "settle up. stay friends.", "Record a payment and let the bandit celebrate the clean slate."),
     ]
 
+    // The fixed page composition is intentional on the normal iPhone canvas,
+    // but the iPhone compatibility presentation can have less vertical room.
+    // Keep the composition intact when it fits and make the page itself
+    // scrollable when it does not, rather than letting TabView clip its tail.
+    private let onboardingPageMinimumHeight: CGFloat = 574
+
     private var isDemo: Bool {
         ProcessInfo.processInfo.arguments.contains("-onboardingDemo")
     }
@@ -79,7 +85,7 @@ struct OnboardingScreen: View {
 
             TabView(selection: $page) {
                 ForEach(0..<3, id: \.self) { index in
-                    onboardingPage(index)
+                    onboardingPageContainer(index)
                         .tag(index)
                 }
             }
@@ -137,6 +143,20 @@ struct OnboardingScreen: View {
         }
     }
 
+    private func onboardingPageContainer(_ index: Int) -> some View {
+        GeometryReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                onboardingPage(index)
+                    .frame(maxWidth: .infinity)
+                    .frame(
+                        minHeight: max(proxy.size.height, onboardingPageMinimumHeight),
+                        alignment: .top
+                    )
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+
     private func onboardingPage(_ index: Int) -> some View {
         VStack(spacing: 8) {
             Spacer(minLength: 4)
@@ -147,14 +167,17 @@ struct OnboardingScreen: View {
             Text(pages[index].1)
                 .font(BrandFont.hand(28, weight: .bold))
                 .multilineTextAlignment(.center)
-                .frame(height: 42)
+                // Preserve the shipped baseline while allowing Dynamic Type to grow.
+                .frame(minHeight: 42)
                 .accessibilityIdentifier("onboardingTitle-\(index)")
             Text(pages[index].2)
                 .font(BrandFont.body(14, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .opacity(0.78)
                 .padding(.horizontal, 32)
-                .frame(height: 44, alignment: .top)
+                // A fixed height here clipped larger accessibility text before
+                // the page could become scrollable.
+                .frame(minHeight: 44, alignment: .top)
                 .accessibilityIdentifier("onboardingDescription-\(index)")
             if index == 2 {
                 VStack(alignment: .leading, spacing: 9) {
@@ -245,10 +268,10 @@ struct OnboardingScreen: View {
                     }
                 }
                 .padding(.horizontal, 22)
-                .frame(height: 246, alignment: .top)
+                .frame(minHeight: 246, alignment: .top)
             } else {
                 Color.clear
-                    .frame(height: 246)
+                    .frame(minHeight: 246)
             }
             Spacer(minLength: 4)
         }
