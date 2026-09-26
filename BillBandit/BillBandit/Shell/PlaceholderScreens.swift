@@ -529,7 +529,9 @@ struct HomeScreen: View {
             )
         }
         .foregroundStyle(Color.Brand.creamSoft)
-        .padding(.top, 8)
+        // An iPhone app in iPad compatibility mode can still report phone traits.
+        // Clear the host window controls without shifting the iPhone layout.
+        .padding(.top, UIDevice.current.model.hasPrefix("iPad") ? 40 : 8)
         .padding(.bottom, 10)
     }
 

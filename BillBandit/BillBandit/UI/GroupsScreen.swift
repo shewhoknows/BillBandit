@@ -10,6 +10,10 @@ struct GroupsScreen: View {
     @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAdd = false
     @State private var path = NavigationPath()
+    @State private var groupsPendingLocalDeletion: [Group] = []
+    @State private var showLocalGroupDeleteConfirmation = false
+    @State private var showGroupDeleteError = false
+    @State private var groupDeleteErrorMessage = ""
 
     private var visibleGroups: [Group] {
         groups.filter {
@@ -87,12 +91,34 @@ struct GroupsScreen: View {
                     ))
                 }
                 .onDelete { idx in
-                    for i in idx {
-                        CloudCollaborationService.shared.groupWasDeleted(visibleGroups[i])
-                        context.delete(visibleGroups[i])
+                    // A shared group has server-owned membership and history. A local
+                    // model delete cannot represent a server deletion or leave action.
+                    if idx.contains(where: { visibleGroups[$0].serverLedgerGroupID != nil }) {
+                        groupDeleteErrorMessage = "Shared groups cannot be deleted here. Your group is unchanged."
+                        showGroupDeleteError = true
+                        return
                     }
-                    try? context.save()
+                    groupsPendingLocalDeletion = idx.map { visibleGroups[$0] }
+                    showLocalGroupDeleteConfirmation = !groupsPendingLocalDeletion.isEmpty
                 }
+            }
+            .alert(
+                groupsPendingLocalDeletion.count == 1 ? "Delete this group?" : "Delete these groups?",
+                isPresented: $showLocalGroupDeleteConfirmation
+            ) {
+                Button(
+                    groupsPendingLocalDeletion.count == 1 ? "Delete Group" : "Delete Groups",
+                    role: .destructive
+                ) {
+                    deletePendingLocalGroups()
+                }
+                Button("Cancel", role: .cancel) {
+                    groupsPendingLocalDeletion = []
+                }
+            } message: {
+                Text(groupsPendingLocalDeletion.count == 1
+                     ? "This permanently removes the group and its on-device data. This can't be undone."
+                     : "This permanently removes the selected groups and their on-device data. This can't be undone.")
             }
             .listStyle(.plain)
             .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: visibleGroups.map(\.id))
@@ -126,6 +152,43 @@ struct GroupsScreen: View {
         }
         .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
             await serverLedger.refresh(groups: visibleGroups)
+        }
+        .alert("Group not deleted", isPresented: $showGroupDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(groupDeleteErrorMessage)
+        }
+    }
+
+    private func deletePendingLocalGroups() {
+        let groupsToDelete = groupsPendingLocalDeletion
+        groupsPendingLocalDeletion = []
+        guard !groupsToDelete.isEmpty else { return }
+        guard groupsToDelete.allSatisfy({ $0.serverLedgerGroupID == nil }) else {
+            groupDeleteErrorMessage = "This group is now shared. It cannot be deleted here. Your group is unchanged."
+            showGroupDeleteError = true
+            return
+        }
+
+        // Save existing edits first so rollback after a failed delete restores only this operation.
+        do {
+            try context.save()
+        } catch {
+            groupDeleteErrorMessage = "The group was kept. Save failed. Try again after you restart the app."
+            showGroupDeleteError = true
+            return
+        }
+
+        for group in groupsToDelete {
+            CloudCollaborationService.shared.groupWasDeleted(group)
+            context.delete(group)
+        }
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            groupDeleteErrorMessage = "The group was kept. Save failed. Try again after you restart the app."
+            showGroupDeleteError = true
         }
     }
 }

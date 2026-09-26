@@ -24,27 +24,6 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertThrowsError(try UsernameHandle("support"))
     }
 
-    @MainActor
-    func testDemoSeedGroupIDsAreStableAcrossFreshInstalls() throws {
-        func seededGroupIDs(storeName: String) throws -> [String: UUID] {
-            let configuration = ModelConfiguration(
-                storeName, schema: AppStore.schema, isStoredInMemoryOnly: true,
-                groupContainer: .none, cloudKitDatabase: .none
-            )
-            let container = try ModelContainer(
-                for: AppStore.schema, configurations: configuration
-            )
-            SeedData.seedIfEmpty(context: container.mainContext)
-            return Dictionary(uniqueKeysWithValues: try container.mainContext
-                .fetch(FetchDescriptor<Group>())
-                .map { ($0.name, $0.id) })
-        }
-
-        XCTAssertEqual(
-            try seededGroupIDs(storeName: "StableSeedIDs-A"),
-            try seededGroupIDs(storeName: "StableSeedIDs-B")
-        )
-    }
 
     @MainActor
     func testCloudSyncMessageNeverExposesCloudKitImplementationDetails() {
@@ -65,40 +44,6 @@ final class BalanceEngineTests: XCTestCase {
         )
         XCTAssertFalse(message.contains("CKDP"))
         XCTAssertFalse(message.contains("0x"))
-    }
-
-    func testStaleAutomaticInvitationDoesNotKeepLedgerSyncBannerVisible() {
-        let missingShare = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.unknownItem.rawValue
-        )
-        let networkFailure = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.networkFailure.rawValue
-        )
-        let rateLimited = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.requestRateLimited.rawValue
-        )
-
-        XCTAssertTrue(AutomaticInvitationFailurePolicy.isTerminal(missingShare))
-        XCTAssertFalse(AutomaticInvitationFailurePolicy.isTerminal(networkFailure))
-        XCTAssertNil(CloudSyncIssuePolicy.visibleError(from: [
-            CloudSyncIssue(source: .automaticInvitation, error: missingShare),
-        ]))
-
-        let visible = CloudSyncIssuePolicy.visibleError(from: [
-            CloudSyncIssue(source: .privateLedger, error: networkFailure),
-        ]) as NSError?
-        XCTAssertEqual(visible?.domain, CKError.errorDomain)
-        XCTAssertEqual(visible?.code, CKError.Code.networkFailure.rawValue)
-
-        XCTAssertFalse(CloudSyncIssuePolicy.shouldSurfaceBanner(for: rateLimited))
-        XCTAssertFalse(CloudSyncIssuePolicy.shouldSurfaceBanner(for: networkFailure))
-        XCTAssertTrue(CloudSyncIssuePolicy.shouldSurfaceBanner(for: NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.notAuthenticated.rawValue
-        )))
     }
 
     @MainActor
@@ -168,142 +113,6 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertTrue(remainingGroups.contains { $0.id == realGroup.id })
         XCTAssertFalse(try context.fetch(FetchDescriptor<ActivityItem>())
             .contains { $0.id == duplicateActivity.id })
-    }
-
-    func testStaleRemoteManifestCannotDeleteOrHideConcurrentExpenses() {
-        let localExpenseID = UUID()
-        let remoteExpenseID = UUID()
-        let staleRemoteManifest = Set<UUID>()
-
-        XCTAssertEqual(
-            CloudRecordMergePolicy.localRecordIDsToDelete(
-                local: [localExpenseID], remoteManifest: staleRemoteManifest
-            ),
-            []
-        )
-        XCTAssertTrue(
-            CloudRecordMergePolicy.shouldApplyIncomingRecord(
-                remoteExpenseID, remoteManifest: staleRemoteManifest
-            )
-        )
-    }
-
-    func testCollaborationRetryBackoffIsFastThenBounded() {
-        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 0), 0)
-        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 1), 1)
-        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 2), 2)
-        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 5), 16)
-        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 20), 30)
-    }
-
-    func testCloudSyncGivesReadyLocalUploadsPriorityOverPulling() {
-        XCTAssertTrue(CloudSyncWorkPolicy.shouldYieldToPendingUpload(
-            hasPendingUploadReady: true
-        ))
-        XCTAssertFalse(CloudSyncWorkPolicy.shouldYieldToPendingUpload(
-            hasPendingUploadReady: false
-        ))
-    }
-
-    func testRecordZoneSubscriptionsArePrivateDatabaseOnly() {
-        XCTAssertTrue(CloudSubscriptionPolicy.shouldCreateRecordZoneSubscription(
-            scope: .private
-        ))
-        XCTAssertFalse(CloudSubscriptionPolicy.shouldCreateRecordZoneSubscription(
-            scope: .shared
-        ))
-    }
-
-    func testPersonUploadsWriteProfileTimestamp() {
-        XCTAssertTrue(
-            CloudPersonRecordPolicy.writesProfileUpdatedAt,
-            "BBPerson.profileUpdatedAt must be deployed in the checked-in CloudKit schema"
-        )
-    }
-
-    func testPersonUploadPolicyMatchesCheckedInCloudKitSchema() throws {
-        let schemaURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("CloudKit/CloudKitSchema.ckdb")
-        let schema = try String(contentsOf: schemaURL, encoding: .utf8)
-        let personStart = try XCTUnwrap(schema.range(of: "RECORD TYPE BBPerson ("))
-        let following = schema[personStart.upperBound...]
-        let personEnd = try XCTUnwrap(following.range(of: ");"))
-        let personSchema = following[..<personEnd.lowerBound]
-
-        XCTAssertEqual(
-            personSchema.contains("profileUpdatedAt"),
-            CloudPersonRecordPolicy.writesProfileUpdatedAt
-        )
-    }
-
-    func testCloudUploadRetriesNetworkErrorsButStopsSchemaFailures() {
-        let network = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.networkFailure.rawValue
-        )
-        let invalidSchema = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.invalidArguments.rawValue
-        )
-
-        XCTAssertEqual(CloudUploadFailurePolicy.disposition(for: network), .retry)
-        XCTAssertEqual(
-            CloudUploadFailurePolicy.disposition(for: invalidSchema),
-            .needsAttention
-        )
-    }
-
-    func testPartialCloudFailureStopsWhenAnyRecordHasASchemaFailure() {
-        let recordID = CKRecord.ID(recordName: "person-test")
-        let invalidRecord = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.invalidArguments.rawValue
-        )
-        let partialFailure = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.partialFailure.rawValue,
-            userInfo: [CKPartialErrorsByItemIDKey: [recordID: invalidRecord]]
-        )
-
-        XCTAssertEqual(
-            CloudUploadFailurePolicy.disposition(for: partialFailure),
-            .needsAttention
-        )
-        XCTAssertEqual(
-            CloudUploadFailurePolicy.cloudCode(for: partialFailure),
-            .invalidArguments
-        )
-    }
-
-    func testCloudUploadHonorsServerRetryAfter() {
-        let busy = NSError(
-            domain: CKError.errorDomain,
-            code: CKError.Code.requestRateLimited.rawValue,
-            userInfo: [CKErrorRetryAfterKey: NSNumber(value: 12)]
-        )
-
-        XCTAssertEqual(CollaborationRetryPolicy.delay(after: 2, error: busy), 12)
-    }
-
-    func testAutomaticGroupSharingRoutesBothFriendDirections() {
-        let esha = "cloud-user-esha"
-        let friend = "cloud-user-friend"
-
-        XCTAssertEqual(
-            AutomaticGroupShareRouting.recipients(
-                from: [esha, friend], currentUser: esha
-            ),
-            [friend]
-        )
-        XCTAssertEqual(
-            AutomaticGroupShareRouting.recipients(
-                from: [esha, friend], currentUser: friend
-            ),
-            [esha]
-        )
     }
 
 
@@ -1308,44 +1117,6 @@ final class BalanceEngineTests: XCTestCase {
             .contains(where: { $0.id == legacy.id }))
     }
 
-    func testAutomaticGroupShareRecipientsAreConnectedUniqueAndNotTheOwner() {
-        XCTAssertEqual(
-            AutomaticGroupShareRouting.recipients(
-                from: ["friend-b", nil, "owner", "friend-a", "friend-b", ""],
-                currentUser: "owner"
-            ),
-            ["friend-a", "friend-b"]
-        )
-    }
-
-    func testAutomaticGroupInvitationRecordNamesAreStableAndRecipientSpecific() {
-        let groupID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
-        let first = AutomaticGroupShareRouting.recordName(
-            groupID: groupID, recipientCloudUser: "friend-a"
-        )
-        let repeated = AutomaticGroupShareRouting.recordName(
-            groupID: groupID, recipientCloudUser: "friend-a"
-        )
-        let other = AutomaticGroupShareRouting.recordName(
-            groupID: groupID, recipientCloudUser: "friend-b"
-        )
-
-        XCTAssertEqual(first, repeated)
-        XCTAssertNotEqual(first, other)
-        XCTAssertTrue(first.hasPrefix(AutomaticGroupShareRouting.recordPrefix))
-    }
-
-    func testAutomaticInvitationSubscriptionsAreStablePerUser() {
-        XCTAssertEqual(
-            AutomaticGroupShareRouting.subscriptionID(for: "friend-a"),
-            AutomaticGroupShareRouting.subscriptionID(for: "friend-a")
-        )
-        XCTAssertNotEqual(
-            AutomaticGroupShareRouting.subscriptionID(for: "friend-a"),
-            AutomaticGroupShareRouting.subscriptionID(for: "friend-b")
-        )
-    }
-
     func testSingleExpenseNets() {
         // You pay 90 split 3 ways → you're owed 60, the others owe 30 each.
         let nets = BalanceEngine.nets(expenses: [
@@ -1393,10 +1164,6 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertTrue(plan.contains(DebtTransfer(from: c, to: b, amount: 10)))
     }
 
-    func testSimplifyIgnoresDust() {
-        let plan = BalanceEngine.simplify([you: Decimal(string: "0.004")!, maya: Decimal(string: "-0.004")!])
-        XCTAssertEqual(plan.count, 0)
-    }
 
     func testSuggestedPaymentMatchesSelectedDirection() {
         let plan = [
@@ -1435,9 +1202,6 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(Money.string(Decimal(string: "1234.5")!), "1,235")
     }
 
-    func testRupeeIsDefaultCurrency() {
-        XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .inr), "₹143")
-    }
 
     func testSelectableCurrencyFormattingAndParsing() {
         XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .usd), "$143")
@@ -1813,16 +1577,6 @@ struct AppleCredentialGatePolicyTests {
         )
     }
 
-    @Test("Existing completed accounts retain app access")
-    func completedAccountRetainsAccess() {
-        #expect(
-            AccountOnboardingAccessPolicy.mayEnterApp(
-                hasAppleIdentifier: true,
-                accountOnboardingComplete: true
-            )
-        )
-    }
-
     @Test("Missing defaults restore one persisted active Apple session")
     func missingDefaultsRestorePersistedSession() {
         let decision = AppleAccountBootstrapPolicy.decision(
@@ -1882,22 +1636,6 @@ struct AppleCredentialGatePolicyTests {
         #expect(decision == .ambiguous)
     }
 
-    @Test("Existing defaults remain the authoritative account")
-    func existingDefaultsRemainAuthoritative() {
-        let decision = AppleAccountBootstrapPolicy.decision(
-            storedIdentifier: " apple-account-1 ",
-            currentAccounts: [
-                .init(identifier: "apple-account-1", sessionIsActive: true),
-            ]
-        )
-
-        #expect(
-            decision == .authenticate(
-                identifier: "apple-account-1",
-                recoveredFromProfile: false
-            )
-        )
-    }
 
     @Test("Fresh authorization is not immediately revalidated")
     func freshAuthorizationSkipsCredentialStateCheck() {

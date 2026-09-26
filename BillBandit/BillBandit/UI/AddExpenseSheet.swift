@@ -187,6 +187,8 @@ struct AddExpenseSheet: View {
     var body: some View {
         VStack(spacing: 12) {
             BrandModalHeader(title: isEditingExpense ? "Edit expense" : "Add expense") { dismiss() }
+                // iPad compatibility-window controls can cover this full-screen close button.
+                .padding(.top, UIDevice.current.model.hasPrefix("iPad") ? 32 : 0)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 14) {
@@ -536,6 +538,8 @@ struct AddExpenseSheet: View {
                 errorMessage = "percentages add up to \(Money.string(p))%, not 100%"
             case .nonPositiveShares:
                 errorMessage = "give at least one person a share"
+            case .negativeComponent:
+                errorMessage = "split values can't be negative"
             default:
                 errorMessage = "check the amounts"
             }

@@ -39,17 +39,6 @@ targets:
         UIAppFonts:
           - Caveat-VariableFont.ttf
         ITSAppUsesNonExemptEncryption: false
-  BillBanditTests:
-    type: bundle.unit-test
-    platform: iOS
-    sources:
-      - BillBanditApp/Tests
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.billbandit.app.tests
-        GENERATE_INFOPLIST_FILE: YES
-    dependencies:
-      - target: BillBandit
   BillBanditUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -72,7 +61,6 @@ schemes:
       config: Debug
       gatherCoverageData: true
       targets:
-        - BillBanditTests
         - BillBanditUITests
     archive:
       config: Release

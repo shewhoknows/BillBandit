@@ -20,6 +20,7 @@ enum SplitError: Error, Equatable {
     case exactMismatch(expected: Decimal, got: Decimal)
     case percentNot100(Decimal)
     case nonPositiveShares
+    case negativeComponent
 }
 
 /// Computes whole-rupee per-person amounts that sum exactly to the rounded expense total.
@@ -31,6 +32,11 @@ enum SplitEngine {
         guard let mode = inputs.first?.mode else { throw SplitError.empty }
         let total = Money.whole(total)
         guard total > 0 else { throw SplitError.nonPositiveTotal }
+        // Equal mode ignores input values; all other modes must never create a
+        // negative person share, even when signed inputs sum to a valid total.
+        if mode != .equal && inputs.contains(where: { $0.value < 0 }) {
+            throw SplitError.negativeComponent
+        }
 
         switch mode {
         case .equal:   return equal(total: total, ids: inputs.map(\.personID))

@@ -11,7 +11,8 @@ final class BillBanditUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["BillBandit"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["₹142"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Your groups"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.staticTexts["₹142"].exists)
 
         app.buttons["Open profile"].tap()
         let profileAvatarButton = app.buttons["profileAvatarButton"]
@@ -76,7 +77,7 @@ final class BillBanditUITests: XCTestCase {
         let title = app.textFields["expenseTitleField"]
         title.tap()
         title.typeText("Ui dinner")
-        app.keyboards.buttons["Done"].tap()
+        title.typeText("\n")
         app.buttons["saveExpenseButton"].tap()
 
         XCTAssertTrue(app.staticTexts["Ui dinner"].waitForExistence(timeout: 4))
@@ -90,7 +91,7 @@ final class BillBanditUITests: XCTestCase {
         let editedTitle = app.textFields["expenseTitleField"]
         editedTitle.tap()
         editedTitle.typeText(" updated")
-        app.keyboards.buttons["Done"].tap()
+        editedTitle.typeText("\n")
         app.buttons["saveExpenseButton"].tap()
         XCTAssertTrue(app.staticTexts["Ui dinner updated"].waitForExistence(timeout: 4))
         app.buttons["Delete expense"].tap()
@@ -136,7 +137,11 @@ final class BillBanditUITests: XCTestCase {
         field.tap()
         field.typeText("Bubby")
         XCTAssertFalse(error.exists)
-        app.keyboards.buttons["Done"].tap()
+        field.typeText("\n")
+        let enterHittable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "hittable == YES"), object: enter
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [enterHittable], timeout: 4), .completed)
         enter.tap()
         XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 6))
     }
@@ -221,6 +226,32 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Record payment"].isEnabled)
     }
 
+    func testLocalGroupDeleteRequiresConfirmationAndCancelPreservesGroup() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetDemoData", "-tab", "1", "-skipOnboarding"]
+        app.launch()
+
+        let group = app.staticTexts["Goa Trip"].firstMatch
+        XCTAssertTrue(group.waitForExistence(timeout: 8))
+        group.swipeLeft()
+        let delete = app.buttons["Delete"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 4))
+        delete.tap()
+
+        XCTAssertTrue(app.staticTexts["Delete this group?"].waitForExistence(timeout: 4))
+        attachScreenshot(named: "populated-local-group-delete-confirmation")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(group.waitForExistence(timeout: 4))
+
+        group.swipeLeft()
+        XCTAssertTrue(delete.waitForExistence(timeout: 4))
+        delete.tap()
+        app.buttons["Delete Group"].tap()
+        XCTAssertTrue(group.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Friday Pizza"].waitForExistence(timeout: 4))
+        attachScreenshot(named: "populated-local-group-deleted-after-confirmation")
+    }
+
     func testNewGroupAppearsOnHomeImmediately() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
@@ -232,7 +263,7 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 8))
         name.tap()
         name.typeText("Instant Crew")
-        app.keyboards.buttons["Done"].tap()
+        name.typeText("\n")
         app.buttons["createGroupButton"].tap()
 
         XCTAssertTrue(app.staticTexts["Instant Crew"].waitForExistence(timeout: 4))
@@ -240,7 +271,10 @@ final class BillBanditUITests: XCTestCase {
         app.staticTexts["Instant Crew"].firstMatch.tap()
         let sleepingMascot = app.descendants(matching: .any)["emptyGroupSleepingMascot"]
         XCTAssertTrue(sleepingMascot.waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["no expenses on this invoice"].exists)
+        let emptyCopy = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "no expenses on this invoice")
+        ).firstMatch
+        XCTAssertTrue(emptyCopy.waitForExistence(timeout: 4))
         XCTAssertFalse(app.descendants(matching: .any)["BillBandit raccoon — neutral"].exists)
         XCTAssertTrue(app.staticTexts["ALL SQUARE"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["groupInviteButton"].exists)
