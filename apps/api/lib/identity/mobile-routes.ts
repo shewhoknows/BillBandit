@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import type { PrismaClient } from '@prisma/client'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { mobileMember } from '@/lib/mobile-dto'
 import {
@@ -9,7 +10,8 @@ import {
 } from './invitations'
 import { externalIdentity, externalIdentityFromInput, IdentityInputError } from './types'
 import { ensureParticipantsForGroup } from '@/lib/settlement/participants/service'
-import { onMembershipMutation } from '@/lib/settlement/version/sources'
+import { advanceGroupVersion } from '@/lib/settlement/commands/core'
+import { wakeOutboxDispatcher } from '@/lib/settlement/outbox/dispatcher'
 
 export function identityErrorResponse(error: unknown) {
   if (error instanceof IdentityInputError) {
@@ -101,24 +103,51 @@ export async function claimInvitationResponse(
   }
 }
 
-async function afterMembershipClaim(result: ClaimedGroupInvitation, accountId: string) {
+export async function afterMembershipClaim(
+  result: ClaimedGroupInvitation,
+  accountId: string,
+  db: PrismaClient = prisma
+) {
   if (!result.created) return
 
-  await ensureParticipantsForGroup(result.payload.groupId)
-  await onMembershipMutation(result.payload.groupId, result.member.id)
-  await prisma.activityLog.create({
-    data: {
-      userId: accountId,
-      type: 'GROUP_JOINED',
-      description: `${result.member.user.name ?? result.member.user.email} joined the group`,
-      metadata: {
-        groupId: result.payload.groupId,
-        referenceId: result.member.id,
-        memberId: result.member.id,
-        action: 'added',
-        targetAccountId: accountId,
-        targetDisplayName: result.member.user.name ?? result.member.user.email,
+  // Claim has already committed. Serialize the entire follow-up with archive;
+  // a plain status read would leave a check-to-write window.
+  await db.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Group" WHERE id = ${result.payload.groupId} FOR UPDATE
+    `
+    if (!locked.length) {
+      throw new InvitationFlowError('group_not_found', 404, 'Group not found.')
+    }
+    const group = await tx.group.findUniqueOrThrow({
+      where: { id: result.payload.groupId },
+      select: { isArchived: true, finalizedAt: true },
+    })
+    if (group.isArchived || group.finalizedAt) {
+      // The membership and COMMITTED invitation remain recorded. A 409 states
+      // that the archived group cannot be joined in the active catalog.
+      throw new InvitationFlowError(
+        'group_finalized', 409, 'Group closed after the invitation was claimed.',
+        { membershipCommitted: true }
+      )
+    }
+    await ensureParticipantsForGroup(result.payload.groupId, tx)
+    await advanceGroupVersion(result.payload.groupId, 'membership_changed', result.member.id, tx)
+    await tx.activityLog.create({
+      data: {
+        userId: accountId,
+        type: 'GROUP_JOINED',
+        description: `${result.member.user.name ?? result.member.user.email} joined the group`,
+        metadata: {
+          groupId: result.payload.groupId,
+          referenceId: result.member.id,
+          memberId: result.member.id,
+          action: 'added',
+          targetAccountId: accountId,
+          targetDisplayName: result.member.user.name ?? result.member.user.email,
+        },
       },
-    },
+    })
   })
+  wakeOutboxDispatcher()
 }

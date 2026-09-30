@@ -40,6 +40,7 @@ final class SettlementStore {
     private(set) var explanationError: String?
     private(set) var canonicalServerSnapshot: ServerLedgerSnapshot?
     private(set) var canonicalSnapshot: SettlementCanonicalLedgerSnapshot?
+    private(set) var hasFreshCanonicalRead = false
     private(set) var isMigrationBlocked = false
 
     private let serverLedgerStore: ServerLedgerStore
@@ -112,8 +113,23 @@ final class SettlementStore {
     }
 
     var canonicalBalanceMoney: ServerLedgerMoneyDTO? {
-        guard let group = canonicalSnapshot?.group else { return nil }
-        return group.baseCurrencyMoney(from: group.balances.currentAccount.byCurrency)
+        guard let canonical = canonicalSnapshot, !canonical.isStale else { return nil }
+        let group = canonical.group
+        let balances = group.balances.currentAccount.byCurrency
+        if let balance = balances.first(where: {
+            $0.currencyCode == group.baseCurrency.currencyCode &&
+            $0.currencyExponent == group.baseCurrency.currencyExponent
+        }) {
+            if balance.minorUnits == "0" && (!hasFreshCanonicalRead || isOffline || lastError != nil) {
+                return nil
+            }
+            return balance
+        }
+        guard hasFreshCanonicalRead, !isOffline, lastError == nil,
+              balances.isEmpty, group.members.count == 1,
+              group.currentMemberID != nil, group.settlementPlan.transfers.isEmpty else { return nil }
+        return ServerLedgerMoneyDTO(minorUnits: "0", currencyCode: group.baseCurrency.currencyCode,
+                                    currencyExponent: group.baseCurrency.currencyExponent)
     }
 
     var canonicalBalanceLines: [SettlementLedgerBalanceLine] {
@@ -185,6 +201,7 @@ final class SettlementStore {
             snapshot = nil
             canonicalServerSnapshot = nil
             canonicalSnapshot = nil
+            hasFreshCanonicalRead = false
             readRevision = nil
             appliedVersion = 0
             callerParticipantId = nil
@@ -274,6 +291,7 @@ final class SettlementStore {
         do {
             let serverSnapshot = try await serverLedgerSync.onForeground(scope: scope)
             try applyCanonical(serverSnapshot)
+            hasFreshCanonicalRead = true
             isOffline = false
             lastError = nil
             await subscribeRealtimeIfNeeded()
@@ -326,9 +344,11 @@ final class SettlementStore {
 
     func settle(
         transfer: SettlementPlanTransferDTO,
+        minorUnits requestedMinorUnits: String? = nil,
         note: String?,
         expectedVersion: Int
     ) async throws -> String? {
+        let minorUnits = requestedMinorUnits ?? transfer.minorUnits
         guard let scope = configuredScope, let snapshot, canonicalSnapshot != nil else {
             throw SettlementClientError.writeDisabled
         }
@@ -336,6 +356,11 @@ final class SettlementStore {
               isCurrentTransfer(transfer),
               canSettle(transfer) else {
             requiresReconfirmation = true
+            throw SettlementClientError.requiresReconfirmation
+        }
+        guard ServerLedgerMoneyDTO.isCanonicalMinorUnits(minorUnits),
+              SettlementMoneyFormatting.compare(minorUnits, "0") == .orderedDescending,
+              SettlementMoneyFormatting.compare(minorUnits, transfer.minorUnits) != .orderedDescending else {
             throw SettlementClientError.requiresReconfirmation
         }
         guard writesEnabled || canQueueSettlement || requiresReconfirmation else {
@@ -357,10 +382,10 @@ final class SettlementStore {
             currencyExponent: transfer.currencyExponent,
             // This is copied from the canonical transfer; it is never
             // reconstructed from the compatibility decimal display string.
-            minorUnits: transfer.minorUnits,
+            minorUnits: minorUnits,
             note: note?.isEmpty == false ? note : nil
         )
-        let actionKey = "settlement:\(scope.groupID):\(transfer.planTransferId):\(expectedVersion):\(transfer.minorUnits)"
+        let actionKey = "settlement:\(scope.groupID):\(transfer.planTransferId):\(expectedVersion):\(minorUnits)"
         let operationID = try operationID(for: actionKey, scope: scope)
         let body = try JSONEncoder.serverLedger.encode(request)
         let mutation = ServerLedgerMutationRequest(
@@ -641,6 +666,7 @@ final class SettlementStore {
         do {
             let canonical = try await serverLedgerSync.onForeground(scope: scope)
             try applyCanonical(canonical)
+            hasFreshCanonicalRead = true
             isOffline = false
             lastError = nil
             requiresReconfirmation = false

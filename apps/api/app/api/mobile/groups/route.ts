@@ -5,6 +5,7 @@ import { mobileGroup } from '@/lib/mobile-dto'
 import { profileDisplayName } from '@/lib/profile-display-name'
 import { loadAccountReadModel } from '@/lib/ledger/read-model/loader'
 import { mobileGroupFromLedger, readModelErrorResponse } from '@/lib/mobile-groups'
+import { prisma } from '@/lib/prisma'
 import {
   createGroupWithFriends,
   GroupCreationError,
@@ -18,9 +19,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = await loadAccountReadModel(session.user.id)
+    const ids = [...new Set(result.groups.flatMap(({ model }) => model.members.map((member) => member.accountId)))]
+    const profiles = ids.length ? await prisma.user.findMany({
+      where: { id: { in: ids }, deletedAt: null }, select: { id: true, image: true },
+    }) : []
+    const images = new Map(profiles.map(({ id, image }) => [id, image]))
     return NextResponse.json(
       {
-        groups: result.groups.map((projection) => mobileGroupFromLedger(projection.model)),
+        groups: result.groups.map((projection) => mobileGroupFromLedger(projection.model, images)),
         readRevision: result.summary.readRevision,
         readOnly: result.summary.readOnly,
         migration: result.summary.migration,

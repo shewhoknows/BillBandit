@@ -4,10 +4,13 @@ import UIKit
 
 struct GroupDetailScreen: View {
     @Bindable var group: Group
+    var onContextChange: (Group?) -> Void = { _ in }
+    let targetCanonicalExpenseID: String?
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showSettle = false
     @State private var showAddExpense = false
+    @State private var showAddMembers = false
     @State private var celebration: SettlementCelebration?
     @State private var invoiceRevealed = false
     @State private var expenseIDsBeforeAdd = Set<UUID>()
@@ -16,9 +19,14 @@ struct GroupDetailScreen: View {
     @State private var balanceBreakdownExpanded = false
     @State private var canonicalSettlementStore = SettlementStore()
     @State private var canonicalExpenseForEditing: CanonicalExpenseEditDraft?
+    @State private var pendingExpenseID: String?
+    @State private var showMissingExpense = false
 
-    init(group: Group) {
+    init(group: Group, targetCanonicalExpenseID: String? = nil, onContextChange: @escaping (Group?) -> Void = { _ in }) {
         self.group = group
+        self.targetCanonicalExpenseID = targetCanonicalExpenseID
+        self.onContextChange = onContextChange
+        _pendingExpenseID = State(initialValue: targetCanonicalExpenseID)
         _showSettle = State(initialValue: ProcessInfo.processInfo.arguments.contains("-showSettle"))
     }
 
@@ -122,6 +130,14 @@ struct GroupDetailScreen: View {
                 groupMeta
                 invoice
                 VStack(spacing: 10) {
+                    Button { showAddMembers = true } label: {
+                        Label("Add members", systemImage: "person.badge.plus")
+                            .font(BrandFont.display(15, weight: .bold))
+                            .foregroundStyle(Color.Brand.creamSoft)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .overlay(Capsule().stroke(Color.Brand.creamSoft, lineWidth: 2))
+                    }
+                    .accessibilityIdentifier("groupAddMembersButton")
                     Button { beginAddingExpense() } label: {
                         Text("Add expense")
                             .font(BrandFont.display(15, weight: .bold))
@@ -155,6 +171,10 @@ struct GroupDetailScreen: View {
         }
         .background(Color.Brand.cobalt)
         .navigationTitle(group.name)
+        .toolbar(.visible, for: .navigationBar)
+        .fullScreenCover(isPresented: $showAddMembers) {
+            GroupAddMembersSheet(group: group)
+        }
         .fullScreenCover(isPresented: $showAddExpense, onDismiss: expenseSheetDidDismiss) {
             AddExpenseSheet(initialGroup: group)
         }
@@ -180,7 +200,19 @@ struct GroupDetailScreen: View {
                 celebration = nil
             }
         }
-        .onAppear { revealInvoice() }
+        .onAppear { revealInvoice(); onContextChange(group) }
+        .onChange(of: canonicalSettlementStore.hasCanonicalReadModel) { _, _ in
+            openRequestedExpenseIfReady()
+        }
+        .onChange(of: canonicalSettlementStore.hasFreshCanonicalRead) { _, _ in
+            openRequestedExpenseIfReady()
+        }
+        .onChange(of: canonicalSettlementStore.canonicalExpenses.map(\.id)) { _, _ in
+            openRequestedExpenseIfReady()
+        }
+        .alert("Expense unavailable", isPresented: $showMissingExpense) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("This expense was removed or is not available in this group.") }
         .task(id: serverGroupID) {
             guard let serverGroupID else { return }
             guard let remoteUser = try? await UsernameIdentityService.currentUser() else {
@@ -215,6 +247,7 @@ struct GroupDetailScreen: View {
             }
         }
         .onDisappear {
+            onContextChange(nil)
             if !showSettle {
                 canonicalSettlementStore.setVisible(false)
             }
@@ -234,12 +267,18 @@ struct GroupDetailScreen: View {
 
     private var groupMeta: some View {
         HStack {
-            let memberCount = usesCanonicalLedger
-                ? (canonicalSettlementStore.canonicalSnapshot?.group.members.count ?? 0)
-                : group.members.count
-            Text("\(GroupCopy.memberCount(memberCount)) · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
-                .font(BrandFont.type(10))
-                .opacity(0.65)
+            if usesCanonicalLedger, canonicalSettlementStore.canonicalSnapshot == nil {
+                Text("loading members…")
+                    .font(BrandFont.type(10))
+                    .opacity(0.65)
+            } else {
+                let memberCount = usesCanonicalLedger
+                    ? (canonicalSettlementStore.canonicalSnapshot?.group.members.count ?? 0)
+                    : group.members.count
+                Text("\(GroupCopy.memberCount(memberCount)) · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
+                    .font(BrandFont.type(10))
+                    .opacity(0.65)
+            }
             Spacer()
         }
         .foregroundStyle(Color.Brand.creamSoft)
@@ -406,6 +445,18 @@ struct GroupDetailScreen: View {
         showAddExpense = true
     }
 
+    private func openRequestedExpenseIfReady() {
+        guard let expenseID = pendingExpenseID,
+              canonicalSettlementStore.hasFreshCanonicalRead,
+              canonicalSettlementStore.canonicalSnapshot?.isStale == false else { return }
+        pendingExpenseID = nil
+        if canonicalSettlementStore.canonicalExpenses.contains(where: { $0.id == expenseID }) {
+            beginEditingCanonicalExpense(expenseID)
+        } else {
+            showMissingExpense = true
+        }
+    }
+
     private func beginEditingCanonicalExpense(_ expenseID: String) {
         guard let canonicalGroup = canonicalSettlementStore.canonicalSnapshot?.group,
               let expense = canonicalGroup.expenses.first(where: { $0.expenseID == expenseID }),
@@ -463,7 +514,8 @@ struct GroupDetailScreen: View {
     private var balanceStamp: String {
         if usesCanonicalLedger {
             guard let money = canonicalBalanceMoney else {
-                if canonicalSettlementStore.isLoading {
+                if canonicalSettlementStore.isLoading ||
+                    (!canonicalSettlementStore.hasCanonicalReadModel && canonicalSettlementStore.lastError == nil) {
                     return "LOADING BALANCE…"
                 }
                 return "BALANCE UNAVAILABLE"
@@ -1299,5 +1351,207 @@ private struct ConfettiPiece: View {
             .position(x: active ? endX : startX, y: active ? endY : startY)
             .opacity(0.92)
             .animation(.linear(duration: duration).delay(delay), value: active)
+    }
+}
+
+
+private struct GroupAddMembersSheet: View {
+    @Bindable var group: Group
+    @Query(sort: \Person.name) private var people: [Person]
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedID: UUID?
+    @State private var showAddFriend = false
+    @State private var isSubmitting = false
+    @State private var statusMessage: String?
+    @State private var errorMessage: String?
+
+    private var candidates: [Person] {
+        let existingIDs = Set(group.members.map(\.id))
+        let existingAccounts = Set(group.members.compactMap(\.serverAccountID))
+        return ConnectedFriendIdentity.actualFriends(from: people).filter { friend in
+            guard !existingIDs.contains(friend.id),
+                  let accountID = friend.serverAccountID,
+                  !existingAccounts.contains(accountID) else { return false }
+            return true
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            BrandModalHeader(title: "Add members") { dismiss() }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    BrandSectionLabel("FRIENDS")
+                    Text("You are already in this group. Choose a friend to add.")
+                        .font(BrandFont.body(12))
+                        .foregroundStyle(Color.Brand.cobalt)
+                    if candidates.isEmpty {
+                        Text("No more friends to add. Invite a friend first.")
+                            .font(BrandFont.body(12))
+                            .foregroundStyle(Color.Brand.cobalt)
+                    }
+                    ForEach(candidates, id: \.id) { friend in
+                        Button { selectedID = friend.id } label: {
+                            HStack {
+                                Text(friend.name)
+                                Spacer()
+                                BrandCheckmark(isOn: selectedID == friend.id)
+                            }
+                            .font(BrandFont.body(14, weight: .bold))
+                            .foregroundStyle(Color.Brand.cobalt)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 50)
+                            .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("addMemberCandidate-\(friend.id.uuidString)")
+                    }
+                    Button { showAddFriend = true } label: {
+                        Label("Add a friend", systemImage: "person.badge.plus")
+                            .font(BrandFont.body(13, weight: .bold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .accessibilityIdentifier("addMemberInviteFriendButton")
+                    if let statusMessage {
+                        Text(statusMessage)
+                            .font(BrandFont.body(12))
+                            .foregroundStyle(Color.Brand.cobalt)
+                            .accessibilityIdentifier("addMemberStatus")
+                    }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(BrandFont.body(12))
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("addMemberError")
+                    }
+                }
+                .padding(18)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button(action: addSelectedMember) {
+                    Text(isSubmitting ? "Adding…" : "Add member")
+                        .font(BrandFont.display(15.5, weight: .bold))
+                        .foregroundStyle(Color.Brand.creamSoft)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(Color.Brand.cobalt, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting || !candidates.contains(where: { $0.id == selectedID }))
+                .opacity(isSubmitting || !candidates.contains(where: { $0.id == selectedID }) ? 0.45 : 1)
+                .accessibilityIdentifier("confirmAddMemberButton")
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(Color.Brand.creamSoft)
+            }
+            .background(Color.Brand.creamSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .padding(.horizontal, 18)
+            .padding(.bottom, 10)
+        }
+        .background(Color.Brand.cobalt.ignoresSafeArea())
+        .fullScreenCover(isPresented: $showAddFriend, onDismiss: refreshFriends) {
+            FriendInvitationSheet()
+        }
+        .task { refreshFriends() }
+    }
+
+    private func refreshFriends() {
+        Task {
+            await FriendInvitationService.shared.refreshAcceptedInvites()
+            await CloudCollaborationService.shared.refreshFriendProfiles()
+            await ServerSocialSyncService.shared.refresh()
+        }
+    }
+
+    private func addSelectedMember() {
+        guard let person = candidates.first(where: { $0.id == selectedID }) else { return }
+        errorMessage = nil
+        statusMessage = nil
+        if let serverID = group.serverLedgerGroupID {
+            guard let accountID = person.serverAccountID, !accountID.isEmpty else {
+                errorMessage = "Refresh friends before adding this member."
+                return
+            }
+            isSubmitting = true
+            Task { @MainActor in
+                var queued = false
+                do {
+                    let runtime = T15CanonicalLedgerRuntime.shared
+                    let user = try await runtime.authenticatedUser()
+                    guard group.serverAccountId == user.id else {
+                        throw T15LedgerUIError.unauthenticated
+                    }
+                    let scope = ServerBackedLedgerScope(accountID: user.id, groupID: serverID)
+                    let before = try await runtime.refresh(scope: scope)
+                    let canonical = try runtime.validatedGroup(from: before, scope: scope)
+                    guard !canonical.members.contains(where: { $0.accountID == accountID }) else {
+                        // Refresh local routing only; do not issue a duplicate mutation.
+                        await ServerSocialSyncService.shared.refresh()
+                        statusMessage = "Already a member of this group."
+                        isSubmitting = false
+                        selectedID = nil
+                        return
+                    }
+                    let operationID = UUID()
+                    let body = try JSONSerialization.data(withJSONObject: ["userId": accountID])
+                    _ = try runtime.coordinator.enqueueServerMutation(
+                        operationID: operationID,
+                        scope: .serverBacked(accountID: user.id, groupID: serverID),
+                        expectedRevision: before.revision,
+                        kind: "membership.add",
+                        method: "POST",
+                        path: "/api/mobile/groups/\(serverID)/members",
+                        body: body
+                    )
+                    queued = true
+                    statusMessage = "Adding member to the shared group…"
+                    let after = try await runtime.reconcile(scope: scope)
+                    let updated = try runtime.validatedGroup(from: after, scope: scope)
+                    guard updated.members.contains(where: {
+                        $0.accountID == accountID && $0.status == "active"
+                    }) else { throw T15LedgerUIError.canonicalSnapshotUnavailable }
+                    guard UsernameIdentityService.hasStoredSession,
+                          ServerLedgerAccountLifecycle.shared.activeAccountID == user.id,
+                          group.serverAccountId == user.id else {
+                        throw T15LedgerUIError.unauthenticated
+                    }
+                    // Only update local SwiftData after canonical server confirmation.
+                    if candidates.contains(where: { $0.id == person.id }),
+                       !group.members.contains(where: { $0.id == person.id || $0.serverAccountID == accountID }) {
+                        group.members.append(person)
+                        try context.save()
+                    }
+                    await ServerSocialSyncService.shared.refresh()
+                    statusMessage = "Member added."
+                    selectedID = nil
+                    isSubmitting = false
+                } catch {
+                    errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not add this member.")
+                    if queued {
+                        statusMessage = "The membership may still be queued. Close this sheet and refresh the group before trying again."
+                        isSubmitting = true
+                    } else {
+                        statusMessage = nil
+                        isSubmitting = false
+                    }
+                }
+            }
+        } else {
+            guard !group.members.contains(where: {
+                $0.id == person.id || $0.serverAccountID == person.serverAccountID
+            }) else { return }
+            group.members.append(person)
+            do {
+                try context.save()
+                CloudCollaborationService.shared.groupDidChange(group)
+                selectedID = nil
+                statusMessage = "Member added."
+            } catch {
+                group.members.removeAll { $0.id == person.id }
+                errorMessage = "Could not save this member. Try again."
+            }
+        }
     }
 }

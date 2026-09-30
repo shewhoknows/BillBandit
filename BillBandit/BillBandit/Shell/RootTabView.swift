@@ -203,6 +203,7 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
     let id: String
     let type: String
     let action: String?
+    let expenseID: String?
     let groupID: String
     let groupName: String
     let description: String?
@@ -217,6 +218,7 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
         id: String,
         type: String,
         action: String? = nil,
+        expenseID: String? = nil,
         groupID: String,
         groupName: String,
         description: String? = nil,
@@ -230,6 +232,7 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
         self.id = id
         self.type = type
         self.action = action
+        self.expenseID = expenseID
         self.groupID = groupID
         self.groupName = groupName
         self.description = description
@@ -319,6 +322,7 @@ struct ServerLedgerSurfaceGroup: Identifiable, Codable, Equatable, Sendable {
     let readRevision: Int64
     let currentMemberID: String
     let currentAccount: [ServerLedgerSurfaceMoney]
+    let baseCurrency: ServerLedgerSurfaceMoney?
     let members: [ServerLedgerSurfaceMember]
     let transfers: [ServerLedgerSurfaceTransfer]
     let activity: [ServerLedgerSurfaceActivityItem]
@@ -335,6 +339,7 @@ struct ServerLedgerSurfaceGroup: Identifiable, Codable, Equatable, Sendable {
         readRevision: Int64,
         currentMemberID: String,
         currentAccount: [ServerLedgerSurfaceMoney],
+        baseCurrency: ServerLedgerSurfaceMoney? = nil,
         members: [ServerLedgerSurfaceMember] = [],
         transfers: [ServerLedgerSurfaceTransfer] = [],
         activity: [ServerLedgerSurfaceActivityItem] = [],
@@ -348,6 +353,7 @@ struct ServerLedgerSurfaceGroup: Identifiable, Codable, Equatable, Sendable {
         self.readRevision = readRevision
         self.currentMemberID = currentMemberID
         self.currentAccount = currentAccount
+        self.baseCurrency = baseCurrency
         self.members = members
         self.transfers = transfers
         self.activity = activity
@@ -364,6 +370,7 @@ struct ServerLedgerSurfaceGroup: Identifiable, Codable, Equatable, Sendable {
             readRevision: readRevision,
             currentMemberID: currentMemberID,
             currentAccount: currentAccount,
+            baseCurrency: baseCurrency,
             members: members,
             transfers: transfers,
             activity: activity,
@@ -692,6 +699,7 @@ private struct ServerLedgerSurfaceReadGroup: Decodable {
     let localOnly: Bool
     let readRevision: Int64
     let members: [ServerLedgerSurfaceReadMember]
+    let baseCurrency: ServerLedgerSurfaceReadCurrency
     let balances: ServerLedgerSurfaceReadBalances
     let settlementPlan: ServerLedgerSurfaceReadPlan
     let activity: [ServerLedgerSurfaceReadActivity]
@@ -705,12 +713,18 @@ private struct ServerLedgerSurfaceReadGroup: Decodable {
         case localOnly
         case readRevision
         case members
+        case baseCurrency
         case balances
         case settlementPlan
         case activity
         case migration
         case stale
     }
+}
+
+private struct ServerLedgerSurfaceReadCurrency: Decodable {
+    let currencyCode: String
+    let currencyExponent: Int
 }
 
 private struct ServerLedgerSurfaceReadMember: Decodable {
@@ -761,6 +775,7 @@ private struct ServerLedgerSurfaceReadActivity: Decodable {
     let activityID: String
     let type: String
     let action: String?
+    let expenseID: String?
     let description: String?
     let actorMemberID: String?
     let payerMemberID: String?
@@ -773,6 +788,7 @@ private struct ServerLedgerSurfaceReadActivity: Decodable {
         case activityID = "activityId"
         case type
         case action
+        case expenseID = "expenseId"
         case description
         case actorMemberID = "actorMemberId"
         case payerMemberID = "payerMemberId"
@@ -837,8 +853,11 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
     func groupBalancePresentation(for serverGroupID: String) -> ServerLedgerSurfaceBalancePresentation? {
         guard let group = snapshot?.group(for: serverGroupID) else { return nil }
+        let amounts = group.currentAccount.isEmpty && group.members.count == 1 && group.transfers.isEmpty && !group.isStale
+            ? group.baseCurrency.map { [$0] } ?? []
+            : group.currentAccount
         return ServerLedgerSurfaceBalanceFormatter.presentation(
-            amounts: group.currentAccount,
+            amounts: amounts,
             audience: .group
         )
     }
@@ -1132,6 +1151,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
                 id: $0.activityID,
                 type: $0.type,
                 action: $0.action,
+                expenseID: $0.expenseID,
                 groupID: group.groupID,
                 groupName: group.name,
                 description: $0.description,
@@ -1154,6 +1174,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             readRevision: envelope.readRevision,
             currentMemberID: group.balances.currentAccount.memberID,
             currentAccount: currentAccount,
+            baseCurrency: ServerLedgerSurfaceMoney(minorUnits: "0", currencyCode: group.baseCurrency.currencyCode, currencyExponent: group.baseCurrency.currencyExponent),
             members: members,
             transfers: transfers,
             activity: activity,
@@ -1676,6 +1697,8 @@ struct RootTabView: View {
 
     @State private var tab: Tab = .home
     @State private var showAdd = false
+    @State private var showAddGroup = false
+    @State private var dockGroup: Group?
     @State private var movesForward = true
     @State private var profilePickerRequested = false
     @StateObject private var rewardFeedback = RewardFeedbackCenter.shared
@@ -1713,7 +1736,7 @@ struct RootTabView: View {
                                            onOpenProfile: {
                                                selectTab(.profile, showAvatarPicker: true)
                                            })
-                case .groups:   GroupsScreen()
+                case .groups:   GroupsScreen(onCreateGroup: { showAddGroup = true }, onGroupContextChange: { dockGroup = $0 })
                 case .activity: ActivityScreen()
                 case .profile:  ProfileScreen(presentAvatarPicker: profilePickerRequested)
                 }
@@ -1743,8 +1766,9 @@ struct RootTabView: View {
         .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
                    value: rewardFeedback.current?.id)
         .fullScreenCover(isPresented: $showAdd) {
-            AddExpenseSheet()
+            AddExpenseSheet(initialGroup: tab == .groups ? dockGroup : nil)
         }
+        .fullScreenCover(isPresented: $showAddGroup) { AddGroupSheet() }
         .fullScreenCover(isPresented: $friendInvitations.shouldPresentInviteSheet) {
             FriendInvitationSheet(initialCode: friendInvitations.incomingCode)
         }
@@ -1764,7 +1788,11 @@ struct RootTabView: View {
             tabButton(.groups)
             Button {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                showAdd = true
+                if tab == .groups && dockGroup == nil {
+                    showAddGroup = true
+                } else {
+                    showAdd = true
+                }
             } label: {
                 ZStack {
                     Circle()
@@ -1777,7 +1805,8 @@ struct RootTabView: View {
             }
             .frame(width: 64)
             .buttonStyle(.plain)
-            .accessibilityLabel("Add expense")
+            .accessibilityLabel(tab == .groups && dockGroup == nil ? "New group" : "Add expense")
+            .accessibilityIdentifier("contextualAddButton")
 
             tabButton(.activity)
             tabButton(.profile)
@@ -1837,6 +1866,7 @@ struct RootTabView: View {
         guard tab != newTab else { return }
         movesForward = newTab.rawValue > tab.rawValue
         profilePickerRequested = newTab == .profile && showAvatarPicker
+        if newTab != .groups { dockGroup = nil }
         withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
             tab = newTab
         }

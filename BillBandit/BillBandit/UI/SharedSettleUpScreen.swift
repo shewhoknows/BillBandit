@@ -10,6 +10,7 @@ struct SharedSettleUpScreen: View {
     @State private var store = SettlementStore()
     @State private var confirmationTransfer: SettlementPlanTransferDTO?
     @State private var confirmationNote = ""
+    @State private var confirmationAmount = ""
     @State private var settledExpanded = false
     @State private var isSubmitting = false
     @State private var actionError: String?
@@ -127,10 +128,12 @@ struct SharedSettleUpScreen: View {
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Group balance unavailable")
+                    Text(group.members.count == 1 ? "All square" : "Group balance unavailable")
                         .font(BrandFont.display(18, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
-                    Text("This group is still getting ready. Try again after it finishes updating.")
+                    Text(group.members.count == 1
+                         ? "No balance is owed in this one-person group."
+                         : "This group is still getting ready. Try again after it finishes updating.")
                         .font(BrandFont.type(12))
                         .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
                     Button(action: onDismiss) {
@@ -303,10 +306,13 @@ struct SharedSettleUpScreen: View {
                         Button {
                             store.setInteractionActive(true)
                             confirmationNote = ""
+                            confirmationAmount = SettlementMoneyFormatting.decimalString(
+                                fromMinorUnits: transfer.minorUnits, exponent: transfer.currencyExponent
+                            )
                             actionError = nil
                             confirmationTransfer = transfer
                         } label: {
-                            Text("Settle \(transferAmount(transfer))")
+                            Text("Record payment")
                                 .font(BrandFont.display(14, weight: .bold))
                                 .foregroundStyle(Color.Brand.creamSoft)
                                 .frame(maxWidth: .infinity, minHeight: 46)
@@ -401,6 +407,7 @@ struct SharedSettleUpScreen: View {
 
     private func settlementConfirmationSheet(_ transfer: SettlementPlanTransferDTO) -> some View {
         let expectedVersion = store.snapshot?.version ?? 0
+        let enteredMinorUnits = settlementAmountMinorUnits(for: transfer)
         return NavigationStack {
             VStack(spacing: 12) {
                 BrandModalHeader(title: "Confirm settlement") {
@@ -423,10 +430,10 @@ struct SharedSettleUpScreen: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("\(transfer.payerName) pays \(transfer.recipientName)")
                                 .font(BrandFont.display(17, weight: .semibold))
-                            Text(transferAmount(transfer))
-                                .font(BrandFont.display(42, weight: .bold))
+                            Text("Owed: \(transferAmount(transfer))")
+                                .font(BrandFont.display(27, weight: .bold))
                                 .monospacedDigit()
-                            Text("This marks the payment as complete for everyone in the group.")
+                            Text("Record a full or partial payment. The rest remains owed.")
                                 .font(BrandFont.type(11, bold: true))
                                 .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
                         }
@@ -438,6 +445,18 @@ struct SharedSettleUpScreen: View {
                                 .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
                         )
 
+                        BrandSectionLabel("AMOUNT PAID")
+                        TextField("Amount", text: $confirmationAmount)
+                            .keyboardType(.decimalPad)
+                            .font(BrandFont.display(20, weight: .bold))
+                            .accessibilityIdentifier("settlementAmountField")
+                            .padding(14)
+                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control))
+                        if enteredMinorUnits == nil {
+                            Text("Enter an amount above zero, up to the amount owed.")
+                                .font(BrandFont.type(11, bold: true))
+                                .foregroundStyle(Color.red)
+                        }
                         BrandSectionLabel("NOTE (OPTIONAL)")
                         TextField("Add a note for the group", text: $confirmationNote, axis: .vertical)
                             .lineLimit(2...4)
@@ -458,8 +477,13 @@ struct SharedSettleUpScreen: View {
                                 isSubmitting = true
                                 defer { isSubmitting = false }
                                 do {
+                                    guard let paidMinorUnits = settlementAmountMinorUnits(for: transfer) else {
+                                        actionError = "Enter an amount above zero, up to the amount owed."
+                                        return
+                                    }
                                     let settlementEventID = try await store.settle(
                                         transfer: transfer,
+                                        minorUnits: paidMinorUnits,
                                         note: confirmationNote,
                                         expectedVersion: expectedVersion
                                     )
@@ -494,10 +518,12 @@ struct SharedSettleUpScreen: View {
                         .buttonStyle(.plain)
                         .disabled(
                             isSubmitting
+                                || enteredMinorUnits == nil
                                 || !store.canConfirmSettlement(transfer, expectedVersion: expectedVersion)
                         )
                         .opacity(
                             isSubmitting
+                                || enteredMinorUnits == nil
                                 || !store.canConfirmSettlement(transfer, expectedVersion: expectedVersion)
                                 ? 0.48 : 1
                         )
@@ -524,6 +550,19 @@ struct SharedSettleUpScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(Color.Brand.cobalt.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func settlementAmountMinorUnits(for transfer: SettlementPlanTransferDTO) -> String? {
+        let text = confirmationAmount.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = transfer.currencyExponent == 0
+            ? #"^[0-9]+$"#
+            : "^[0-9]+(?:\\.[0-9]{1,\(transfer.currencyExponent)})?$"
+        guard text.range(of: pattern, options: .regularExpression) != nil else { return nil }
+        let minor = SettlementMoneyFormatting.minorUnits(from: text, exponent: transfer.currencyExponent)
+        guard ServerLedgerMoneyDTO.isCanonicalMinorUnits(minor),
+              SettlementMoneyFormatting.compare(minor, "0") == .orderedDescending,
+              SettlementMoneyFormatting.compare(minor, transfer.minorUnits) != .orderedDescending else { return nil }
+        return minor
     }
 
     private func transferAmount(_ transfer: SettlementPlanTransferDTO) -> String {

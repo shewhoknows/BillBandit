@@ -28,6 +28,7 @@ const groupStateSelect = {
     select: {
       userId: true,
       role: true,
+      user: { select: { image: true } },
     },
   },
 } as const
@@ -124,6 +125,7 @@ export async function buildMobileSyncToken(
           .map((member) => ({
             userId: member.userId,
             role: member.role,
+            image: member.user.image,
           }))
           .sort((left, right) => left.userId.localeCompare(right.userId)),
       }

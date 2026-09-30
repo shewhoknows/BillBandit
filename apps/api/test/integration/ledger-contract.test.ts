@@ -323,3 +323,87 @@ test('two concurrent writes at one revision produce exactly one winner', async (
   assert.equal(await db.settlementVersionJournal.count({ where: { groupId: fixture.groupId } }), 1)
   assert.equal((await db.group.findUniqueOrThrow({ where: { id: fixture.groupId } })).settlementVersion, 1)
 })
+
+
+test('partial payment replays once, leaves exact debt, and rejects an overpayment', async () => {
+  const fixture = await seedLedgerFixture(db, 'partial-payment', { expenseMinorUnits: 250000n })
+  const before = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  const transfer = before.group.settlementPlan.transfers[0]
+  assert.ok(transfer)
+  const request = {
+    groupId: fixture.groupId, userId: fixture.bobId, idempotencyKey: 'partial-payment-one',
+    expectedVersion: before.group.revision, planTransferId: transfer.planTransferId,
+    payerParticipantId: transfer.payerMemberId, recipientParticipantId: transfer.recipientMemberId,
+    currencyCode: transfer.amount.currencyCode, currencyExponent: transfer.amount.currencyExponent,
+    minorUnits: '100000', db,
+  }
+  const first = await executeSettlement(request)
+  const replay = await executeSettlement(request)
+  assert.equal(replay.recordId, first.recordId)
+  const after = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  assert.equal(after.group.settlementPlan.transfers[0]?.amount.minorUnits, '150000')
+  assert.equal(await db.transaction.count({ where: { groupId: fixture.groupId } }), 1)
+  const next = after.group.settlementPlan.transfers[0]
+  assert.ok(next)
+  await assert.rejects(executeSettlement({
+    ...request, idempotencyKey: 'partial-payment-too-much', expectedVersion: after.group.revision,
+    planTransferId: next.planTransferId, minorUnits: '150001',
+  }), /Payment must be positive and no more than the current amount owed/)
+  assert.equal(await db.transaction.count({ where: { groupId: fixture.groupId } }), 1)
+  const noTransferID = {
+    groupId: fixture.groupId, operationId: 'partial-no-transfer-id',
+    expectedRevision: after.group.revision, accountId: fixture.bobId, actorUserId: fixture.bobId,
+    kind: 'settlement.create' as const,
+    payload: {
+      payerParticipantId: next.payerMemberId, recipientParticipantId: next.recipientMemberId,
+      amount: { minorUnits: '50000', currencyCode: 'USD', currencyExponent: 2 },
+    },
+  }
+  const noIDFirst = await executeMutation(noTransferID, { db })
+  const noIDReplay = await executeMutation(noTransferID, { db })
+  assert.equal(noIDReplay.recordId, noIDFirst.recordId)
+  const final = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  assert.equal(final.group.settlementPlan.transfers[0]?.amount.minorUnits, '100000')
+  assert.equal(await db.transaction.count({ where: { groupId: fixture.groupId } }), 2)
+})
+
+test('a cross-component simplified transfer cannot journal cash without reducing obligations', async () => {
+  const fixture = await seedLedgerFixture(db, 'cross-component', { expenseMinorUnits: 1000n })
+  const creditor = fixture.aliceId.replace(/alice$/, 'aaa')
+  const debtor = fixture.bobId.replace(/bob$/, 'zzz')
+  await db.user.createMany({ data: [
+    { id: creditor, email: `${creditor}@example.test`, name: 'Extra creditor' },
+    { id: debtor, email: `${debtor}@example.test`, name: 'Extra debtor' },
+  ] })
+  await db.groupMember.createMany({ data: [
+    { groupId: fixture.groupId, userId: creditor },
+    { groupId: fixture.groupId, userId: debtor },
+  ] })
+  await db.groupParticipant.createMany({ data: [
+    { id: creditor, groupId: fixture.groupId, userId: creditor, displayName: 'Extra creditor' },
+    { id: debtor, groupId: fixture.groupId, userId: debtor, displayName: 'Extra debtor' },
+  ] })
+  await db.expense.create({ data: {
+    description: 'Disconnected dinner', amount: 10, amountMinorUnits: 1000n,
+    currencyExponent: 2, currency: 'USD', groupId: fixture.groupId,
+    paidById: creditor, splitType: 'EXACT', splits: { create: [
+      { userId: creditor, amount: 0, amountMinorUnits: 0n, currencyExponent: 2 },
+      { userId: debtor, amount: 10, amountMinorUnits: 1000n, currencyExponent: 2 },
+    ] },
+  } })
+  const before = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  const cross = before.group.settlementPlan.transfers.find(
+    (item) => item.payerMemberId === fixture.bobParticipantId && item.recipientMemberId === creditor
+  )
+  assert.ok(cross, 'simplified plan must contain the cross-component transfer')
+  await assert.rejects(() => executeSettlement({
+    groupId: fixture.groupId, userId: fixture.bobId, idempotencyKey: 'cross-component-attempt',
+    expectedVersion: before.group.revision, planTransferId: cross.planTransferId,
+    payerParticipantId: cross.payerMemberId, recipientParticipantId: cross.recipientMemberId,
+    currencyCode: 'USD', currencyExponent: 2, minorUnits: '500', db,
+  }), /Payment cannot be allocated to the current obligations/)
+  const after = await loadGroupReadModel(fixture.groupId, fixture.bobId, {}, db)
+  assert.deepEqual(after.group.settlementPlan.transfers, before.group.settlementPlan.transfers)
+  assert.equal(await db.transaction.count({ where: { groupId: fixture.groupId } }), 0)
+  assert.equal(await db.settlementVersionJournal.count({ where: { groupId: fixture.groupId } }), 0)
+})

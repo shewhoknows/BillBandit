@@ -69,6 +69,8 @@ final class BillBanditUITests: XCTestCase {
 
         app.buttons["groupAddExpenseButton"].tap()
         XCTAssertTrue(app.staticTexts["Add expense"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["None"].exists)
+        XCTAssertTrue(app.buttons["Goa Trip"].exists)
         let amount = app.textFields["expenseAmountField"]
         XCTAssertTrue(amount.waitForExistence(timeout: 4))
         amount.tap()
@@ -77,8 +79,14 @@ final class BillBanditUITests: XCTestCase {
         let title = app.textFields["expenseTitleField"]
         title.tap()
         title.typeText("Ui dinner")
+        let saveWithKeyboard = app.buttons["saveExpenseButton"]
+        XCTAssertTrue(saveWithKeyboard.isHittable)
+        XCTAssertLessThan(saveWithKeyboard.frame.maxY, app.keyboards.firstMatch.frame.minY)
         title.typeText("\n")
-        app.buttons["saveExpenseButton"].tap()
+        let saveWithoutKeyboard = app.buttons["saveExpenseButton"]
+        XCTAssertLessThan(app.windows.firstMatch.frame.maxY - saveWithoutKeyboard.frame.maxY, 110)
+        attachScreenshot(named: "expense-save-footer")
+        saveWithoutKeyboard.tap()
 
         XCTAssertTrue(app.staticTexts["Ui dinner"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.descendants(matching: .any)["rewardToast"].waitForExistence(timeout: 4))
@@ -113,6 +121,34 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Enter BillBandit"].exists)
         XCTAssertFalse(app.buttons["tab-home"].exists)
         XCTAssertFalse(app.buttons["Home"].exists)
+    }
+
+    func testAppleSignInButtonStaysInFormAndFailureIsVisible() throws {
+        let app = XCUIApplication()
+        let baseArguments = ["-forceSignedOutOnboarding", "-onboardingPage", "2"]
+        app.launchArguments = baseArguments
+        app.launch()
+        let button = app.buttons["onboardingSignInWithAppleButton"]
+        XCTAssertTrue(button.waitForExistence(timeout: 8))
+        let initialY = button.frame.midY
+
+        app.terminate()
+        app.launchArguments = baseArguments + ["-onboardingAuthBusyPreview"]
+        app.launch()
+        XCTAssertTrue(button.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["onboardingAppleSignInMessage"].exists)
+        XCTAssertLessThan(abs(button.frame.midY - initialY), 48)
+
+        app.terminate()
+        app.launchArguments = baseArguments + ["-onboardingAuthErrorPreview"]
+        app.launch()
+        XCTAssertTrue(button.waitForExistence(timeout: 8))
+        let message = app.staticTexts["onboardingAppleSignInMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 4))
+        XCTAssertTrue(message.isHittable)
+        XCTAssertTrue(message.label.contains("Try again"))
+        XCTAssertTrue(button.isHittable)
+        XCTAssertLessThan(abs(button.frame.midY - initialY), 48)
     }
 
     func testConnectedAppleAccountRequiresUsernameBeforeCompletingOnboarding() throws {
@@ -153,19 +189,29 @@ final class BillBanditUITests: XCTestCase {
 
         let firstMascot = app.descendants(matching: .any)["onboardingMascot-0"]
         let firstTitle = app.staticTexts["onboardingTitle-0"]
+        let swipeHint = app.descendants(matching: .any)["onboardingSwipeHint"]
+        let pageIndicator = app.descendants(matching: .any)["onboardingPageIndicator"]
         XCTAssertTrue(firstMascot.waitForExistence(timeout: 8))
         XCTAssertTrue(firstTitle.exists)
+        XCTAssertTrue(swipeHint.waitForExistence(timeout: 4))
+        XCTAssertTrue(pageIndicator.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["Next"].exists)
+        let indicatorBottomGap = app.windows.firstMatch.frame.maxY - pageIndicator.frame.maxY
+        XCTAssertGreaterThan(indicatorBottomGap, 0)
+        XCTAssertLessThan(indicatorBottomGap, 80)
         let mascotMidY = firstMascot.frame.midY
         let titleMidY = firstTitle.frame.midY
 
-        app.buttons["Next"].tap()
+        app.swipeLeft()
         let secondMascot = app.descendants(matching: .any)["onboardingMascot-1"]
         let secondTitle = app.staticTexts["onboardingTitle-1"]
         XCTAssertTrue(secondMascot.waitForExistence(timeout: 4))
+        XCTAssertFalse(swipeHint.exists)
+        XCTAssertFalse(app.buttons["Next"].exists)
         XCTAssertLessThan(abs(secondMascot.frame.midY - mascotMidY), 3)
         XCTAssertLessThan(abs(secondTitle.frame.midY - titleMidY), 3)
 
-        app.buttons["Next"].tap()
+        app.swipeLeft()
         let thirdMascot = app.descendants(matching: .any)["onboardingMascot-2"]
         let thirdTitle = app.staticTexts["onboardingTitle-2"]
         XCTAssertTrue(thirdMascot.waitForExistence(timeout: 4))
@@ -261,10 +307,18 @@ final class BillBanditUITests: XCTestCase {
         app.buttons["New group"].tap()
         let name = app.textFields["groupNameField"]
         XCTAssertTrue(name.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.staticTexts["You · you"].exists)
+        XCTAssertTrue(app.staticTexts["No friends yet. Invite a friend to share a group."].exists)
+        XCTAssertTrue(app.buttons["groupInviteFriendButton"].exists)
         name.tap()
         name.typeText("Instant Crew")
+        let createWithKeyboard = app.buttons["createGroupButton"]
+        XCTAssertTrue(createWithKeyboard.isHittable)
+        XCTAssertLessThan(createWithKeyboard.frame.maxY, app.keyboards.firstMatch.frame.minY)
         name.typeText("\n")
-        app.buttons["createGroupButton"].tap()
+        XCTAssertLessThan(app.windows.firstMatch.frame.maxY - createWithKeyboard.frame.maxY, 110)
+        attachScreenshot(named: "group-create-footer")
+        createWithKeyboard.tap()
 
         XCTAssertTrue(app.staticTexts["Instant Crew"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.descendants(matching: .any)["rewardToast"].waitForExistence(timeout: 4))
@@ -278,9 +332,20 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["BillBandit raccoon — neutral"].exists)
         XCTAssertTrue(app.staticTexts["ALL SQUARE"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["groupInviteButton"].exists)
+        let addMembers = app.buttons["groupAddMembersButton"]
+        XCTAssertTrue(addMembers.exists)
+        addMembers.tap()
+        XCTAssertTrue(app.staticTexts["No more friends to add. Invite a friend first."].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["confirmAddMemberButton"].isEnabled)
+        XCTAssertTrue(app.buttons["addMemberInviteFriendButton"].exists)
+        app.buttons["Close Add members"].tap()
         let allSquare = app.buttons["All square"]
         XCTAssertTrue(allSquare.exists)
         XCTAssertFalse(allSquare.isEnabled)
+        app.terminate()
+        app.launchArguments = ["-skipOnboarding", "-tab", "0"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Instant Crew"].firstMatch.waitForExistence(timeout: 8))
     }
 
     func testServerLinkedGroupKeepsAddExpenseEnabled() throws {
@@ -362,6 +427,46 @@ final class BillBanditUITests: XCTestCase {
         field.typeText("Bubby")
         XCTAssertEqual(field.value as? String, "Bubby")
         attachScreenshot(named: "profile-name-editing-caret-gap")
+    }
+
+    func testContextualDockAndExpenseActivityNavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetDemoData", "-tab", "1", "-skipOnboarding"]
+        app.launch()
+
+        let dock = app.buttons["contextualAddButton"]
+        XCTAssertTrue(dock.waitForExistence(timeout: 8))
+        XCTAssertEqual(dock.label, "New group")
+        attachScreenshot(named: "groups-header-contextual-dock")
+        dock.tap()
+        XCTAssertTrue(app.textFields["groupNameField"].waitForExistence(timeout: 4))
+        app.buttons["Close New group"].tap()
+
+        let group = app.staticTexts["Goa Trip"].firstMatch
+        XCTAssertTrue(group.waitForExistence(timeout: 8))
+        group.tap()
+        XCTAssertTrue(app.staticTexts["BILLBANDIT & CO."].waitForExistence(timeout: 5))
+        XCTAssertEqual(dock.label, "Add expense")
+        dock.tap()
+        XCTAssertTrue(app.textFields["expenseAmountField"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Goa Trip"].exists)
+        attachScreenshot(named: "group-dock-expense-context")
+
+        app.buttons["Close Add expense"].tap()
+        app.buttons["tab-home"].tap()
+        attachScreenshot(named: "home-before-activity-selection")
+        let recent = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Groceries")).firstMatch
+        XCTAssertTrue(recent.waitForExistence(timeout: 8), app.debugDescription)
+        recent.tap()
+        XCTAssertTrue(app.buttons["Edit expense"].waitForExistence(timeout: 5))
+        attachScreenshot(named: "home-activity-expense-detail")
+
+        app.buttons["tab-activity"].tap()
+        let activity = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Groceries")).firstMatch
+        XCTAssertTrue(activity.waitForExistence(timeout: 8))
+        activity.tap()
+        XCTAssertTrue(app.buttons["Edit expense"].waitForExistence(timeout: 5))
+        attachScreenshot(named: "activity-tab-expense-detail")
     }
 
     private func attachScreenshot(named name: String) {

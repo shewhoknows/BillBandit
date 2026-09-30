@@ -1,5 +1,26 @@
 import Foundation
+import OSLog
 import Security
+
+private enum UsernameIdentityLog {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.billbandit.app",
+        category: "mobile-identity"
+    )
+
+    static func transportFailure(path: String, error: Error) {
+        let nsError = error as NSError
+        logger.error(
+            "Identity request transport failure path=\(path, privacy: .public) domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
+        )
+    }
+
+    static func response(path: String, statusCode: Int) {
+        logger.info(
+            "Identity request response path=\(path, privacy: .public) status=\(statusCode, privacy: .public)"
+        )
+    }
+}
 
 struct UsernameHandle: Equatable, Sendable {
     enum ValidationError: LocalizedError, Equatable {
@@ -113,6 +134,7 @@ enum UsernameIdentityService {
     private struct AppleRequest: Encodable {
         let identityToken: String
         let authorizationCode: String?
+        let nonce: String?
         let name: String?
         let email: String?
     }
@@ -134,6 +156,7 @@ enum UsernameIdentityService {
 
     static func authenticateWithApple(identityToken: Data,
                                       authorizationCode: Data?,
+                                      nonce: String?,
                                       name: String?, email: String?) async throws -> RemoteUser {
         guard let tokenString = String(data: identityToken, encoding: .utf8),
               !tokenString.isEmpty else {
@@ -142,6 +165,7 @@ enum UsernameIdentityService {
         let body = AppleRequest(
             identityToken: tokenString,
             authorizationCode: authorizationCode.flatMap { String(data: $0, encoding: .utf8) },
+            nonce: nonce,
             name: name,
             email: email
         )
@@ -267,11 +291,13 @@ enum UsernameIdentityService {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            UsernameIdentityLog.transportFailure(path: path, error: error)
             throw ServiceError.response("Could not reach BillBandit. Check your connection and try again.")
         }
         guard let http = response as? HTTPURLResponse else {
             throw ServiceError.response("BillBandit returned an invalid response.")
         }
+        UsernameIdentityLog.response(path: path, statusCode: http.statusCode)
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401,
                let bearerToken,
@@ -282,6 +308,10 @@ enum UsernameIdentityService {
             let fallback: String
             if http.statusCode == 409 {
                 fallback = "That username is already taken."
+            } else if path == "/api/mobile/auth/apple" {
+                fallback = http.statusCode == 401
+                    ? "Apple could not verify this BillBandit build. Try again."
+                    : "BillBandit could not complete Apple sign-in. Try again."
             } else if method == "DELETE" {
                 fallback = "Could not delete your account. Try again."
             } else {

@@ -105,6 +105,7 @@ struct AddExpenseSheet: View {
     @State private var title = ""
     @State private var category: ExpenseCategory = .food
     @State private var group: Group?
+    @State private var showNewGroup = false
     @State private var paidBy: Person?
     @State private var mode: SplitMode = .equal
     @State private var inputs: [UUID: String] = [:] // per-person values for exact/%/shares
@@ -138,7 +139,7 @@ struct AddExpenseSheet: View {
     }
 
     private var participants: [Person] {
-        let source = group?.members ?? people
+        let source = group?.members ?? []
         return source.sorted {
             if $0.isCurrentUser != $1.isCurrentUser { return $0.isCurrentUser }
             return $0.name < $1.name
@@ -218,10 +219,14 @@ struct AddExpenseSheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("expenseMutationStatus")
                     }
-                    saveButton
                 }
                 .padding(18)
-                .frame(maxWidth: .infinity, minHeight: 650, alignment: .top)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                saveButton
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Color.Brand.creamSoft)
             }
             .background(Color.Brand.creamSoft)
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -229,13 +234,28 @@ struct AddExpenseSheet: View {
             .padding(.bottom, 10)
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
+        .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet() }
         .onAppear {
             hydrateCanonicalEditState()
             if paidBy == nil { paidBy = you }
             if !isCanonicalEditing,
                let group,
                !visibleGroups.contains(where: { $0.id == group.id }) {
+                selectGroup(isEditingExpense ? nil : visibleGroups.first)
+                if isEditingExpense {
+                    errorMessage = "The original group is no longer available. Choose a group before saving."
+                }
+            } else if !isEditingExpense && group == nil {
+                selectGroup(visibleGroups.first)
+            }
+        }
+        .onChange(of: visibleGroups.map(\.id)) { _, _ in
+            guard !isCanonicalEditing else { return }
+            if let group, !visibleGroups.contains(where: { $0.id == group.id }) {
                 selectGroup(nil)
+                errorMessage = "The selected group is no longer available. Choose another group."
+            } else if !isEditingExpense && group == nil && visibleGroups.count == 1 {
+                selectGroup(visibleGroups[0])
             }
         }
         .onChange(of: people.count) {
@@ -320,17 +340,27 @@ struct AddExpenseSheet: View {
     private var groupRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             BrandSectionLabel("GROUP")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    segmentChip("None", on: group == nil) { selectGroup(nil) }
-                    ForEach(visibleGroups) { g in
-                        segmentChip(g.name, on: group?.id == g.id) { selectGroup(g) }
+            if visibleGroups.isEmpty {
+                Text("No groups yet. Create a group before saving an expense.")
+                    .font(BrandFont.body(12))
+                    .foregroundStyle(Color.Brand.cobalt)
+                Button("Create group") { showNewGroup = true }
+                    .font(BrandFont.body(13, weight: .bold))
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("expenseCreateGroupButton")
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(visibleGroups) { g in
+                            segmentChip(g.name, on: group?.id == g.id) { selectGroup(g) }
+                        }
                     }
+                    .padding(2)
                 }
-                .padding(2)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
             }
-            .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
         }
     }
 
@@ -417,8 +447,8 @@ struct AddExpenseSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("saveExpenseButton")
-        .disabled(isSubmitting || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil)
-        .opacity((isSubmitting || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil) ? 0.5 : 1)
+        .disabled(isSubmitting || group == nil || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil)
+        .opacity((isSubmitting || group == nil || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil) ? 0.5 : 1)
     }
 
     // MARK: helpers
@@ -490,7 +520,7 @@ struct AddExpenseSheet: View {
     }
 
     private func save() {
-        guard let amount = parsedAmount, let payer = paidBy else { return }
+        guard let amount = parsedAmount, let payer = paidBy, group != nil else { return }
         let trimmedTitle = title.trimmingCharacters(in: .whitespaces).capitalizingFirstLetter
         guard !trimmedTitle.isEmpty else { return }
         guard !isSubmitting else { return }

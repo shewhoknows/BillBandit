@@ -11,6 +11,7 @@ struct AddGroupSheet: View {
     @State private var icon: GroupIcon = .house
     @State private var selected = Set<UUID>()
     @State private var simplify = true
+    @State private var showAddFriend = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var isSubmitting = false
@@ -20,7 +21,7 @@ struct AddGroupSheet: View {
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var memberOptions: [Person] {
-        ConnectedFriendIdentity.groupMemberOptions(from: people)
+        ConnectedFriendIdentity.actualFriends(from: people)
     }
 
     var body: some View {
@@ -58,21 +59,28 @@ struct AddGroupSheet: View {
                     }
 
                     BrandSectionLabel("MEMBERS")
-                    VStack(spacing: 0) {
-                        ForEach(Array(memberOptions.enumerated()), id: \.element.id) { index, person in
+                    Text("You are included automatically. Select friends to add.")
+                        .font(BrandFont.body(12))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
+                    if memberOptions.isEmpty {
+                        Text("No friends yet. Invite a friend to share a group.")
+                            .font(BrandFont.body(12))
+                            .foregroundStyle(Color.Brand.cobalt)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(memberOptions.enumerated()), id: \.element.id) { index, person in
                             Button { toggle(person) } label: {
                                 HStack {
-                                    Text(person.isCurrentUser ? "\(person.name) · you" : person.name)
+                                    Text(person.name)
                                         .font(BrandFont.body(14, weight: .bold))
                                         .foregroundStyle(Color.Brand.cobalt)
                                     Spacer()
-                                    BrandCheckmark(isOn: person.isCurrentUser || selected.contains(person.id))
+                                    BrandCheckmark(isOn: selected.contains(person.id))
                                 }
                                 .padding(.horizontal, 15)
                                 .frame(height: 50)
                             }
                             .buttonStyle(.plain)
-                            .disabled(person.isCurrentUser)
                             if index < memberOptions.count - 1 {
                                 Rectangle().fill(Color.Brand.cobalt.opacity(0.18)).frame(height: 1)
                                     .padding(.horizontal, 15)
@@ -80,6 +88,15 @@ struct AddGroupSheet: View {
                         }
                     }
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.Brand.cobalt, lineWidth: 2))
+                    }
+                    Button { showAddFriend = true } label: {
+                        Label("Add a friend", systemImage: "person.badge.plus")
+                            .font(BrandFont.body(13, weight: .bold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .accessibilityIdentifier("groupInviteFriendButton")
 
                     Button { simplify.toggle() } label: {
                         HStack {
@@ -130,7 +147,34 @@ struct AddGroupSheet: View {
                         .accessibilityIdentifier("retryGroupCreationButton")
                     }
 
-                    Button(action: create) {
+
+                }
+                .padding(18)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                createButton
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Color.Brand.creamSoft)
+            }
+            .background(Color.Brand.creamSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .padding(.horizontal, 18)
+            .padding(.bottom, 10)
+        }
+        .background(Color.Brand.cobalt.ignoresSafeArea())
+        .fullScreenCover(isPresented: $showAddFriend, onDismiss: refreshFriends) {
+            FriendInvitationSheet()
+        }
+        .task {
+            await FriendInvitationService.shared.refreshAcceptedInvites()
+            await CloudCollaborationService.shared.refreshFriendProfiles()
+            await ServerSocialSyncService.shared.refresh()
+        }
+    }
+
+    private var createButton: some View {
+        Button(action: create) {
                         Text(isSubmitting ? "Creating…" : "Create group")
                             .font(BrandFont.display(15.5, weight: .bold))
                             .foregroundStyle(Color.Brand.creamSoft)
@@ -141,18 +185,13 @@ struct AddGroupSheet: View {
                     .accessibilityIdentifier("createGroupButton")
                     .disabled(trimmedName.isEmpty || isSubmitting || requiresReconfirmation)
                     .opacity(trimmedName.isEmpty || isSubmitting || requiresReconfirmation ? 0.45 : 1)
-                }
-                .padding(18)
-            }
-            .background(Color.Brand.creamSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .padding(.horizontal, 18)
-            .padding(.bottom, 10)
-        }
-        .background(Color.Brand.cobalt.ignoresSafeArea())
-        .task {
+    }
+
+    private func refreshFriends() {
+        Task {
             await FriendInvitationService.shared.refreshAcceptedInvites()
             await CloudCollaborationService.shared.refreshFriendProfiles()
+            await ServerSocialSyncService.shared.refresh()
         }
     }
 
@@ -202,12 +241,15 @@ struct AddGroupSheet: View {
     }
 
     private func createLocalGroup(named finalName: String) {
-        var memberIDs = Set<UUID>()
-        let members = memberOptions.compactMap { person -> Person? in
-            guard person.isCurrentUser || selected.contains(person.id) else { return nil }
+        let creator = people.first(where: \.isCurrentUser) ?? Person(name: "You", isCurrentUser: true)
+        if creator.modelContext == nil { context.insert(creator) }
+        var memberIDs: Set<UUID> = [creator.id]
+        let friends = memberOptions.compactMap { person -> Person? in
+            guard selected.contains(person.id) else { return nil }
             let preferred = ConnectedFriendIdentity.preferredPerson(for: person, among: people)
             return memberIDs.insert(preferred.id).inserted ? preferred : nil
         }
+        let members = [creator] + friends
         let group = Group(name: finalName, icon: icon, simplifyDebts: simplify, members: members)
         context.insert(group)
         let currentUser = people.first(where: \.isCurrentUser)
@@ -327,7 +369,7 @@ struct AddGroupSheet: View {
         newlyCreatedPeople: inout [Person]
     ) -> [Person] {
         guard let canonicalGroup else {
-            var fallback = people.filter { person in
+            var fallback = ConnectedFriendIdentity.canonicalPeople(from: people).filter { person in
                 person.isCurrentUser
                     || person.serverAccountID.map(fallbackMemberAccountIDs.contains) == true
             }

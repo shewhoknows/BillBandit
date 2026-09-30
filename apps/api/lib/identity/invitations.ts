@@ -146,7 +146,9 @@ export async function createGroupInvitation({
   db = prisma,
 }: CreateGroupInvitationInput): Promise<CreatedGroupInvitation> {
   const normalizedIdentity = externalIdentity(identity.provider, identity.subject)
-  const membership = await db.groupMember.findUnique({
+  return withTransaction(db, async (tx) => {
+  await tx.$queryRaw`SELECT id FROM "Group" WHERE id = ${groupId} FOR UPDATE`
+  const membership = await tx.groupMember.findUnique({
     where: {
       groupId_userId: {
         groupId,
@@ -154,7 +156,7 @@ export async function createGroupInvitation({
       },
     },
     select: {
-      group: { select: { id: true, finalizedAt: true } },
+      group: { select: { id: true, finalizedAt: true, isArchived: true } },
     },
   })
   if (!membership) {
@@ -164,11 +166,14 @@ export async function createGroupInvitation({
       'You must be a member of this group to create an invitation.'
     )
   }
+  if (membership.group.isArchived) {
+    throw new InvitationFlowError('group_finalized', 409, 'Group is archived.')
+  }
   if (membership.group.finalizedAt) {
     throw new InvitationFlowError('group_finalized', 409, 'Group is finalized.')
   }
 
-  const target = await resolveInvitationTarget(normalizedIdentity, db)
+  const target = await resolveInvitationTarget(normalizedIdentity, tx)
   const token = createInvitationToken({
     groupId,
     issuerAccountId,
@@ -186,7 +191,7 @@ export async function createGroupInvitation({
     )
   }
 
-  await db.ledgerOperation.create({
+  await tx.ledgerOperation.create({
     data: {
       id: payload.payload.jti,
       accountId: issuerAccountId,
@@ -210,6 +215,7 @@ export async function createGroupInvitation({
       status: 'pending',
     },
   }
+  })
 }
 
 function invalidTokenError(code: 'malformed' | 'bad_signature' | 'invalid_payload') {
@@ -287,6 +293,15 @@ export async function claimGroupInvitation({
   }
 
   const result = await withTransaction(db, async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Group" WHERE id = ${payload.groupId} FOR UPDATE`
+    const group = await tx.group.findUnique({
+      where: { id: payload.groupId },
+      select: { id: true, finalizedAt: true, isArchived: true },
+    })
+    if (!group) throw new InvitationFlowError('group_not_found', 404, 'Group not found.')
+    if (group.isArchived || group.finalizedAt) {
+      throw new InvitationFlowError('group_finalized', 409, 'Group is closed.')
+    }
     const operation = await tx.ledgerOperation.findUnique({
       where: { id: payload.jti },
       select: {
@@ -335,17 +350,6 @@ export async function claimGroupInvitation({
         409,
         'This invitation has already been used.'
       )
-    }
-
-    const group = await tx.group.findUnique({
-      where: { id: payload.groupId },
-      select: { id: true, finalizedAt: true },
-    })
-    if (!group) {
-      throw new InvitationFlowError('group_not_found', 404, 'Group not found.')
-    }
-    if (group.finalizedAt) {
-      throw new InvitationFlowError('group_finalized', 409, 'Group is finalized.')
     }
 
     let member = await tx.groupMember.findUnique({
