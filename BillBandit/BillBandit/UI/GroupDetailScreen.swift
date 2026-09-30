@@ -876,11 +876,23 @@ private struct TornEdge: Shape {
 
 struct ExpenseDetailScreen: View {
     @Bindable var expense: Expense
+    @Query private var activityItems: [ActivityItem]
+    @Query private var people: [Person]
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var showEdit = false
     @State private var confirmDelete = false
+
+    private var recordedHistory: [ActivityItem] {
+        activityItems.filter { $0.refID == expense.id && $0.groupID == expense.group?.id }
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+    private var creation: ActivityItem? { recordedHistory.first { $0.kind == .expenseAdded } }
+    private var creatorName: String {
+        guard let actorID = creation?.actorID else { return "unavailable" }
+        return people.first { $0.id == actorID }?.name ?? "unavailable"
+    }
 
     private var deletionCreatesOverpayment: Bool {
         BalanceMath.deletingWouldCreateOverpayment(expense)
@@ -922,6 +934,32 @@ struct ExpenseDetailScreen: View {
                 }
                 .foregroundStyle(Color.Brand.cobalt)
                 .padding(16)
+                .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 12))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Added by \(creatorName)")
+                        .font(BrandFont.body(14, weight: .bold))
+                        .accessibilityIdentifier("expenseAddedBy")
+                    Text(creation.map { "Added · \($0.timestamp.formatted(date: .abbreviated, time: .shortened))" }
+                         ?? "Added time unavailable")
+                        .font(BrandFont.type(11))
+                    DottedRule().padding(.vertical, 4)
+                    Text("CHANGE HISTORY").font(BrandFont.body(10, weight: .extraBold))
+                        .accessibilityIdentifier("expenseChangeHistory")
+                    if recordedHistory.isEmpty {
+                        Text("No recorded change history is available.")
+                    }
+                    ForEach(recordedHistory) { item in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.summary).font(BrandFont.body(12, weight: .semibold))
+                            Text(item.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(BrandFont.type(10)).opacity(0.65)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .foregroundStyle(Color.Brand.cobalt)
                 .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 12))
 
                 Button("Edit expense") { showEdit = true }
@@ -1691,5 +1729,161 @@ private struct GroupAddMembersSheet: View {
                 errorMessage = "Could not save this member. Try again."
             }
         }
+    }
+}
+
+/// Activity opens a receipt, using the same account-scoped ledger and cache as the group.
+struct SharedExpenseOverviewScreen: View {
+    let group: Group
+    let expenseID: String
+    @State private var ledger = SettlementStore()
+    @ObservedObject private var surface = ServerLedgerSurfaceStore.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var canonicalGroup: SettlementCanonicalLedgerGroup? {
+        guard let snapshot = ledger.canonicalSnapshot,
+              snapshot.scope.accountID == surface.activeAccountIdentifier,
+              snapshot.scope.groupID == group.serverLedgerGroupID else { return nil }
+        return snapshot.group
+    }
+    private var expense: SettlementCanonicalLedgerExpense? {
+        canonicalGroup?.expenses.first { $0.expenseID == expenseID && $0.status == "active" }
+    }
+    private var history: [SettlementCanonicalLedgerActivity] {
+        // Legacy fallback events use the expense date, not the time it was added.
+        let items = canonicalGroup?.activity.filter {
+            $0.type == "expense" && $0.expenseID == expenseID && $0.activityID != "activity-\(expenseID)"
+        } ?? []
+        return items.sorted { $0.at == $1.at ? $0.activityID < $1.activityID : $0.at < $1.at }
+    }
+    private var creation: SettlementCanonicalLedgerActivity? { history.first { $0.action == "created" } }
+    private var edits: [SettlementCanonicalLedgerActivity] { history.filter { $0.action == "updated" } }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                if let expense, let canonicalGroup {
+                    VStack(spacing: 8) {
+                        Text(group.name).font(BrandFont.body(12, weight: .semibold)).opacity(0.7)
+                        Text(expense.description).font(BrandFont.display(28, weight: .bold))
+                            .multilineTextAlignment(.center)
+                        Text(money(expense.amount)).font(BrandFont.type(34, bold: true))
+                            .minimumScaleFactor(0.65).lineLimit(1)
+                        Text("Paid by \(memberName(expense.paidByMemberID))")
+                            .font(BrandFont.type(13)).accessibilityIdentifier("expensePayer")
+                        Text("Expense date · \(timestamp(expense.createdAt, includesTime: false))")
+                            .font(BrandFont.type(10)).opacity(0.7)
+                    }
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    receiptSection("ADDED & UPDATED") {
+                        Text("Added by \(memberName(expense.createdByMemberID ?? creation?.actorMemberID, fallback: "unavailable"))")
+                            .font(BrandFont.body(14, weight: .bold))
+                            .accessibilityIdentifier("expenseAddedBy")
+                        Text(creation.map { "Added · \(timestamp($0.at))" } ?? "Added time unavailable")
+                            .font(BrandFont.type(11)).accessibilityIdentifier("expenseAddedAt")
+                        Text(edits.isEmpty ? "No recorded edits" : "\(edits.count) recorded edit\(edits.count == 1 ? "" : "s")")
+                            .font(BrandFont.body(12, weight: .semibold))
+                            .accessibilityIdentifier("expenseChangeSummary")
+                        if let last = edits.last {
+                            Text("Last updated by \(memberName(last.actorMemberID)) · \(timestamp(last.at))")
+                                .font(BrandFont.type(10))
+                        }
+                    }
+                    receiptSection("SPLIT BREAKDOWN") {
+                        Text(expense.splitMethod.capitalized + " · \(expense.splits.count) people")
+                            .font(BrandFont.body(12, weight: .semibold))
+                        ForEach(expense.splits.sorted { memberName($0.memberID) < memberName($1.memberID) }, id: \.splitID) { split in
+                            SplitBreakdownRow(name: canonicalGroup.memberByID[split.memberID]?.displayName ?? "Unknown member",
+                                              amount: money(split.amount))
+                        }
+                    }
+                    receiptSection("CHANGE HISTORY", identifier: "expenseChangeHistory") {
+                        if history.isEmpty {
+                            Text("No recorded change history is available.").font(BrandFont.body(12))
+                        } else {
+                            ForEach(history, id: \.activityID) { event in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("\(actionLabel(event.action)) by \(memberName(event.actorMemberID))")
+                                        .font(BrandFont.body(13, weight: .bold))
+                                    Text(timestamp(event.at)).font(BrandFont.type(10))
+                                    Text(money(event.amount)).font(BrandFont.type(11, bold: true))
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        Text("Recorded events are shown here. Older records may have incomplete history.")
+                            .font(BrandFont.body(11)).opacity(0.65)
+                    }
+                    if ledger.isOffline || ledger.lastError != nil || ledger.canonicalSnapshot?.isStale == true {
+                        Text("Saved expense · updates could not be checked. Reconnect to refresh.")
+                            .font(BrandFont.body(12)).foregroundStyle(Color.Brand.creamSoft)
+                    }
+                } else if ledger.isLoading {
+                    ProgressView("Loading expense…").tint(Color.Brand.creamSoft)
+                } else {
+                    Text("Expense unavailable").font(BrandFont.display(24, weight: .bold))
+                    Text(ledger.lastError ?? "This expense was removed or is not available in this group.")
+                        .font(BrandFont.body(13))
+                    Button("Try again") { Task { await ledger.refresh(forceWritesDisabled: true) } }
+                }
+            }
+            .padding(20)
+        }
+        .foregroundStyle(Color.Brand.creamSoft)
+        .background(Color.Brand.cobalt.ignoresSafeArea())
+        .navigationTitle("Expense")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await ledger.refresh(forceWritesDisabled: true) }
+        .task(id: expenseID + (surface.activeAccountIdentifier ?? "")) {
+            ledger.setVisible(false)
+            ledger = SettlementStore()
+            guard let serverGroupID = group.serverLedgerGroupID,
+                  let user = try? await UsernameIdentityService.authenticatedUserForLedger(),
+                  user.id == surface.activeAccountIdentifier,
+                  group.isVisible(toServerAccountID: user.id) else {
+                ledger.markIdentityUnavailable()
+                return
+            }
+            ledger.configure(accountID: user.id, groupID: serverGroupID)
+            ledger.setVisible(true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await ledger.refreshOnForeground() } }
+        }
+        .onDisappear { ledger.setVisible(false) }
+    }
+
+    private func memberName(_ id: String?, fallback: String = "Unknown member") -> String {
+        guard let id else { return fallback }
+        return canonicalGroup?.memberByID[id]?.displayName ?? fallback
+    }
+    private func money(_ value: ServerLedgerMoneyDTO) -> String {
+        SettlementMoneyFormatting.display(minorUnits: value.minorUnits, currencyCode: value.currencyCode,
+                                          currencyExponent: value.currencyExponent)
+    }
+    private func timestamp(_ value: String, includesTime: Bool = true) -> String {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return "Unavailable" }
+        return date.formatted(date: .abbreviated, time: includesTime ? .shortened : .omitted)
+    }
+    private func actionLabel(_ action: String?) -> String {
+        switch action {
+        case "created": return "Added"
+        case "updated": return "Updated"
+        case "deleted": return "Deleted"
+        default: return "Recorded"
+        }
+    }
+    private func receiptSection<Content: View>(_ title: String, identifier: String = "", @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(BrandFont.body(10, weight: .extraBold)).tracking(1.2)
+                .accessibilityIdentifier(identifier)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .foregroundStyle(Color.Brand.cobalt)
+        .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 18))
     }
 }

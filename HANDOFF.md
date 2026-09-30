@@ -48,6 +48,18 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
+### 2026-09-30 — expense overview UI branch (local)
+
+- Branch `codex/profile-currency-expense-review-20260930` starts at released build 31 source `8a73576`, in `/Users/prateekranka/Cowork/BillBandit-expense-review-20260930`. The original and release checkouts are preserved.
+- Scope: remove Home's aggregate estimate box, move currency controls to Profile, and route recent shared activity directly to a read-only expense overview with creator, added time, splits, and recorded history.
+- Plan v1 accepted with root clarification: retain explicit local Edit/Delete actions; entering activity must never open a form. Shared overview is read-only. Keep all changes local until separate publishing approval.
+- Implementation phase complete: Profile owns controls and combined estimates; group estimate panels are read-only; shared activity uses an account-scoped cached receipt directly. Optional creator/action/actor metadata is decoded from the existing backend response. Local expense receipts also show recorded history. No backend or persistence contract changed.
+- Focused UI cases were authored before implementation. Fresh synthetic backend fixtures are isolated from production. Added time must use durable creation activity, because the existing expense DTO `createdAt` means expense date. Missing history must remain explicit.
+- Verification complete: simulator build succeeds. Two focused UI cases pass: Home box removal/Profile selection and persistence/local receipt history; real shared activity receipt with correct creator versus payer, actual added timestamp, recorded edit, and offline relaunch. The real local backend harness passed 10 checks. The overview group's revision stays 2, with one expense, two activity events, and no pending operations after review.
+- Initial failures are retained in evidence: wrong Profile test identifier (fixed), then stale simulator account preference in the synthetic harness (isolated with a UI-only scheme and a launch preference matching the verified account). The active surface account publishes changes so dependent screens update. Shared overview cached content also checks and resets on account scope changes.
+- Original dirty checkout status, unstaged diff, and staged diff match their saved baseline exactly. Released branch remains clean and unchanged. No push, deployment, or upload occurred for this UI branch.
+- Evidence: `/Users/prateekranka/Cowork/BillBandit-backend-independent-evidence-20260930/expense-review/20260930T095321Z.NJvHoX`.
+
 ### 2026-09-30 — Vietnam-trip build 31 release
 
 - Candidate: `codex/vietnam-trip-20260930`, isolated from the user's dirty primary checkout. Base: release `72d7e0b7a1e2946f82efdbb1cccac3a58c44918d`.

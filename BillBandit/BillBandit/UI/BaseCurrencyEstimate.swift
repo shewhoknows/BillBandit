@@ -2,79 +2,108 @@ import Foundation
 import SwiftUI
 import Combine
 
-struct CurrencyEstimateAmount {
-    let amount: Decimal
-    let currencyCode: String
-}
-
-/// Adds display estimates only after every original currency has a valid rate.
-struct BaseCurrencyTotalsEstimatePanel: View {
-    let owed: [CurrencyEstimateAmount]
-    let owe: [CurrencyEstimateAmount]
+/// Profile owns display-currency preferences. Ledger amounts keep their original currency.
+@MainActor
+struct ProfileCurrencySettingsSection: View {
+    let sourceCodes: [String]
+    let balances: [ServerLedgerSurfaceAccountBalanceSummary]?
     @ObservedObject private var store = BaseCurrencyEstimateStore.shared
+    @State private var settingsCurrency: AppCurrency?
 
-    private var sourceCodes: [String] {
-        Set((owed + owe).map(\.currencyCode)).sorted()
+    private var sourceCurrencies: [AppCurrency] {
+        sourceCodes.compactMap(AppCurrency.init(rawValue:))
+            .filter { $0 != store.selectedBaseCurrency }
     }
 
-    private func convertedTotal(_ values: [CurrencyEstimateAmount]) -> Decimal? {
+    private func convertedTotal(owed: Bool) -> Decimal? {
+        guard let balances else { return nil }
         var total = Decimal.zero
-        for value in values {
-            guard let estimate = store.estimate(amount: value.amount, sourceCurrency: value.currencyCode) else {
-                return nil
-            }
-            total += estimate
+        for balance in balances {
+            let money = owed ? balance.owed : balance.owe
+            guard let amount = money.majorUnits,
+                  let converted = store.estimate(amount: amount, sourceCurrency: money.currencyCode) else { return nil }
+            total += converted
         }
         return total
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Estimated totals in \(store.selectedBaseCurrency.rawValue)")
-                .font(BrandFont.type(12, bold: true))
-            if let owedTotal = convertedTotal(owed), let oweTotal = convertedTotal(owe) {
-                Text("You are owed ≈ \(BaseCurrencyEstimateFormatting.amount(owedTotal, currency: store.selectedBaseCurrency))")
-                Text("You owe ≈ \(BaseCurrencyEstimateFormatting.amount(oweTotal, currency: store.selectedBaseCurrency))")
-            } else {
-                Text("Waiting for exchange rates. Original balances are shown above.")
-            }
-            ForEach(sourceCodes, id: \.self) { code in
-                if let rate = store.rate(for: code), code != store.selectedBaseCurrency.rawValue {
-                    Text("\(code)/\(rate.baseCurrencyCode) · \(BaseCurrencyEstimateFormatting.date(rate.date)) · \(rate.source)\(rate.isCached ? " · saved rate" : "")")
-                        .font(BrandFont.type(9))
-                }
-            }
-            Menu("Base currency: \(store.selectedBaseCurrency.rawValue)") {
+        VStack(alignment: .leading, spacing: 14) {
+            BrandSectionLabel("CURRENCY & EXCHANGE RATES")
+            Menu {
                 Picker("Base currency", selection: $store.selectedBaseCurrency) {
                     ForEach(AppCurrency.allCases) { currency in
-                        Text(currency.rawValue).tag(currency)
+                        Text("\(currency.rawValue) — \(currency.name)").tag(currency)
                     }
                 }
+            } label: {
+                HStack {
+                    Text("Base currency")
+                    Spacer()
+                    Text(store.selectedBaseCurrency.rawValue).bold()
+                    Image(systemName: "chevron.up.chevron.down")
+                }
             }
-            Button("Refresh exchange rates") {
+            .accessibilityIdentifier("profileBaseCurrencyPicker")
+            Text("Estimates use this currency. Expenses and payments keep their original currency.")
+                .font(BrandFont.body(12))
+                .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+            if balances != nil {
+                if let owed = convertedTotal(owed: true), let owe = convertedTotal(owed: false) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Estimated totals in \(store.selectedBaseCurrency.rawValue)")
+                            .font(BrandFont.body(12, weight: .bold))
+                        Text("You are owed ≈ \(BaseCurrencyEstimateFormatting.amount(owed, currency: store.selectedBaseCurrency))")
+                        Text("You owe ≈ \(BaseCurrencyEstimateFormatting.amount(owe, currency: store.selectedBaseCurrency))")
+                    }
+                    .font(BrandFont.type(11))
+                } else {
+                    Text("Waiting for exchange rates to estimate totals.").font(BrandFont.body(11))
+                }
+            }
+            ForEach(sourceCurrencies) { currency in
+                VStack(alignment: .leading, spacing: 4) {
+                    if let rate = store.rate(for: currency) {
+                        Text("1 \(currency.rawValue) ≈ \(NSDecimalNumber(decimal: rate.baseUnitsPerSourceUnit).stringValue) \(rate.baseCurrencyCode)")
+                            .font(BrandFont.type(11, bold: true))
+                        Text("\(BaseCurrencyEstimateFormatting.date(rate.date)) · \(rate.source)\(rate.isCached ? " · saved rate" : "")")
+                            .font(BrandFont.type(9))
+                    } else {
+                        Text("\(currency.rawValue)/\(store.selectedBaseCurrency.rawValue) · no saved rate")
+                            .font(BrandFont.type(11))
+                    }
+                    Button("Set a fixed \(currency.rawValue) rate") { settingsCurrency = currency }
+                        .font(BrandFont.body(11, weight: .semibold))
+                }
+            }
+            Button {
                 Task {
-                    for code in sourceCodes {
-                        if let currency = AppCurrency(rawValue: code), currency != store.selectedBaseCurrency {
-                            await store.refresh(sourceCurrency: currency)
-                        }
-                    }
+                    for currency in sourceCurrencies { await store.refresh(sourceCurrency: currency) }
                 }
+            } label: {
+                HStack {
+                    if store.isRefreshing { ProgressView() }
+                    else { Image(systemName: "arrow.clockwise") }
+                    Text(store.isRefreshing ? "Refreshing exchange rates…" : "Refresh exchange rates")
+                }
+                .font(BrandFont.body(13, weight: .bold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 1.5))
             }
-            .disabled(store.isRefreshing)
+            .accessibilityIdentifier("profileRefreshExchangeRates")
+            .disabled(store.isRefreshing || sourceCurrencies.isEmpty)
+            if let error = store.lastError {
+                Text(error).font(BrandFont.body(11))
+            }
         }
-        .font(BrandFont.type(11))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color.Brand.creamSoft)
         .foregroundStyle(Color.Brand.cobalt)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .accessibilityIdentifier("baseCurrencyOverallEstimate")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+        .sheet(item: $settingsCurrency) { currency in
+            BaseCurrencyEstimateSettingsView(store: store, sourceCurrency: currency)
+        }
         .task(id: sourceCodes.joined(separator: ",") + store.selectedBaseCurrency.rawValue) {
-            for code in sourceCodes {
-                if let currency = AppCurrency(rawValue: code) {
-                    await store.ensureRate(sourceCurrency: currency)
-                }
-            }
+            for currency in sourceCurrencies { await store.ensureRate(sourceCurrency: currency) }
         }
     }
 }
@@ -472,7 +501,6 @@ struct BaseCurrencyEstimatePanel: View {
     let title: String
 
     @ObservedObject private var store: BaseCurrencyEstimateStore
-    @State private var isShowingSettings = false
 
     init(amount: Decimal, currencyCode: String, title: String) {
         self.amount = amount
@@ -505,35 +533,15 @@ struct BaseCurrencyEstimatePanel: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Text("Set exchange rate to see \(store.selectedBaseCurrency.rawValue) estimate")
+                Text("Set an exchange rate in Profile to see the \(store.selectedBaseCurrency.rawValue) estimate")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                Button("Exchange-rate settings") { isShowingSettings = true }
-                    .font(.caption.weight(.semibold))
-
-                if let sourceCurrency, sourceCurrency != store.selectedBaseCurrency {
-                    Button {
-                        Task { await store.refresh(sourceCurrency: sourceCurrency) }
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .disabled(store.isRefreshing)
-                }
             }
 
             if let lastError = store.lastError {
                 Text(lastError)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-            }
-        }
-        .sheet(isPresented: $isShowingSettings) {
-            if let sourceCurrency {
-                BaseCurrencyEstimateSettingsView(store: store, sourceCurrency: sourceCurrency)
             }
         }
         .task(id: sourceCurrency.map { "\($0.rawValue)/\(store.selectedBaseCurrency.rawValue)" }) {

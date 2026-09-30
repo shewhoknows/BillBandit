@@ -815,7 +815,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
     private let cacheStore: ServerLedgerStore
     private let sync: ServerLedgerSync
-    private var activeAccountID: String?
+    @Published private var activeAccountID: String?
     private var refreshGeneration = 0
 
     var hasSharedGroups: Bool { snapshot?.groups.isEmpty == false }

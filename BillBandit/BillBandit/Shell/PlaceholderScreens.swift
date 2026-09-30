@@ -770,18 +770,6 @@ struct HomeScreen: View {
                                 showsCurrencyCode: summaries.count > 1
                             )
                         }
-                        BaseCurrencyTotalsEstimatePanel(
-                            owed: summaries.compactMap { summary in
-                                summary.owed.majorUnits.map {
-                                    CurrencyEstimateAmount(amount: $0, currencyCode: summary.owed.currencyCode)
-                                }
-                            },
-                            owe: summaries.compactMap { summary in
-                                summary.owe.majorUnits.map {
-                                    CurrencyEstimateAmount(amount: $0, currencyCode: summary.owe.currencyCode)
-                                }
-                            }
-                        )
                         if summaries.count > 1 {
                             Text("Original balances stay separate by currency. Exchange estimates do not change payments.")
                                 .font(BrandFont.type(10))
@@ -1135,6 +1123,8 @@ private enum BillBanditLegalLinks {
 }
 
 struct ProfileScreen: View {
+    @Query private var groups: [Group]
+    @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Query private var progressRecords: [UserProgress]
     @Query private var achievementUnlocks: [AchievementUnlock]
@@ -1173,6 +1163,22 @@ struct ProfileScreen: View {
     private var currentProgress: UserProgress? {
         guard let currentPersonID else { return nil }
         return progressRecords.first { $0.personID == currentPersonID }
+    }
+
+    private var profileBalances: [ServerLedgerSurfaceAccountBalanceSummary]? {
+        let sharedIDs = Set(groups.filter {
+            $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier)
+        }.compactMap(\.serverLedgerGroupID))
+        guard !sharedIDs.isEmpty, let snapshot = serverLedger.snapshot,
+              snapshot.accountID == serverLedger.activeAccountIdentifier,
+              snapshot.coversExactly(serverGroupIDs: sharedIDs) else { return nil }
+        return snapshot.accountBalanceSummaries
+    }
+
+    private var profileCurrencyCodes: [String] {
+        let visible = groups.filter { $0.isVisible(toServerAccountID: serverLedger.activeAccountIdentifier) }
+        // Offer the trip currency before the first VND group exists.
+        return Array(Set(visible.map(\.resolvedCurrencyCode) + ["INR", "VND"])).sorted()
     }
 
     private var progressEnabled: Bool { currentProgress?.isEnabled ?? true }
@@ -1255,6 +1261,8 @@ struct ProfileScreen: View {
                         avatarPickerSection
                             .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
                     }
+
+                    ProfileCurrencySettingsSection(sourceCodes: profileCurrencyCodes, balances: profileBalances)
 
                     VStack(spacing: 8) {
                         gamificationSection
@@ -2475,7 +2483,7 @@ private struct ExpenseActivityNavigation<Content: View>: View {
     var body: some View {
         if canOpen, let group, let expenseID = item.expenseID {
             NavigationLink {
-                GroupDetailScreen(group: group, targetCanonicalExpenseID: expenseID)
+                SharedExpenseOverviewScreen(group: group, expenseID: expenseID)
             } label: { content.contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .accessibilityHint("Open expense")

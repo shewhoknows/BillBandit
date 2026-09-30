@@ -494,6 +494,7 @@ struct SettlementCanonicalLedgerExpense: Decodable, Equatable, Sendable {
     let expenseID: String
     let description: String
     let paidByMemberID: String
+    let createdByMemberID: String?
     let amount: ServerLedgerMoneyDTO
     let splitMethod: String
     let splits: [SettlementCanonicalLedgerSplit]
@@ -505,6 +506,7 @@ struct SettlementCanonicalLedgerExpense: Decodable, Equatable, Sendable {
         case expenseID = "expenseId"
         case description
         case paidByMemberID = "paidByMemberId"
+        case createdByMemberID = "createdByMemberId"
         case amount
         case splitMethod
         case splits
@@ -613,6 +615,9 @@ struct SettlementCanonicalSettlementHistoryItem: Decodable, Equatable, Sendable 
 struct SettlementCanonicalLedgerActivity: Decodable, Equatable, Sendable {
     let activityID: String
     let type: String
+    let action: String?
+    let actorMemberID: String?
+    let description: String?
     let expenseID: String?
     let settlementID: String?
     let reversalID: String?
@@ -622,6 +627,9 @@ struct SettlementCanonicalLedgerActivity: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case activityID = "activityId"
         case type
+        case action
+        case actorMemberID = "actorMemberId"
+        case description
         case expenseID = "expenseId"
         case settlementID = "settlementId"
         case reversalID = "reversalId"

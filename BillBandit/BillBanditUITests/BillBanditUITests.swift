@@ -477,6 +477,94 @@ final class BillBanditUITests: XCTestCase {
         attachScreenshot(named: "activity-tab-expense-detail")
     }
 
+    func testCurrencyControlsLiveInProfileAndLocalActivityShowsHistory() throws {
+        let app = syntheticLocalApp()
+        app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Profile"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.otherElements["baseCurrencyOverallEstimate"].exists)
+        XCTAssertFalse(app.buttons["Refresh exchange rates"].exists)
+        attachScreenshot(named: "home-without-currency-box")
+        app.buttons["Profile"].tap()
+        let currency = app.buttons["profileBaseCurrencyPicker"]
+        if !currency.exists { app.swipeUp() }
+        XCTAssertTrue(currency.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["profileRefreshExchangeRates"].exists)
+        currency.tap()
+        app.buttons["VND — Vietnamese dong"].tap()
+        XCTAssertTrue(currency.label.contains("VND"))
+        attachScreenshot(named: "profile-currency-controls")
+        app.terminate()
+        app.launchArguments = ["-resetDemoData", "-tab", "3", "-skipOnboarding"]
+        app.launch()
+        if !currency.exists { app.swipeUp() }
+        XCTAssertTrue(currency.waitForExistence(timeout: 5))
+        XCTAssertTrue(currency.label.contains("VND"), "Display currency must persist")
+        currency.tap()
+        app.buttons["INR — Indian rupee"].tap()
+        app.buttons["tab-home"].tap()
+        let recent = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Groceries")).firstMatch
+        XCTAssertTrue(recent.waitForExistence(timeout: 8))
+        recent.tap()
+        XCTAssertTrue(app.staticTexts["expenseAddedBy"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["expenseChangeHistory"].exists)
+        XCTAssertFalse(app.textFields["expenseAmountField"].exists)
+        XCTAssertFalse(app.staticTexts["BILLBANDIT & CO."].exists)
+        attachScreenshot(named: "local-expense-overview-history")
+    }
+
+    func testSharedActivityOpensReadOnlyOverviewAndWorksOffline() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+            root.appendingPathComponent(".scratch/vietnam-trip/overview-fixture.json"))) as? [String: Any])
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+            root.appendingPathComponent(".scratch/vietnam-trip/qa-session.json"))) as? [String: Any])
+        let base = try XCTUnwrap(config["baseURL"] as? String)
+        let token = try XCTUnwrap(config["aliceToken"] as? String)
+        let title = try XCTUnwrap(fixture["expenseTitle"] as? String)
+        try await vietnamNetwork(base: base, offline: false)
+        let app = XCUIApplication()
+        // Override only the QA app's saved scope preference, matching its verified token.
+        app.launchArguments = ["-skipOnboarding", "-tab", "0", "-serverLedgerAccountID",
+                               try XCTUnwrap(config["aliceID"] as? String)]
+        app.launchEnvironment = ["BILLBANDIT_QA_STORE_ID": "vietnam-test-overview-" + UUID().uuidString.lowercased(),
+                                 "BILLBANDIT_QA_BASE_URL": base, "BILLBANDIT_QA_TOKEN": token]
+        app.launch()
+        let recent = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        XCTAssertTrue(recent.waitForExistence(timeout: 40), app.debugDescription)
+        XCTAssertFalse(app.otherElements["baseCurrencyOverallEstimate"].exists)
+        recent.tap()
+        XCTAssertTrue(app.staticTexts["expenseAddedBy"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["expenseAddedBy"].label.contains(try XCTUnwrap(fixture["creatorName"] as? String)))
+        let dateParser = ISO8601DateFormatter()
+        dateParser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let addedAt = try XCTUnwrap(dateParser.date(from: try XCTUnwrap(fixture["addedAt"] as? String)))
+        XCTAssertTrue(app.staticTexts["expenseAddedAt"].label.contains(addedAt.formatted(date: .abbreviated, time: .shortened)))
+        XCTAssertTrue(app.staticTexts["expensePayer"].label.contains(try XCTUnwrap(fixture["payerName"] as? String)))
+        XCTAssertTrue(app.staticTexts["expenseChangeHistory"].exists)
+        XCTAssertTrue(app.staticTexts["expenseChangeSummary"].label.contains("1 recorded edit"))
+        XCTAssertFalse(app.textFields["expenseAmountField"].exists)
+        XCTAssertFalse(app.buttons["Save changes"].exists)
+        XCTAssertFalse(app.staticTexts["BILLBANDIT & CO."].exists)
+        attachScreenshot(named: "shared-expense-overview")
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Updated by " + (fixture["editorName"] as? String ?? ""))).firstMatch.exists)
+        attachScreenshot(named: "shared-expense-recorded-history")
+        try await vietnamNetwork(base: base, offline: true)
+        defer { Task { try? await self.vietnamNetwork(base: base, offline: false) } }
+        app.terminate()
+        app.launchEnvironment["BILLBANDIT_QA_TOKEN"] = ""
+        app.launch()
+        XCTAssertTrue(recent.waitForExistence(timeout: 20))
+        recent.tap()
+        XCTAssertTrue(app.staticTexts["expenseAddedBy"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.textFields["expenseAmountField"].exists)
+        attachScreenshot(named: "shared-expense-overview-offline-relaunch")
+        try await vietnamNetwork(base: base, offline: false)
+        app.terminate()
+    }
+
     private func attachScreenshot(named name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
