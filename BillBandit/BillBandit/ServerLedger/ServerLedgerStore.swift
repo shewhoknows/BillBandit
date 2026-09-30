@@ -17,6 +17,7 @@ enum ServerLedgerStoreError: Error, Equatable, Sendable {
 @MainActor
 final class ServerLedgerStore {
     let context: ModelContext
+    private var drainingAccountIDs = Set<String>()
 
     init(context: ModelContext) {
         self.context = context
@@ -242,6 +243,25 @@ final class ServerLedgerStore {
         try clear(accountID: accountID)
     }
 
+    /// Consecutive offline creates reserve consecutive group revisions.
+    /// A peer change still causes a visible server conflict; no edit is rebased.
+    func nextQueuedExpenseRevision(scope: ServerLedgerMutationScope,
+                                   canonicalRevision: Int64,
+                                   operationID: UUID) throws -> Int64 {
+        let accountRows = try pendingOperations(for: scope.accountID, includingCompleted: true)
+        let rows = accountRows.filter { (try? $0.makeMutationScope()) == scope }
+        if let existing = rows.first(where: { $0.operationID == operationID }) {
+            return existing.expectedRevision
+        }
+        let waiting = rows.filter { $0.retryState != .succeeded && $0.retryState != .failed }
+        guard let last = waiting.map(\.expectedRevision).max(), last >= canonicalRevision else {
+            return canonicalRevision
+        }
+        let next = last.addingReportingOverflow(1)
+        guard !next.overflow else { throw ServerLedgerSyncError.conflictRequiresReconfirmation }
+        return next.partialValue
+    }
+
     func clearQueue(accountID: String) throws {
         try requireAccount(accountID)
         let queueAccountID = accountID
@@ -263,6 +283,22 @@ final class ServerLedgerStore {
 
     func persist() throws {
         try context.save()
+    }
+
+    /// Prevents two runtime owners from submitting the same durable queue at
+    /// the same time. The store is MainActor-isolated, so this check covers
+    /// all `ServerLedgerSync` instances that share the production store.
+    func beginDrain(accountID rawAccountID: String) -> Bool {
+        let accountID = rawAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard accountID.isEmpty == false, drainingAccountIDs.insert(accountID).inserted else {
+            return false
+        }
+        return true
+    }
+
+    func endDrain(accountID rawAccountID: String) {
+        let accountID = rawAccountID.trimmingCharacters(in: .whitespacesAndNewlines)
+        drainingAccountIDs.remove(accountID)
     }
 
     private func requireAccount(_ accountID: String) throws {

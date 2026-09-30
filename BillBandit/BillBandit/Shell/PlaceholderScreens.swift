@@ -770,6 +770,22 @@ struct HomeScreen: View {
                                 showsCurrencyCode: summaries.count > 1
                             )
                         }
+                        BaseCurrencyTotalsEstimatePanel(
+                            owed: summaries.compactMap { summary in
+                                summary.owed.majorUnits.map {
+                                    CurrencyEstimateAmount(amount: $0, currencyCode: summary.owed.currencyCode)
+                                }
+                            },
+                            owe: summaries.compactMap { summary in
+                                summary.owe.majorUnits.map {
+                                    CurrencyEstimateAmount(amount: $0, currencyCode: summary.owe.currencyCode)
+                                }
+                            }
+                        )
+                        if summaries.count > 1 {
+                            Text("Original balances stay separate by currency. Exchange estimates do not change payments.")
+                                .font(BrandFont.type(10))
+                        }
                     }
                 } else {
                     ServerLedgerUnavailableChip(
@@ -925,7 +941,7 @@ struct HomeScreen: View {
             GroupCard(
                 group: group,
                 balanceText: presentation?.label ?? (serverGroupID == nil
-                    ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0))" : "owe \(Money.currency(-$0))" }
+                    ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0, currencyCode: group.resolvedCurrencyCode))" : "owe \(Money.currency(-$0, currencyCode: group.resolvedCurrencyCode))" }
                     : nil),
                 balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
                 sourceLabel: ServerLedgerUserFacingCopy.groupSourceLabel(

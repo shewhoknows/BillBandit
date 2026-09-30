@@ -155,9 +155,15 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
     func fetchSnapshot(for scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
         let groupID = Self.pathComponent(scope.groupID)
         let path = "/api/mobile/ledger/groups/\(groupID)"
-        let (data, status) = try await perform(path: path, method: "GET", body: nil, request: nil)
+        let (data, status, bearerToken) = try await perform(path: path, method: "GET", body: nil, request: nil)
         guard (200..<300).contains(status) else {
-            throw try makeHTTPError(status: status, data: data, scope: scope, expectedRevision: nil)
+            throw try makeHTTPError(
+                status: status,
+                data: data,
+                scope: scope,
+                expectedRevision: nil,
+                rejectedBearerToken: bearerToken
+            )
         }
         do {
             return try ServerLedgerDocumentValidator.snapshot(from: data, scope: scope)
@@ -174,7 +180,7 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
             throw ServerLedgerAPIClientError.invalidRequest
         }
         let body = request.bodyWithMetadata()
-        let (data, status) = try await perform(
+        let (data, status, bearerToken) = try await perform(
             path: path,
             method: request.method,
             body: body,
@@ -191,7 +197,8 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
                 status: status,
                 data: data,
                 scope: requestedScope,
-                expectedRevision: request.expectedRevision
+                expectedRevision: request.expectedRevision,
+                rejectedBearerToken: bearerToken
             )
         }
 
@@ -240,7 +247,7 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
         method: String,
         body: Data?,
         request mutation: ServerLedgerMutationRequest?
-    ) async throws -> (Data, Int) {
+    ) async throws -> (Data, Int, String?) {
         guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
             throw ServerLedgerAPIClientError.invalidURL
         }
@@ -280,7 +287,7 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw ServerLedgerAPIClientError.invalidResponse
             }
-            return (data, httpResponse.statusCode)
+            return (data, httpResponse.statusCode, token)
         } catch let error as ServerLedgerAPIClientError {
             throw error
         } catch let error as URLError {
@@ -298,9 +305,15 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
         status: Int,
         data: Data,
         scope: ServerBackedLedgerScope?,
-        expectedRevision: Int64?
+        expectedRevision: Int64?,
+        rejectedBearerToken: String? = nil
     ) throws -> ServerLedgerAPIClientError {
-        if status == 401 { return .unauthorized }
+        if status == 401 {
+            if let rejectedBearerToken {
+                UsernameIdentityService.serverDidRejectCurrentSession(token: rejectedBearerToken)
+            }
+            return .unauthorized
+        }
         if status == 409 {
             if let conflict = try? JSONDecoder.serverLedger.decode(
                 ServerLedgerConflictEnvelopeDTO.self,
@@ -357,7 +370,8 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
             status: status,
             data: data,
             scope: scope,
-            expectedRevision: expectedRevision
+            expectedRevision: expectedRevision,
+            rejectedBearerToken: nil
         )
     }
 #endif

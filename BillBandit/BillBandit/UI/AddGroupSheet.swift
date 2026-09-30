@@ -9,6 +9,7 @@ struct AddGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var icon: GroupIcon = .house
+    @State private var currency: AppCurrency = .inr
     @State private var selected = Set<UUID>()
     @State private var simplify = true
     @State private var showAddFriend = false
@@ -57,6 +58,15 @@ struct AddGroupSheet: View {
                             .buttonStyle(.plain)
                         }
                     }
+
+                    BrandSectionLabel("CURRENCY")
+                    Picker("Currency", selection: $currency) {
+                        ForEach([AppCurrency.inr, .vnd], id: \.self) { option in
+                            Text("\(option.symbol) \(option.rawValue)").tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("groupCurrencyPicker")
 
                     BrandSectionLabel("MEMBERS")
                     Text("You are included automatically. Select friends to add.")
@@ -231,7 +241,8 @@ struct AddGroupSheet: View {
                     icon: icon,
                     simplifyDebts: simplify,
                     operationID: operationID,
-                    memberAccountIDs: memberAccountIDs
+                    memberAccountIDs: memberAccountIDs,
+                    currency: currency
                 )
             }
             return
@@ -250,7 +261,8 @@ struct AddGroupSheet: View {
             return memberIDs.insert(preferred.id).inserted ? preferred : nil
         }
         let members = [creator] + friends
-        let group = Group(name: finalName, icon: icon, simplifyDebts: simplify, members: members)
+        let group = Group(name: finalName, icon: icon, simplifyDebts: simplify,
+                          members: members, currencyCode: currency.rawValue)
         context.insert(group)
         let currentUser = people.first(where: \.isCurrentUser)
         context.insert(ActivityItem(kind: .groupCreated,
@@ -280,7 +292,8 @@ struct AddGroupSheet: View {
         icon: GroupIcon,
         simplifyDebts: Bool,
         operationID: UUID,
-        memberAccountIDs: [String]
+        memberAccountIDs: [String],
+        currency: AppCurrency
     ) async {
         let runtime = T15CanonicalLedgerRuntime.shared
         do {
@@ -290,7 +303,7 @@ struct AddGroupSheet: View {
                 body: T15GroupCreateRequest(
                     name: name,
                     description: nil,
-                    currency: Money.currentCurrency.rawValue,
+                    currency: currency.rawValue,
                     category: "OTHER",
                     memberAccountIds: memberAccountIDs
                 ),
@@ -326,7 +339,8 @@ struct AddGroupSheet: View {
                 simplifyDebts: simplifyDebts,
                 members: members,
                 serverGroupId: serverGroupID,
-                serverAccountId: remoteUser.id
+                serverAccountId: remoteUser.id,
+                currencyCode: response.group.currency ?? currency.rawValue
             )
             for person in newlyCreatedPeople { context.insert(person) }
             context.insert(localGroup)
@@ -464,6 +478,7 @@ private struct T15GroupCreateEnvelope: Decodable {
 
 private struct T15GroupCreateResponse: Decodable {
     let id: String
+    let currency: String?
 }
 
 enum T15LedgerUIError: LocalizedError {
@@ -494,7 +509,7 @@ enum T15LedgerUIError: LocalizedError {
         case .expenseNotInCanonicalSnapshot:
             return "This expense is still updating. Refresh before editing it."
         case let .unsupportedSharedCurrency(code):
-            return "This shared group uses \(code). Change the app currency before saving."
+            return "This group uses \(code). BillBandit cannot save this currency or convert it to another group currency."
         case .nonIntegralShares:
             return "Shared-ledger shares must be whole numbers."
         }
@@ -574,11 +589,18 @@ final class T15CanonicalLedgerRuntime {
         try? sync.signOut()
     }
 
+    /// Keeps queued operations durable after a server 401. Explicit sign-out
+    /// remains the only path that clears this runtime's account queue.
+    func accountDidLoseAuthorization(accountID: String?) {
+        guard accountID == nil || accountID == sync.activeAccountID else { return }
+        sync.markUnauthorized()
+    }
+
     func authenticatedUser() async throws -> UsernameIdentityService.RemoteUser {
         guard UsernameIdentityService.hasStoredSession else {
             throw T15LedgerUIError.unauthenticated
         }
-        let user = try await UsernameIdentityService.currentUser()
+        let user = try await UsernameIdentityService.authenticatedUserForLedger()
         try coordinator.activate(accountID: user.id)
         try sync.activate(accountID: user.id)
         return user
@@ -620,10 +642,19 @@ final class T15CanonicalLedgerRuntime {
                 requestPayload: request.requestPayload
             )
         } else {
+            let mutationScope = ServerLedgerMutationScope.serverBacked(
+                accountID: scope.accountID, groupID: scope.groupID
+            )
+            var queuedRevision = expectedRevision
+            if kind == "expense.create" {
+                queuedRevision = try store.nextQueuedExpenseRevision(
+                    scope: mutationScope, canonicalRevision: expectedRevision, operationID: operationID
+                )
+            }
             _ = try coordinator.enqueueExpenseAction(
                 operationID: operationID,
-                scope: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
-                expectedRevision: expectedRevision,
+                scope: mutationScope,
+                expectedRevision: queuedRevision,
                 kind: kind,
                 method: method,
                 path: path,

@@ -1146,6 +1146,7 @@ enum SettlementMoneyFormatting {
         case "GBP": return "£"
         case "JPY": return "¥"
         case "KWD": return "KD "
+        case "VND": return "₫"
         default: return currencyCode.uppercased()
         }
     }

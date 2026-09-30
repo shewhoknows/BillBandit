@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import OSLog
 import Security
 
@@ -114,6 +115,44 @@ enum UsernameIdentityService {
         let image: String?
     }
 
+    fileprivate struct AuthenticatedSessionBinding: Codable, Sendable {
+        let accountID: String
+        let username: String?
+        let name: String?
+        let preferredName: String?
+        let image: String?
+        let tokenDigest: String
+        let tokenExpiresAt: Date?
+        let verifiedAt: Date
+
+        var remoteUser: RemoteUser {
+            RemoteUser(
+                id: accountID,
+                username: username,
+                name: name,
+                preferredName: preferredName,
+                image: image
+            )
+        }
+
+        func matches(token: String, now: Date) -> Bool {
+            guard accountID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                  tokenDigest == Self.digest(token) else {
+                return false
+            }
+            if let tokenExpiresAt, tokenExpiresAt <= now {
+                return false
+            }
+            return true
+        }
+
+        fileprivate static func digest(_ token: String) -> String {
+            SHA256.hash(data: Data(token.utf8))
+                .map { String(format: "%02x", $0) }
+                .joined()
+        }
+    }
+
     enum ServiceError: LocalizedError {
         case invalidAppleCredential
         case missingSession
@@ -162,6 +201,7 @@ enum UsernameIdentityService {
               !tokenString.isEmpty else {
             throw ServiceError.invalidAppleCredential
         }
+        let previousBindingAccountID = SessionBindingStore.read()?.accountID
         let body = AppleRequest(
             identityToken: tokenString,
             authorizationCode: authorizationCode.flatMap { String(data: $0, encoding: .utf8) },
@@ -172,12 +212,16 @@ enum UsernameIdentityService {
         let response: AuthenticationResponse = try await perform(
             path: "/api/mobile/auth/apple", method: "POST", body: body, bearerToken: nil
         )
-        try MobileTokenStore.write(response.token)
+        try persistVerifiedSession(token: response.token, user: response.user)
         try await MainActor.run {
             guard MobileTokenStore.read() == response.token else {
                 throw ServiceError.missingSession
             }
-            T15CanonicalLedgerRuntime.shared.accountDidSignOut()
+            let previousRuntimeAccountID = T15CanonicalLedgerRuntime.shared.sync.activeAccountID
+                ?? ServerLedgerAccountLifecycle.shared.activeAccountID
+            if (previousBindingAccountID ?? previousRuntimeAccountID) != response.user.id {
+                T15CanonicalLedgerRuntime.shared.accountDidSignOut()
+            }
             FriendInvitationService.shared.resetLocalState()
             try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
             ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
@@ -195,17 +239,36 @@ enum UsernameIdentityService {
 
     static func currentUser() async throws -> RemoteUser {
         guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
-        let response: UserResponse = try await perform(
-            path: "/api/mobile/auth/me", method: "GET", bearerToken: token
-        )
+        let user = try await verifyAndPersistSession(token: token)
         try await MainActor.run {
             guard MobileTokenStore.read() == token else {
                 throw ServiceError.missingSession
             }
-            ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
-            try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
+            ServerSocialSyncService.shared.accountDidAuthenticate(user)
+            try ServerLedgerAccountLifecycle.shared.activate(accountID: user.id)
         }
-        return response.user
+        return user
+    }
+
+    /// Resolves the account for ledger enqueue and lifecycle work. A binding
+    /// created by a successful `/auth/me` response can restore this identity
+    /// offline. Profile and social callers continue to use `currentUser()`
+    /// for an online authoritative refresh.
+    static func authenticatedUserForLedger() async throws -> RemoteUser {
+        guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
+        if let binding = SessionBindingStore.read(),
+           binding.matches(token: token, now: .now) {
+            let cachedUser = binding.remoteUser
+            try await MainActor.run {
+                guard MobileTokenStore.read() == token else {
+                    throw ServiceError.missingSession
+                }
+                ServerSocialSyncService.shared.accountDidAuthenticate(cachedUser)
+                try ServerLedgerAccountLifecycle.shared.activate(accountID: cachedUser.id)
+            }
+            return cachedUser
+        }
+        return try await currentUser()
     }
 
     static func updateAvatar(_ avatar: ProfileAvatar) async throws -> RemoteUser {
@@ -220,6 +283,18 @@ enum UsernameIdentityService {
             guard MobileTokenStore.read() == token else {
                 throw ServiceError.missingSession
             }
+            try SessionBindingStore.write(
+                AuthenticatedSessionBinding(
+                    accountID: response.user.id,
+                    username: response.user.username,
+                    name: response.user.name,
+                    preferredName: response.user.preferredName,
+                    image: response.user.image,
+                    tokenDigest: AuthenticatedSessionBinding.digest(token),
+                    tokenExpiresAt: tokenExpiration(token),
+                    verifiedAt: .now
+                )
+            )
             ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
         }
         return response.user
@@ -227,6 +302,14 @@ enum UsernameIdentityService {
 
     static func signOut() {
         clearSessionAndInvalidateLedger()
+    }
+
+    /// Called by the ledger transport when the server rejects the bearer
+    /// token. It clears only the session binding and pauses the queue; the
+    /// account's durable operations remain available for reauthentication.
+    static func serverDidRejectCurrentSession(token: String) {
+        guard MobileTokenStore.read() == token else { return }
+        invalidateUnauthorizedSession()
     }
 
     static func deleteAccount() async throws {
@@ -240,6 +323,36 @@ enum UsernameIdentityService {
         clearSessionAndInvalidateLedger()
     }
 
+    private static func verifyAndPersistSession(token: String) async throws -> RemoteUser {
+        let response: UserResponse = try await perform(
+            path: "/api/mobile/auth/me", method: "GET", bearerToken: token
+        )
+        guard MobileTokenStore.read() == token else {
+            throw ServiceError.missingSession
+        }
+        try persistVerifiedSession(token: token, user: response.user)
+        return response.user
+    }
+
+    private static func persistVerifiedSession(token: String, user: RemoteUser) throws {
+        guard user.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw ServiceError.response("BillBandit returned no account identity.")
+        }
+        try MobileTokenStore.write(token)
+        try SessionBindingStore.write(
+            AuthenticatedSessionBinding(
+                accountID: user.id,
+                username: user.username,
+                name: user.name,
+                preferredName: user.preferredName,
+                image: user.image,
+                tokenDigest: AuthenticatedSessionBinding.digest(token),
+                tokenExpiresAt: tokenExpiration(token),
+                verifiedAt: .now
+            )
+        )
+    }
+
     private static func save(_ handle: UsernameHandle, method: String) async throws -> String {
         guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
         let response: UserResponse = try await perform(
@@ -249,6 +362,8 @@ enum UsernameIdentityService {
         guard let username = response.user.username, !username.isEmpty else {
             throw ServiceError.response("The server did not confirm your username.")
         }
+        guard MobileTokenStore.read() == token else { throw ServiceError.missingSession }
+        try persistVerifiedSession(token: token, user: response.user)
         return username
     }
 
@@ -302,7 +417,7 @@ enum UsernameIdentityService {
             if http.statusCode == 401,
                let bearerToken,
                MobileTokenStore.read() == bearerToken {
-                clearSessionAndInvalidateLedger()
+                invalidateUnauthorizedSession()
             }
             let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
             let fallback: String
@@ -328,6 +443,7 @@ enum UsernameIdentityService {
 
     private static func clearSessionAndInvalidateLedger() {
         MobileTokenStore.clear()
+        SessionBindingStore.clear()
         Task { @MainActor in
             ServerLedgerAccountLifecycle.shared.signOut()
             ServerSocialSyncService.shared.accountDidSignOut()
@@ -336,16 +452,56 @@ enum UsernameIdentityService {
             FriendInvitationService.shared.resetLocalState()
         }
     }
+
+    private static func invalidateUnauthorizedSession() {
+        let accountID = SessionBindingStore.read()?.accountID
+        MobileTokenStore.clear()
+        SessionBindingStore.clear()
+        Task { @MainActor in
+            ServerLedgerAccountLifecycle.shared.markUnauthorized(accountID: accountID)
+            T15CanonicalLedgerRuntime.shared.accountDidLoseAuthorization(accountID: accountID)
+        }
+    }
+
+    private static func tokenExpiration(_ token: String) -> Date? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count >= 2 else { return nil }
+        var encoded = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let payload = Data(base64Encoded: encoded),
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let expiration = object["exp"] as? NSNumber else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: expiration.doubleValue)
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    /// Installs a token only after the local API confirms it through `/auth/me`.
+    /// This seam is restricted to a validated QA keychain namespace and loopback.
+    @MainActor
+    static func installSimulatorQASession(token: String) async throws -> RemoteUser {
+        guard SettlementTokenStore.hasValidatedQATestNamespace,
+              let host = baseURL.host?.lowercased(),
+              host == "localhost" || host == "127.0.0.1" || host == "::1" else {
+            throw ServiceError.response("QA session install requires a validated loopback API.")
+        }
+        guard !token.isEmpty else { throw ServiceError.missingSession }
+        try MobileTokenStore.write(token)
+        return try await currentUser()
+    }
+    #endif
 }
 
 private enum MobileTokenStore {
-    private static let service = "com.billbandit.app.mobile-api"
     private static let account = "authenticated-session"
 
     static func read() -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
+            kSecAttrService: SettlementTokenStore.keychainService,
             kSecAttrAccount: account,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
@@ -360,7 +516,7 @@ private enum MobileTokenStore {
         clear()
         let attributes: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
+            kSecAttrService: SettlementTokenStore.keychainService,
             kSecAttrAccount: account,
             kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             kSecValueData: Data(token.utf8),
@@ -376,7 +532,53 @@ private enum MobileTokenStore {
     static func clear() {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+private enum SessionBindingStore {
+    private static let account = "authenticated-session-binding-v1"
+
+    static func read() -> UsernameIdentityService.AuthenticatedSessionBinding? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return try? JSONDecoder().decode(
+            UsernameIdentityService.AuthenticatedSessionBinding.self,
+            from: data
+        )
+    }
+
+    static func write(_ binding: UsernameIdentityService.AuthenticatedSessionBinding) throws {
+        clear()
+        let attributes: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: account,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData: try JSONEncoder().encode(binding),
+        ]
+        guard SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess else {
+            throw UsernameIdentityService.ServiceError.response(
+                "Could not securely save your BillBandit session."
+            )
+        }
+    }
+
+    static func clear() {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: SettlementTokenStore.keychainService,
             kSecAttrAccount: account,
         ]
         SecItemDelete(query as CFDictionary)

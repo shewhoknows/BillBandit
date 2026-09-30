@@ -87,7 +87,10 @@ struct GroupsScreen: View {
                                     )
                                 }
                             } else if let me = me.first {
-                                NetChip(net: BalanceMath.nets(in: group)[me.id] ?? 0)
+                                NetChip(
+                                    net: BalanceMath.nets(in: group)[me.id] ?? 0,
+                                    currencyCode: group.resolvedCurrencyCode
+                                )
                             }
                         }
                     }

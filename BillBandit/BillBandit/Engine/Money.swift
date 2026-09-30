@@ -9,6 +9,7 @@ enum AppCurrency: String, CaseIterable, Identifiable {
     case sgd = "SGD"
     case aud = "AUD"
     case cad = "CAD"
+    case vnd = "VND"
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum AppCurrency: String, CaseIterable, Identifiable {
         case .sgd: return "S$"
         case .aud: return "A$"
         case .cad: return "C$"
+        case .vnd: return "₫"
         }
     }
 
@@ -35,10 +37,19 @@ enum AppCurrency: String, CaseIterable, Identifiable {
         case .sgd: return "Singapore dollar"
         case .aud: return "Australian dollar"
         case .cad: return "Canadian dollar"
+        case .vnd: return "Vietnamese dong"
         }
     }
 
     var separatesSymbol: Bool { self == .aed }
+
+    var minorUnitExponent: Int {
+        self == .vnd ? 0 : 2
+    }
+
+    var minorUnitsPerMajorUnit: Int {
+        Int(pow(10.0, Double(minorUnitExponent)))
+    }
 }
 
 /// Money helpers — all amounts are `Decimal`. Ledger balances are whole currency units.
@@ -96,6 +107,16 @@ enum Money {
     static func currency(_ d: Decimal, currency: AppCurrency? = nil) -> String {
         let currency = currency ?? currentCurrency
         return currency.symbol + (currency.separatesSymbol ? " " : "") + string(d)
+    }
+
+    /// Formats a whole-unit amount with a raw server currency code.
+    /// Unknown server currencies stay visible and are never relabeled as INR.
+    static func currency(_ d: Decimal, currencyCode: String) -> String {
+        let code = currencyCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard let known = AppCurrency(rawValue: code) else {
+            return "\(code) \(string(d))"
+        }
+        return currency(d, currency: known)
     }
 
     /// Plain, ungrouped whole-rupee text suitable for an editable field.

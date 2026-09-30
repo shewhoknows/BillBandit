@@ -154,6 +154,12 @@ struct ServerLedgerSurfaceMoney: Codable, Equatable, Hashable, Sendable {
     var isZero: Bool { minorUnits == "0" }
     var isPositive: Bool { minorUnits != "0" && minorUnits.first != "-" }
 
+    var majorUnits: Decimal? {
+        Decimal(string: SettlementMoneyFormatting.decimalString(
+            fromMinorUnits: minorUnits, exponent: currencyExponent
+        ), locale: Locale(identifier: "en_US_POSIX"))
+    }
+
     func adding(_ other: ServerLedgerSurfaceMoney) -> ServerLedgerSurfaceMoney? {
         guard currencyCode == other.currencyCode,
               currencyExponent == other.currencyExponent else { return nil }
@@ -851,6 +857,16 @@ final class ServerLedgerSurfaceStore: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.accountIDDefaultsKey)
     }
 
+    /// A rejected or missing session hides account surfaces and pauses writes.
+    /// Explicit sign-out owns cache deletion; an auth failure must retain drafts.
+    func accountDidLoseAuthorization() {
+        refreshGeneration &+= 1
+        sync.markUnauthorized()
+        activeAccountID = nil
+        snapshot = nil
+        status = ServerLedgerSurfaceStatus(phase: .signedOut)
+    }
+
     func groupBalancePresentation(for serverGroupID: String) -> ServerLedgerSurfaceBalancePresentation? {
         guard let group = snapshot?.group(for: serverGroupID) else { return nil }
         let amounts = group.currentAccount.isEmpty && group.members.count == 1 && group.transfers.isEmpty && !group.isStale
@@ -1486,6 +1502,18 @@ struct AppRootView: View {
     @MainActor
     private func prepareAccountGate() async {
         AppStore.seedIfNeeded(context: context)
+        #if DEBUG && targetEnvironment(simulator)
+        if let token = ProcessInfo.processInfo.environment["BILLBANDIT_QA_TOKEN"], !token.isEmpty {
+            do {
+                let user = try await UsernameIdentityService.installSimulatorQASession(token: token)
+                ServerLedgerSurfaceStore.shared.accountDidAuthenticate(user.id)
+                await ServerSocialSyncService.shared.refresh(remoteUser: user)
+            } catch {
+                accountGateState = .signedOut
+                return
+            }
+        }
+        #endif
         if forceConnectedIncompleteOnboarding {
             appleUserIdentifier = "ui-test-connected-apple-account"
             accountOnboardingComplete = false
@@ -1556,14 +1584,14 @@ struct AppRootView: View {
     @MainActor
     private func reconcileUsernameAndVerifyAppleCredential() async {
         guard UsernameIdentityService.hasStoredSession else {
-            ServerLedgerSurfaceStore.shared.accountDidSignOut()
+            ServerLedgerSurfaceStore.shared.accountDidLoseAuthorization()
             usernameHandleVerified = false
             accountGateState = .signedOut
             return
         }
 
         do {
-            let remoteUser = try await UsernameIdentityService.currentUser()
+            let remoteUser = try await UsernameIdentityService.authenticatedUserForLedger()
             ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
             switch UsernameAccountReconciliationPolicy.decision(
                 remoteUsername: remoteUser.username
@@ -1597,7 +1625,7 @@ struct AppRootView: View {
                 // authority for every new claim and rename.
                 verifyAppleCredential()
             } else {
-                ServerLedgerSurfaceStore.shared.accountDidSignOut()
+                ServerLedgerSurfaceStore.shared.accountDidLoseAuthorization()
                 usernameHandleVerified = false
                 accountGateState = .signedOut
             }

@@ -9,6 +9,7 @@ export const CURRENCY_EXPONENTS: Readonly<Record<string, number>> = {
   CAD: 2,
   AUD: 2,
   INR: 2,
+  VND: 0,
   CNY: 2,
   BRL: 2,
   MXN: 2,

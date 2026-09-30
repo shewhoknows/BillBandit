@@ -5,6 +5,28 @@ import CloudKit
 @testable import BillBandit
 
 final class BalanceEngineTests: XCTestCase {
+    func testCurrencyMetadataSupportsVNDAndLegacyGroupsDefaultToINR() {
+        XCTAssertEqual(AppCurrency.vnd.symbol, "₫")
+        XCTAssertEqual(AppCurrency.vnd.minorUnitExponent, 0)
+        XCTAssertEqual(AppCurrency.vnd.minorUnitsPerMajorUnit, 1)
+        XCTAssertEqual(AppCurrency(rawValue: "INR"), .inr)
+
+        let legacy = Group(name: "Legacy")
+        XCTAssertEqual(legacy.currency, .inr)
+        legacy.currencyCode = AppCurrency.vnd.rawValue
+        XCTAssertEqual(legacy.currency, .vnd)
+    }
+
+    func testVNDFormattingKeepsWholeUnitsAndINRSerializationUnchanged() {
+        let formatted = Money.currency(100_001, currencyCode: "VND")
+        XCTAssertTrue(formatted.hasPrefix("₫"))
+        XCTAssertFalse(formatted.contains("."))
+        XCTAssertEqual(Money.parseInput(formatted), 100_001)
+        XCTAssertEqual(SettlementMoneyFormatting.minorUnits(from: "100001", exponent: 0), "100001")
+        XCTAssertEqual(SettlementMoneyFormatting.minorUnits(from: "100001", exponent: 2), "10000100")
+        XCTAssertEqual(Money.whole(Decimal(string: "99.5")!), 100)
+    }
+
     func testServerAvatarMarkerParsesOnlyBillBanditAvatars() {
         XCTAssertEqual(
             ProfileAvatar(serverImage: "billbandit-avatar:headphones"),
@@ -391,6 +413,7 @@ final class BalanceEngineTests: XCTestCase {
         let catalog = ServerGroupCatalogItem(
             id: "group-dinner",
             name: "Dinner",
+            currency: "INR",
             category: "OTHER",
             members: [
                 .init(

@@ -1,12 +1,20 @@
 import XCTest
 
 final class BillBanditUITests: XCTestCase {
+    private func syntheticLocalApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["BILLBANDIT_QA_STORE_ID": "vietnam-test-local-ui",
+                                 "BILLBANDIT_QA_BASE_URL": "http://127.0.0.1:31300",
+                                 "BILLBANDIT_QA_TOKEN": ""]
+        return app
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
     func testCoreMoneyFlowSmoke() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
         app.launch()
 
@@ -111,7 +119,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testMandatoryAppleSignInAppearsBeforeAppAccess() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-forceSignedOutOnboarding", "-onboardingPage", "2"]
         app.launch()
 
@@ -124,7 +132,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testAppleSignInButtonStaysInFormAndFailureIsVisible() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         let baseArguments = ["-forceSignedOutOnboarding", "-onboardingPage", "2"]
         app.launchArguments = baseArguments
         app.launch()
@@ -152,7 +160,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testConnectedAppleAccountRequiresUsernameBeforeCompletingOnboarding() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = [
             "-onboardingConnectedIncomplete",
             "-onboardingPage", "2",
@@ -183,7 +191,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testOnboardingSlidesKeepTheirContentAligned() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-forceSignedOutOnboarding", "-onboardingPage", "0"]
         app.launch()
 
@@ -221,7 +229,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testInviteFriendShowsShareableCodeAndJoinPath() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-showAddFriend", "-skipOnboarding",
                                "-friendInvitePreview"]
         app.launch()
@@ -236,7 +244,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testActivityBellShowsUnreadCountAndOpensGroupAwareLedger() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
         app.launch()
 
@@ -250,7 +258,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testSettlementPaymentIsBoundedByOutstandingDebt() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "1", "-skipOnboarding",
                                "-openGroup", "Goa Trip"]
         app.launch()
@@ -273,7 +281,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testLocalGroupDeleteRequiresConfirmationAndCancelPreservesGroup() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "1", "-skipOnboarding"]
         app.launch()
 
@@ -299,7 +307,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testNewGroupAppearsOnHomeImmediately() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
         app.launch()
 
@@ -349,7 +357,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testServerLinkedGroupKeepsAddExpenseEnabled() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = [
             "-resetDemoData",
             "-sharedSettleUpGroupId=ui-shared-group",
@@ -368,7 +376,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testAvatarChoiceAppearsOnDashboard() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
         app.launch()
 
@@ -388,7 +396,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testAchievementShelfScrollsThroughEightPins() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-showProfile", "-skipOnboarding"]
         app.launch()
 
@@ -410,7 +418,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testProfileNameHasAFullUnclippedLineBox() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-showProfile", "-skipOnboarding"]
         app.launch()
 
@@ -430,7 +438,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testContextualDockAndExpenseActivityNavigation() throws {
-        let app = XCUIApplication()
+        let app = syntheticLocalApp()
         app.launchArguments = ["-resetDemoData", "-tab", "1", "-skipOnboarding"]
         app.launch()
 
@@ -474,5 +482,207 @@ final class BillBanditUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testVNDGroupCurrencyPersistsAfterRelaunch() throws {
+        let app = syntheticLocalApp()
+        app.launchArguments = ["-resetDemoData", "-skipOnboarding", "-tab", "0"]
+        app.launch()
+        XCTAssertTrue(app.buttons["New group"].waitForExistence(timeout: 10))
+        app.buttons["New group"].tap()
+        let name = app.textFields["groupNameField"]
+        XCTAssertTrue(name.waitForExistence(timeout: 8))
+        name.tap(); name.typeText("Vietnam Currency QA\n")
+        app.buttons["₫ VND"].tap()
+        app.buttons["createGroupButton"].tap()
+        XCTAssertTrue(app.staticTexts["Vietnam Currency QA"].firstMatch.waitForExistence(timeout: 8))
+        app.terminate()
+        app.launchArguments = ["-skipOnboarding", "-tab", "0"]
+        app.launch()
+        let group = app.staticTexts["Vietnam Currency QA"].firstMatch
+        XCTAssertTrue(group.waitForExistence(timeout: 10))
+        group.tap()
+        app.buttons["groupAddExpenseButton"].tap()
+        XCTAssertTrue(app.staticTexts["expenseCurrencyLabel"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["expenseCurrencyLabel"].label.contains("VND"))
+        attachScreenshot(named: "vnd-group-currency-after-relaunch")
+    }
+}
+
+
+// Real localhost API + PostgreSQL proof. No financial response is mocked.
+// Prepare .scratch/vietnam-trip/qa-session.json with vietnam-trip-qa.ts.
+extension BillBanditUITests {
+    @MainActor
+    func testVietnamSharedExpenseOfflineRelaunchAndReconnect() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let configURL = root.appendingPathComponent(".scratch/vietnam-trip/qa-session.json")
+        let data = try Data(contentsOf: configURL)
+        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let base = try XCTUnwrap(config["baseURL"] as? String)
+        let token = try XCTUnwrap(config["aliceToken"] as? String)
+        let runID = UUID().uuidString.lowercased()
+        let name = "Vietnam Offline " + String(runID.prefix(8))
+        let storeID = "vietnam-test-" + runID
+        try await vietnamNetwork(base: base, offline: false)
+        var createGroup = URLRequest(url: try XCTUnwrap(URL(string: base + "/api/mobile/groups")))
+        createGroup.httpMethod = "POST"
+        createGroup.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        createGroup.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        createGroup.setValue(runID, forHTTPHeaderField: "Idempotency-Key")
+        createGroup.httpBody = try JSONSerialization.data(withJSONObject: [
+            "name": name, "currency": "VND", "category": "TRIP",
+            "memberAccountIds": [try XCTUnwrap(config["bobID"] as? String)]
+        ])
+        let (groupData, groupResponse) = try await URLSession.shared.data(for: createGroup)
+        XCTAssertEqual((groupResponse as? HTTPURLResponse)?.statusCode, 201)
+        let created = try XCTUnwrap(JSONSerialization.jsonObject(with: groupData) as? [String: Any])
+        let createdGroup = try XCTUnwrap(created["group"] as? [String: Any])
+        let groupID = try XCTUnwrap(createdGroup["id"] as? String)
+        let app = XCUIApplication()
+        app.launchArguments = ["-skipOnboarding", "-tab", "1"]
+        app.launchEnvironment = ["BILLBANDIT_QA_STORE_ID": storeID,
+                                 "BILLBANDIT_QA_BASE_URL": base,
+                                 "BILLBANDIT_QA_TOKEN": token]
+        try await vietnamNetwork(base: base, offline: false)
+        app.launch()
+        let groupTitle = app.staticTexts[name].firstMatch
+        XCTAssertTrue(groupTitle.waitForExistence(timeout: 40))
+        groupTitle.tap()
+        XCTAssertTrue(app.buttons["groupAddExpenseButton"].waitForExistence(timeout: 30))
+        // Cache the real group's ledger before losing the connection.
+        XCTAssertTrue(app.staticTexts["ALL SQUARE"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["baseCurrencyEstimatedAmount"].firstMatch.waitForExistence(timeout: 40))
+        try await vietnamNetwork(base: base, offline: true)
+        app.buttons["groupAddExpenseButton"].tap()
+        let amount = app.textFields["expenseAmountField"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 8))
+        amount.tap(); amount.typeText("100001.5")
+        let title = app.textFields["expenseTitleField"]
+        title.tap(); title.typeText("Vietnam Offline Dinner\n")
+        XCTAssertFalse(app.buttons["saveExpenseButton"].isEnabled, "Fractional VND must not enter the queue")
+        amount.tap()
+        amount.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12) + "100001")
+        title.tap(); title.typeText("\n")
+        app.buttons["saveExpenseButton"].tap()
+        let pending = app.descendants(matching: .any)["groupPendingExpenseCount"]
+        XCTAssertTrue(pending.waitForExistence(timeout: 20))
+        let queuedRows = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "groupPendingOperation-"))
+        let originalOperation = try XCTUnwrap(queuedRows.firstMatch.exists ? queuedRows.firstMatch.identifier : nil)
+        attachScreenshot(named: "vietnam-offline-queued")
+        app.buttons["groupAddExpenseButton"].tap()
+        XCTAssertTrue(amount.waitForExistence(timeout: 8))
+        amount.tap(); amount.typeText("200001")
+        title.tap(); title.typeText("Vietnam Offline Taxi\n")
+        app.buttons["saveExpenseButton"].tap()
+        XCTAssertTrue(pending.waitForExistence(timeout: 20))
+        let twoPending = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "2"), object: pending)
+        await fulfillment(of: [twoPending], timeout: 20)
+        app.terminate()
+        app.launchEnvironment["BILLBANDIT_QA_TOKEN"] = ""
+        app.launch()
+        XCTAssertTrue(groupTitle.waitForExistence(timeout: 20))
+        groupTitle.tap()
+        XCTAssertTrue(pending.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.descendants(matching: .any)[originalOperation].exists)
+        XCTAssertTrue(pending.label.contains("2"))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "saved rate")).firstMatch.exists)
+        attachScreenshot(named: "vietnam-offline-relaunch-same-operation")
+        try await vietnamNetwork(base: base, offline: false)
+        app.terminate(); app.launch()
+        XCTAssertTrue(groupTitle.waitForExistence(timeout: 40))
+        groupTitle.tap()
+        XCTAssertTrue(app.staticTexts["Vietnam Offline Dinner"].firstMatch.waitForExistence(timeout: 60))
+        XCTAssertTrue(app.staticTexts["Vietnam Offline Taxi"].firstMatch.waitForExistence(timeout: 60))
+        XCTAssertTrue(pending.waitForNonExistence(timeout: 30))
+        attachScreenshot(named: "vietnam-reconnected-canonical-expense")
+        let alice = try await vietnamLedger(base: base, token: token, groupID: groupID)
+        let bobToken = try XCTUnwrap(config["bobToken"] as? String)
+        let bob = try await vietnamLedger(base: base, token: bobToken, groupID: groupID)
+        let aliceData = try XCTUnwrap(alice["data"] as? [String: Any])
+        let bobData = try XCTUnwrap(bob["data"] as? [String: Any])
+        let aliceGroup = try XCTUnwrap(aliceData["group"] as? [String: Any])
+        let bobGroup = try XCTUnwrap(bobData["group"] as? [String: Any])
+        let expenses = try XCTUnwrap(aliceGroup["expenses"] as? [[String: Any]])
+        XCTAssertEqual(expenses.filter { $0["description"] as? String == "Vietnam Offline Dinner" }.count, 1)
+        XCTAssertEqual(expenses.filter { $0["description"] as? String == "Vietnam Offline Taxi" }.count, 1)
+        XCTAssertEqual((bobGroup["expenses"] as? [[String: Any]])?.count, expenses.count)
+        XCTAssertEqual(alice["revision"] as? Int, bob["revision"] as? Int)
+        let expense = try XCTUnwrap(expenses.first { $0["description"] as? String == "Vietnam Offline Dinner" })
+        let money = try XCTUnwrap(expense["amount"] as? [String: Any])
+        XCTAssertEqual(money["currencyCode"] as? String, "VND")
+        XCTAssertEqual(money["currencyExponent"] as? Int, 0)
+        XCTAssertEqual(money["minorUnits"] as? String, "100001")
+        let splits = try XCTUnwrap(expense["splits"] as? [[String: Any]])
+        let splitUnits = splits.compactMap { ($0["amount"] as? [String: Any])?["minorUnits"] as? String }
+        XCTAssertEqual(Set(splitUnits), Set(["50001", "50000"]))
+
+        // Exercise shared editing and unequal percentage splits in the real app.
+        app.staticTexts["Vietnam Offline Dinner"].firstMatch.tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        title.tap(); title.typeText(" Updated\n")
+        let editedDescription = try XCTUnwrap(title.value as? String)
+        app.buttons["%"].tap()
+        let percentFields = app.textFields.matching(identifier: "%")
+        XCTAssertEqual(percentFields.count, 2)
+        for (index, value) in ["30", "70"].enumerated() {
+            let field = percentFields.element(boundBy: index)
+            field.tap()
+            let oldValue = field.value as? String ?? ""
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: oldValue.count) + value)
+        }
+        title.tap(); title.typeText("\n")
+        app.buttons["saveExpenseButton"].tap()
+        let updatedTitle = app.staticTexts[editedDescription].firstMatch
+        XCTAssertTrue(updatedTitle.waitForExistence(timeout: 30))
+        app.terminate(); app.launch()
+        XCTAssertTrue(groupTitle.waitForExistence(timeout: 40))
+        groupTitle.tap()
+        XCTAssertTrue(updatedTitle.waitForExistence(timeout: 30))
+        attachScreenshot(named: "vietnam-shared-edited-unequal-split")
+
+        // A partial payment must reduce the next suggestion; full payment clears it.
+        app.buttons["groupSettleUpButton"].tap()
+        let recordPayment = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "settleTransferButton-")).firstMatch
+        XCTAssertTrue(recordPayment.waitForExistence(timeout: 30))
+        recordPayment.tap()
+        let paymentAmount = app.textFields["settlementAmountField"]
+        XCTAssertTrue(paymentAmount.waitForExistence(timeout: 10))
+        let fullAmount = try XCTUnwrap(Int(paymentAmount.value as? String ?? ""))
+        XCTAssertGreaterThan(fullAmount, 10000)
+        paymentAmount.tap()
+        paymentAmount.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue,
+                                      count: String(fullAmount).count) + "10000")
+        app.buttons["confirmSettlementButton"].tap()
+        XCTAssertTrue(paymentAmount.waitForNonExistence(timeout: 30))
+        XCTAssertTrue(recordPayment.waitForExistence(timeout: 30))
+        recordPayment.tap()
+        XCTAssertTrue(paymentAmount.waitForExistence(timeout: 10))
+        XCTAssertEqual(paymentAmount.value as? String, String(fullAmount - 10000))
+        attachScreenshot(named: "vietnam-partial-settlement-remainder")
+        app.buttons["confirmSettlementButton"].tap()
+        XCTAssertTrue(paymentAmount.waitForNonExistence(timeout: 30))
+        XCTAssertTrue(recordPayment.waitForNonExistence(timeout: 30))
+        attachScreenshot(named: "vietnam-full-settlement")
+    }
+
+    private func vietnamNetwork(base: String, offline: Bool) async throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: base + "/__qa/network")))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["offline": offline])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    }
+
+    private func vietnamLedger(base: String, token: String, groupID: String) async throws -> [String: Any] {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: base + "/api/mobile/ledger/groups/" + groupID)))
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }

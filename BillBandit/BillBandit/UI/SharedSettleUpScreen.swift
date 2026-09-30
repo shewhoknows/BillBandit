@@ -46,7 +46,7 @@ struct SharedSettleUpScreen: View {
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .task(id: activeServerGroupId) {
             guard let serverGroupId = activeServerGroupId else { return }
-            guard let remoteUser = try? await UsernameIdentityService.currentUser() else {
+            guard let remoteUser = try? await UsernameIdentityService.authenticatedUserForLedger() else {
                 store.markIdentityUnavailable()
                 return
             }
@@ -588,7 +588,15 @@ struct SharedSettleUpScreen: View {
                         currencyExponent: currencyExponent
                     )
             }
-            return "\(item.payerName ?? "?") paid \(item.recipientName ?? "?") · \(item.amount ?? "") \(item.currencyCode ?? "")"
+            let fallbackAmount: String
+            if let rawAmount = item.amount,
+               let currencyCode = item.currencyCode,
+               let decimalAmount = Decimal(string: rawAmount, locale: Locale(identifier: "en_US_POSIX")) {
+                fallbackAmount = Money.currency(decimalAmount, currencyCode: currencyCode)
+            } else {
+                fallbackAmount = "\(item.amount ?? "") \(item.currencyCode ?? "")"
+            }
+            return "\(item.payerName ?? "?") paid \(item.recipientName ?? "?") · \(fallbackAmount)"
         }
     }
 }

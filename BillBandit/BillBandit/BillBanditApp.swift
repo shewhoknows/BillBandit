@@ -6,7 +6,6 @@ struct BillBanditApp: App {
 
     /// Nav-bar branding: Fredoka titles in cream over the cobalt background.
     init() {
-        Money.setCurrentCurrency(.inr)
         LegacyReminderCleanup.retire()
         let cream = UIColor(Color.Brand.creamSoft)
         let appearance = UINavigationBarAppearance()

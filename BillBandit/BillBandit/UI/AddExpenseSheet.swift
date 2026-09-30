@@ -148,7 +148,14 @@ struct AddExpenseSheet: View {
 
     private var parsedAmount: Decimal? {
         guard let d = Money.parseInput(amountText) else { return nil }
+        if expenseCurrencyCode == "VND", Money.whole(d) != d { return nil }
         return d > 0 ? d : nil
+    }
+
+    private var expenseCurrencyCode: String { group?.resolvedCurrencyCode ?? "INR" }
+
+    private var expenseCurrencySymbol: String {
+        AppCurrency(rawValue: expenseCurrencyCode)?.symbol ?? expenseCurrencyCode
     }
 
     private var you: Person? { people.first { $0.isCurrentUser } }
@@ -277,9 +284,9 @@ struct AddExpenseSheet: View {
         HStack(alignment: .bottom, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(Money.symbol)
+                    Text(expenseCurrencySymbol)
                         .font(BrandFont.display(29, weight: .bold))
-                    TextField("0.00", text: $amountText)
+                    TextField(expenseCurrencyCode == "VND" ? "0" : "0.00", text: $amountText)
                         .keyboardType(.decimalPad)
                         .focused($focusedField, equals: .amount)
                         .accessibilityIdentifier("expenseAmountField")
@@ -290,6 +297,11 @@ struct AddExpenseSheet: View {
                 BrandSquiggle()
                     .stroke(Color.Brand.cobalt, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                     .frame(width: 76, height: 10)
+                Text(expenseCurrencyCode == "VND"
+                     ? "VND · whole dong only"
+                     : "\(expenseCurrencyCode) · rounded to whole units")
+                    .font(BrandFont.type(10))
+                    .accessibilityIdentifier("expenseCurrencyLabel")
             }
             Spacer(minLength: 4)
             ThinkingBlinkMascotView(size: 88)
@@ -473,13 +485,18 @@ struct AddExpenseSheet: View {
         let splitInputs = participants.map { SplitInput(personID: $0.id, mode: .equal) }
         guard let values = try? SplitEngine.compute(total: total, inputs: splitInputs).values,
               let low = values.min(), let high = values.max() else {
-            return "\(participants.count) people · whole-rupee split"
+            return "\(participants.count) people · whole-unit split"
         }
-        if low == high { return "\(participants.count) people · \(Money.currency(low)) each" }
-        return "\(participants.count) people · \(Money.currency(low))–\(Money.currency(high)) each"
+        if low == high { return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode)) each" }
+        return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode))–\(Money.currency(high, currencyCode: expenseCurrencyCode)) each"
     }
 
     private func selectGroup(_ selection: Group?) {
+        if isEditingExpense, let current = group, let selection,
+           current.resolvedCurrencyCode != selection.resolvedCurrencyCode {
+            errorMessage = "Keep this expense in a \(current.resolvedCurrencyCode) group. Currency conversion is not supported."
+            return
+        }
         group = selection
         guard let payer = paidBy, !participants.contains(where: { $0.id == payer.id }) else { return }
         paidBy = participants.first(where: { $0.isCurrentUser }) ?? participants.first
@@ -673,6 +690,9 @@ struct AddExpenseSheet: View {
             var queued = false
             do {
                 let remoteUser = try await T15CanonicalLedgerRuntime.shared.authenticatedUser()
+                if let ownerAccountID = group.serverAccountId, ownerAccountID != remoteUser.id {
+                    throw T15LedgerUIError.unauthenticated
+                }
                 let scope = ServerBackedLedgerScope(
                     accountID: remoteUser.id,
                     groupID: rawServerGroupID
@@ -682,7 +702,9 @@ struct AddExpenseSheet: View {
                     from: cachedOrFresh,
                     scope: scope
                 )
-                guard canonicalGroup.baseCurrency.currencyCode == Money.currentCurrency.rawValue else {
+                guard canonicalGroup.baseCurrency.currencyCode == expenseCurrencyCode,
+                      let currency = AppCurrency(rawValue: expenseCurrencyCode),
+                      canonicalGroup.baseCurrency.currencyExponent == currency.minorUnitExponent else {
                     throw T15LedgerUIError.unsupportedSharedCurrency(canonicalGroup.baseCurrency.currencyCode)
                 }
                 guard canonicalGroup.members.contains(where: {
@@ -773,9 +795,11 @@ struct AddExpenseSheet: View {
                 if queued && T15LedgerUIError.isOffline(error) {
                     // The row remains retryable with the same operation ID;
                     // never create a second local expense as a fallback.
-                    isSubmitting = true
+                    isSubmitting = false
                     errorMessage = nil
-                    statusMessage = "Offline. This shared expense is queued and will retry when the connection returns."
+                    activeOperationID = nil
+                    statusMessage = nil
+                    dismiss()
                     return
                 }
                 if queued && T15LedgerUIError.isUnauthorized(error) {

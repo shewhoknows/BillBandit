@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-08-12, server-authoritative social and shared-ledger flow completed and tested.**
+> shared memory for all agents working on this repo. Last updated: **2026-09-30, local Vietnam-trip candidate; release approval and physical two-account verification pending.**
 
 ---
 
@@ -43,13 +43,24 @@ directly; regenerate them from sources (see §5).
   CO.` header, `YOU OWE` stamp rotated −2.5°).
 - **Type:** Fredoka display · Caveat handwritten accents · **Courier Prime for any
   money/ledger/activity text** · Nunito UI body.
-- **Default currency:** Indian rupee (`₹`). The currency selector has been removed
-  from Profile and the app currently forces INR. The underlying formatter still
-  preserves future multi-currency scope, but no currency choice is exposed. Expense totals,
-  splits, settlements and owed balances normalize to complete currency units
-  (half-up total rounding + deterministic whole-unit remainder allocation).
+- **Currencies:** New groups choose INR or VND. VND has exponent 0. Existing local groups without currency metadata remain INR. Server group currency is preserved. Expense totals, splits, and settlements keep the existing whole-unit calculation. One shared group uses one original currency. Cross-currency expense moves are rejected. Home balances remain separated by original currency.
+- **Base-currency estimates:** INR is the initial display currency. The app fetches daily reference rates from Frankfurter and saves them for offline use. Estimates show rate source and date. Estimates never alter expenses, debts, or settlements. Missing rates produce no combined estimate. A saved rate can be stale; original balances remain authoritative.
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
+
+### 2026-09-30 — Vietnam-trip local candidate
+
+- Candidate: `codex/vietnam-trip-20260930`, isolated from the user's dirty primary checkout. Base: release `72d7e0b7a1e2946f82efdbb1cccac3a58c44918d`.
+- Authenticated expense entry restores a Keychain account binding created by a successful server verification. The binding must match the current token and expiry. Missing, changed, and expired bindings require online verification. Server authentication remains mandatory for sync.
+- Unauthorized sync pauses the durable queue. An actual account switch or explicit sign-out retains the existing account-clearing boundary. Same-account reauthentication preserves pending operations.
+- One shared drain gate prevents overlapping sync workers. Consecutive offline expense creates reserve revisions without changing retry UUIDs. Edits retain revision conflict checks.
+- Pending rows remain visible after offline save. Shared balances update after server sync.
+- QA uses a dedicated PostgreSQL database, synthetic accounts, isolated SwiftData stores, and isolated Keychain services. QA overrides are compiled only into Debug simulator builds and require loopback API access.
+- Production currently reports backend `759b1f9` and `/api/mobile/friends` returns 404. Deploy the matching release API and migrations only after approval. Do not treat API health 200 as feature readiness.
+- Signing permits a local Release archive, development IPA, and App Store IPA (build 31). No push, deployment, upload, production configuration change, or physical-phone installation has been performed.
+- Evidence and exact replay details: `/Users/prateekranka/Cowork/BillBandit-backend-independent-evidence-20260930/vietnam-trip/20260930T054107Z.Ku4lZO/trip-readiness.md`.
+- Local proof: 33 backend regression tests, 10 real HTTP scenarios, 23 selected iOS unit tests, and 6 simulator UI scenarios pass. The complete shared UI flow covers offline relaunch/reconnect, editing, unequal splits, and partial/full settlement. Both synthetic accounts finish at revision 5 with an empty plan.
+- Remaining release gates: approve matching backend release; check second phone provisioning; install both phones; verify real Apple sign-in, invite acceptance, and cross-device balances with two accounts.
 
 ### 2026-08-12 — canonical social and shared-ledger authority
 

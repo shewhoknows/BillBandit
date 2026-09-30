@@ -32,7 +32,11 @@ BillBandit.xcodeproj/
 Daud/
 
 # Node / Next.js API (apps/api)
-node_modules/
+node_modules
 .next/
 *.tsbuildinfo
 npm-debug.log*
+
+# Task-owned synthetic simulator credentials and generated QA scheme
+.scratch/vietnam-trip/
+BillBandit/BillBandit.xcodeproj/xcshareddata/xcschemes/*-QA.local.xcscheme

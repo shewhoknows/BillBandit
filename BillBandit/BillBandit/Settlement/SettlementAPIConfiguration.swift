@@ -11,6 +11,15 @@ enum SettlementAPIConfiguration {
     private static let debugLocalHost = "http://127.0.0.1:3000"
 
     static var baseURL: URL {
+        #if DEBUG && targetEnvironment(simulator)
+        if let qaID = ProcessInfo.processInfo.environment["BILLBANDIT_QA_STORE_ID"],
+           qaID.hasPrefix("vietnam-test-"),
+           let rawURL = ProcessInfo.processInfo.environment["BILLBANDIT_QA_BASE_URL"],
+           let url = URL(string: rawURL),
+           url.scheme == "http", ["127.0.0.1", "localhost"].contains(url.host ?? "") {
+            return url
+        }
+        #endif
         if let configured = configuredInfoValue(forKey: "API_BASE_URL"),
            let url = URL(string: configured) {
             return url
@@ -58,6 +67,45 @@ enum SettlementAPIConfiguration {
 }
 
 enum SettlementTokenStore {
+    private static let baseService = "com.billbandit.app.mobile-api"
+    private static let account = "authenticated-session"
+
+    /// The QA namespace is opt-in and only exists for simulator Debug builds.
+    /// A malformed store id is quarantined so a harness cannot read or replace
+    /// the normal app session by mistake.
+    static var keychainService: String {
+        #if DEBUG && targetEnvironment(simulator)
+        if let raw = ProcessInfo.processInfo.environment["BILLBANDIT_QA_STORE_ID"] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard isValidQAStoreID(trimmed) else {
+                return "\(baseService).qa.invalid"
+            }
+            return "\(baseService).qa.\(trimmed)"
+        }
+        #endif
+        return baseService
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    static var hasValidatedQATestNamespace: Bool {
+        guard let raw = ProcessInfo.processInfo.environment["BILLBANDIT_QA_STORE_ID"] else {
+            return false
+        }
+        return isValidQAStoreID(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func isValidQAStoreID(_ value: String) -> Bool {
+        guard value.hasPrefix("vietnam-test-"), (13...64).contains(value.count) else {
+            return false
+        }
+        return value.unicodeScalars.allSatisfy { scalar in
+            (scalar.value >= 97 && scalar.value <= 122) ||
+                (scalar.value >= 48 && scalar.value <= 57) ||
+                scalar.value == 45 || scalar.value == 95 || scalar.value == 46
+        }
+    }
+    #endif
+
     static func read() -> String? {
         MobileTokenStore.read()
     }
@@ -65,14 +113,11 @@ enum SettlementTokenStore {
 
 /// Bridges the published app's keychain session store for settlement transport.
 private enum MobileTokenStore {
-    private static let service = "com.billbandit.app.mobile-api"
-    private static let account = "authenticated-session"
-
     static func read() -> String? {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
-            kSecAttrAccount: account,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: "authenticated-session",
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
         ]

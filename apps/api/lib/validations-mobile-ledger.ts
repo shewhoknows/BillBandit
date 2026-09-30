@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isSupportedCurrency, normalizeCurrencyCode } from './settlement/money/registry'
 
 const nullToUndefined = (value: unknown) => (value === null ? undefined : value)
 const optionalNullable = <T extends z.ZodTypeAny>(schema: T) =>
@@ -131,7 +132,11 @@ export type MobileMembershipV2Input = z.infer<typeof mobileMembershipV2Schema>
 export const createGroupSchema = z.object({
   name: z.string().min(1, 'Group name is required').max(50),
   description: optionalNullable(z.string().max(200)),
-  currency: z.string().default('INR'),
+  currency: z
+    .string()
+    .transform(normalizeCurrencyCode)
+    .refine(isSupportedCurrency, 'currency must be registered')
+    .default('INR'),
   category: z.enum(['HOME', 'TRIP', 'COUPLE', 'WORK', 'OTHER']).default('OTHER'),
   memberAccountIds: z
     .array(z.string().min(1, 'Member account ID is required').max(191))

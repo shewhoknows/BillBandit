@@ -8,6 +8,8 @@
 
 
 /* Begin PBXBuildFile section */
+		E10000000000000000000004 /* BaseCurrencyEstimateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000003 /* BaseCurrencyEstimateTests.swift */; };
+		E10000000000000000000002 /* BaseCurrencyEstimate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000001 /* BaseCurrencyEstimate.swift */; };
 		750086B9A5BFDFFFF5A69EB2 /* BillBanditApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14ECB6AE9BB181B3B5E3B78A /* BillBanditApp.swift */; };
 		78F3346695FA79D2BBAF4E38 /* BrandColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4BFC8AE6E1808DC7CD799D /* BrandColors.swift */; };
 		CDE609FB22AD0A8D0A687C93 /* BrandFonts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09EF212BD9BA4B25381E73BD /* BrandFonts.swift */; };
@@ -72,6 +74,8 @@
 
 
 /* Begin PBXFileReference section */
+		E10000000000000000000003 /* BaseCurrencyEstimateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseCurrencyEstimateTests.swift; sourceTree = "<group>"; };
+		E10000000000000000000001 /* BaseCurrencyEstimate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseCurrencyEstimate.swift; sourceTree = "<group>"; };
 		078AB8ADBD9B1EFBFEF1AF76 /* BillBandit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BillBandit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		14ECB6AE9BB181B3B5E3B78A /* BillBanditApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BillBanditApp.swift; sourceTree = "<group>"; };
 		AC4BFC8AE6E1808DC7CD799D /* BrandColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandColors.swift; sourceTree = "<group>"; };
@@ -274,6 +278,7 @@
 			5512CAF5917FB2127AD85186 /* GroupDetailScreen.swift */,
 			B50000000000000000000018 /* SharedSettleUpScreen.swift */,
 			AD0DE75597C3CF7F9FAC917E /* AddExpenseSheet.swift */,
+			E10000000000000000000001 /* BaseCurrencyEstimate.swift */,
 		);
 			path = UI;
 			sourceTree = "<group>";
@@ -281,6 +286,7 @@
 		95E940FD9835AE2219E25A6E /* BillBanditTests */ = {isa = PBXGroup; children = (
 			70F9E2744FD0AADDBB7E4564 /* SplitEngineTests.swift */,
 			77A7DE1E8AAB9CECF095E353 /* BalanceEngineTests.swift */,
+			E10000000000000000000003 /* BaseCurrencyEstimateTests.swift */,
 			B50000000000000000000019 /* SettlementStoreTests.swift */,
 			D2000000000000000000000A /* ServerLedgerCacheTests.swift */,
 		);
@@ -511,12 +517,14 @@
 				B50000000000000000000006 /* SettlementAPIConfiguration.swift in Sources */,
 				B50000000000000000000007 /* MockSettlementAPI.swift in Sources */,
 				AFA9DEAA878B374CD9301DEB /* AddExpenseSheet.swift in Sources */,
+				E10000000000000000000002 /* BaseCurrencyEstimate.swift in Sources */,
 		);
 		runOnlyForDeploymentPostprocessing = 0;
 		};
 		FFD365512EC1A979DE9592EA /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
 				029E7DB2DF011CEFE3CA13F2 /* SplitEngineTests.swift in Sources */,
 				6002A4BD33DB4A70DB970FE8 /* BalanceEngineTests.swift in Sources */,
+				E10000000000000000000004 /* BaseCurrencyEstimateTests.swift in Sources */,
 				B50000000000000000000009 /* SettlementStoreTests.swift in Sources */,
 				D1000000000000000000000A /* ServerLedgerCacheTests.swift in Sources */,
 		);
@@ -648,7 +656,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = BillBandit/BillBandit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 4JRB53LG5C;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -680,7 +688,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = BillBandit/BillBandit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 4JRB53LG5C;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;

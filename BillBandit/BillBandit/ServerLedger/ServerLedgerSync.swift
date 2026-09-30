@@ -131,6 +131,14 @@ final class ServerLedgerSync {
         lastError = ServerLedgerAPIClientError.offline.localizedDescription
     }
 
+    /// Pauses queue submission after a server 401 without deleting the
+    /// account's durable operations. A later authenticated reconnect can
+    /// resume the same operation IDs and payloads.
+    func markUnauthorized() {
+        state = .unauthorized
+        lastError = ServerLedgerAPIClientError.unauthorized.localizedDescription
+    }
+
     func markReconnected() {
         if state == .offline || state == .unauthorized {
             state = .idle
@@ -211,6 +219,9 @@ final class ServerLedgerSync {
             throw ServerLedgerSyncError.unauthorized
         }
         let generation = accountGeneration
+        guard store.beginDrain(accountID: accountID) else { return [] }
+        defer { store.endDrain(accountID: accountID) }
+
         let operations = try store.pendingOperations(
             for: accountID,
             includingCompleted: false,

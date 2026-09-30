@@ -29,11 +29,17 @@ struct FriendsScreen: View {
     }
 
     /// Pairwise you↔friend balances (positive = they owe you).
-    private var localNets: [UUID: Decimal] {
+    private var localNets: [String: [UUID: Decimal]] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
         let localExpenses = expenses.filter { $0.group?.serverLedgerGroupID == nil }
         let localSettlements = settlements.filter { $0.group?.serverLedgerGroupID == nil }
-        return BalanceMath.pairwiseNets(you: you, expenses: localExpenses, settlements: localSettlements)
+        let codes = Set(localExpenses.map { $0.group?.resolvedCurrencyCode ?? "INR" }
+            + localSettlements.map { $0.group?.resolvedCurrencyCode ?? "INR" })
+        return Dictionary(uniqueKeysWithValues: codes.map { code in
+            (code, BalanceMath.pairwiseNets(you: you,
+                expenses: localExpenses.filter { ($0.group?.resolvedCurrencyCode ?? "INR") == code },
+                settlements: localSettlements.filter { ($0.group?.resolvedCurrencyCode ?? "INR") == code }))
+        })
     }
 
     private var localFriendIDs: Set<UUID> {
@@ -148,12 +154,12 @@ struct FriendsScreen: View {
                         Text("on-device")
                             .font(BrandFont.type(8, bold: true))
                             .opacity(0.62)
-                        NetChip(net: localNets[friend.id] ?? 0, style: .friend)
+                        LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 })
                     }
                 }
             }
         } else {
-            NetChip(net: localNets[friend.id] ?? 0, style: .friend)
+            LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 })
         }
     }
 }
@@ -183,11 +189,17 @@ struct ProfileFriendsSection: View {
         }
     }
 
-    private var localNets: [UUID: Decimal] {
+    private var localNets: [String: [UUID: Decimal]] {
         guard let you = people.first(where: { $0.isCurrentUser }) else { return [:] }
         let localExpenses = expenses.filter { $0.group?.serverLedgerGroupID == nil }
         let localSettlements = settlements.filter { $0.group?.serverLedgerGroupID == nil }
-        return BalanceMath.pairwiseNets(you: you, expenses: localExpenses, settlements: localSettlements)
+        let codes = Set(localExpenses.map { $0.group?.resolvedCurrencyCode ?? "INR" }
+            + localSettlements.map { $0.group?.resolvedCurrencyCode ?? "INR" })
+        return Dictionary(uniqueKeysWithValues: codes.map { code in
+            (code, BalanceMath.pairwiseNets(you: you,
+                expenses: localExpenses.filter { ($0.group?.resolvedCurrencyCode ?? "INR") == code },
+                settlements: localSettlements.filter { ($0.group?.resolvedCurrencyCode ?? "INR") == code }))
+        })
     }
 
     private var localFriendIDs: Set<UUID> {
@@ -304,12 +316,12 @@ struct ProfileFriendsSection: View {
                         Text("on-device")
                             .font(BrandFont.type(8, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
-                        NetChip(net: localNets[friend.id] ?? 0, style: .friend, onLight: true)
+                        LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 }, onLight: true)
                     }
                 }
             }
         } else {
-            NetChip(net: localNets[friend.id] ?? 0, style: .friend, onLight: true)
+            LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 }, onLight: true)
         }
     }
 }
@@ -644,6 +656,7 @@ struct NetChip: View {
     let net: Decimal
     var style: Style = .group
     var onLight = false
+    var currencyCode: String? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -664,7 +677,7 @@ struct NetChip: View {
 
     private func label(abs: Decimal) -> String {
         if abs < Decimal(1) / 200 { return "settled up" }
-        let amount = Money.currency(abs)
+        let amount = currencyCode.map { Money.currency(abs, currencyCode: $0) } ?? Money.currency(abs)
         switch style {
         case .group:  return net > 0 ? "owed \(amount)" : "owe \(amount)"
         case .friend: return net > 0 ? "owes you \(amount)" : "you owe \(amount)"
@@ -674,5 +687,23 @@ struct NetChip: View {
     private var chipWidth: CGFloat {
         if style == .group { return 150 }
         return onLight ? 146 : 172
+    }
+}
+
+
+private struct LocalFriendBalanceChips: View {
+    let balances: [String: Decimal]
+    var onLight = false
+    private var codes: [String] { balances.keys.filter { balances[$0] != 0 }.sorted() }
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            if codes.isEmpty {
+                NetChip(net: 0, style: .friend, onLight: onLight, currencyCode: "INR")
+            } else {
+                ForEach(codes, id: \.self) { code in
+                    NetChip(net: balances[code] ?? 0, style: .friend, onLight: onLight, currencyCode: code)
+                }
+            }
+        }
     }
 }

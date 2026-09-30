@@ -39,6 +39,14 @@ enum AppStore {
 
     static let container: ModelContainer = {
         do {
+            #if DEBUG && targetEnvironment(simulator)
+            if let qaID = ProcessInfo.processInfo.environment["BILLBANDIT_QA_STORE_ID"],
+               qaID.hasPrefix("vietnam-test-"),
+               qaID.range(of: #"^[a-zA-Z0-9-]+$"#, options: .regularExpression) != nil {
+                let config = ModelConfiguration("BillBanditTripQA-" + qaID, cloudKitDatabase: .none)
+                return try ModelContainer(for: schema, configurations: config)
+            }
+            #endif
             // Ledger cache, queue, and migration checkpoints are local SwiftData
             // records. CloudKit is intentionally not a SwiftData ledger store.
             let config = ModelConfiguration(cloudKitDatabase: .none)
@@ -218,6 +226,20 @@ final class ServerLedgerAccountLifecycle {
         lastError = nil
         lifecycleGeneration &+= 1
         UserDefaults.standard.removeObject(forKey: Self.persistedAccountIDKey)
+    }
+
+    /// Marks one account unauthorized while preserving its cache and queue.
+    /// Explicit sign-out still uses `signOut()` and clears local account data.
+    func markUnauthorized(accountID rawAccountID: String?) {
+        let accountID = rawAccountID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let accountID, accountID.isEmpty == false else {
+            sync.markUnauthorized()
+            lastError = ServerLedgerSyncError.unauthorized.localizedDescription
+            return
+        }
+        guard activeAccountID == accountID || sync.activeAccountID == accountID else { return }
+        sync.markUnauthorized()
+        lastError = ServerLedgerSyncError.unauthorized.localizedDescription
     }
 
     /// Loads the current account's cache first, drains only due operations for

@@ -686,12 +686,12 @@ final class CloudCollaborationService: ObservableObject {
 
     private func prepareAPIAccount() async -> Bool {
         guard UsernameIdentityService.hasStoredSession else {
-            ServerLedgerAccountLifecycle.shared.signOut()
+            ServerLedgerAccountLifecycle.shared.markUnauthorized(accountID: nil)
             return false
         }
         let generation = accountGeneration
         do {
-            let remoteUser = try await UsernameIdentityService.currentUser()
+            let remoteUser = try await UsernameIdentityService.authenticatedUserForLedger()
             guard generation == accountGeneration,
                   UsernameIdentityService.hasStoredSession else { return false }
             try ServerLedgerAccountLifecycle.shared.activate(accountID: remoteUser.id)
@@ -1103,7 +1103,7 @@ private extension CloudCollaborationService {
                 sourceKey: state.sourceKey ?? "pending",
                 owner: LegacyImportOwner(cloudKitRecordName: ownerCloudUser),
                 defaultCurrency: LegacyImportCurrency(
-                    currencyCode: Money.currentCurrency.rawValue,
+                    currencyCode: AppCurrency.inr.rawValue,
                     currencyExponent: 2
                 ),
                 claims: [],
@@ -1417,6 +1417,7 @@ struct ServerGroupCatalogItem: Decodable, Equatable, Sendable {
 
     let id: String
     let name: String
+    let currency: String?
     let category: String?
     let members: [Member]
     let createdAt: String?
@@ -1541,7 +1542,8 @@ enum ServerGroupCatalogProjection {
                     icon: icon(for: item.category),
                     createdAt: date(item.createdAt) ?? .now,
                     serverGroupId: item.id,
-                    serverAccountId: currentAccountID
+                    serverAccountId: currentAccountID,
+                    currencyCode: item.currency
                 )
                 context.insert(created)
                 return created
@@ -1549,6 +1551,11 @@ enum ServerGroupCatalogProjection {
             group.name = item.name
             group.serverGroupId = item.id
             group.serverAccountId = currentAccountID
+            // Server group currency is authoritative. Keep unknown codes as raw
+            // metadata so the UI can show the code without relabeling as INR.
+            if let currency = item.currency {
+                group.currencyCode = currency.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            }
 
             let people = (try? context.fetch(FetchDescriptor<Person>())) ?? []
             let current = people.first(where: \.isCurrentUser)

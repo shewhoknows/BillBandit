@@ -279,6 +279,8 @@ final class Group {
     var iconRaw: String
     var simplifyDebts: Bool
     var createdAt: Date
+    /// Optional for SwiftData migration. Nil means the legacy local group was INR.
+    var currencyCode: String?
     /// Optional collaboration metadata. A nil zone means the group is still
     /// local-only and will be promoted when iCloud becomes available.
     var cloudZoneName: String?
@@ -294,12 +296,13 @@ final class Group {
 
     init(id: UUID = UUID(), name: String, icon: GroupIcon = .users, simplifyDebts: Bool = true,
          createdAt: Date = .now, members: [Person] = [], serverGroupId: String? = nil,
-         serverAccountId: String? = nil) {
+         serverAccountId: String? = nil, currencyCode: String? = nil) {
         self.id = id
         self.name = name
         self.iconRaw = icon.rawValue
         self.simplifyDebts = simplifyDebts
         self.createdAt = createdAt
+        self.currencyCode = currencyCode?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         self.cloudZoneName = nil
         self.cloudZoneOwnerName = nil
         self.cloudDatabaseScopeRaw = nil
@@ -311,6 +314,15 @@ final class Group {
     }
 
     var icon: GroupIcon { GroupIcon(rawValue: iconRaw) ?? .users }
+
+    /// Returns INR only for legacy local rows with no currency metadata.
+    var resolvedCurrencyCode: String {
+        let normalized = currencyCode?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return normalized?.isEmpty == false ? normalized! : AppCurrency.inr.rawValue
+    }
+
+    /// Unknown server currencies return nil so callers can show the raw code.
+    var currency: AppCurrency? { AppCurrency(rawValue: resolvedCurrencyCode) }
 }
 
 @Model

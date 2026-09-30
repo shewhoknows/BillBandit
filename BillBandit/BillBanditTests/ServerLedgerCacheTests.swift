@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import SwiftData
 import XCTest
 @testable import BillBandit
@@ -40,6 +41,22 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertEqual(expected, 4)
         XCTAssertEqual(current, 5)
         XCTAssertNil(snapshot)
+    }
+
+    func testSequentialOfflineExpensesReserveRevisionsWithoutChangingRetryIdentity() throws {
+        let store = try makeStore()
+        let scope = ServerLedgerMutationScope.serverBacked(accountID: "offline-alice", groupID: "offline-group")
+        let firstID = UUID()
+        _ = try store.enqueue(ServerLedgerMutationRequest(operationID: firstID, scope: scope,
+            expectedRevision: 7, requestPayload: Data("first".utf8)))
+        let secondID = UUID()
+        XCTAssertEqual(try store.nextQueuedExpenseRevision(scope: scope, canonicalRevision: 7, operationID: secondID), 8)
+        _ = try store.enqueue(ServerLedgerMutationRequest(operationID: secondID, scope: scope,
+            expectedRevision: 8, requestPayload: Data("second".utf8)))
+        XCTAssertEqual(try store.nextQueuedExpenseRevision(scope: scope, canonicalRevision: 7, operationID: firstID), 7)
+        XCTAssertEqual(try store.nextQueuedExpenseRevision(scope: scope, canonicalRevision: 7, operationID: UUID()), 9)
+        let other = ServerLedgerMutationScope.serverBacked(accountID: "offline-alice", groupID: "other-group")
+        XCTAssertEqual(try store.nextQueuedExpenseRevision(scope: other, canonicalRevision: 7, operationID: UUID()), 7)
     }
 
     func testCacheAndQueueAreAccountScoped() throws {
@@ -110,6 +127,246 @@ final class ServerLedgerCacheTests: XCTestCase {
         XCTAssertEqual(try retried.makeRequest().requestPayload, request.requestPayload)
         XCTAssertEqual(try retried.makeRequest().expectedRevision, request.expectedRevision)
     }
+
+    func testPendingOperationSurvivesReopenedStoreAndReconnectRetainsIdentity() async throws {
+        let schema = Schema([CachedLedgerSnapshot.self, PendingLedgerOperation.self])
+        let evidenceRoot = URL(fileURLWithPath: ProcessInfo.processInfo.environment["BILLBANDIT_QA_EVIDENCE_DIR"]
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+                .deletingLastPathComponent().appendingPathComponent(".scratch/vietnam-trip/test-stores").path)
+        try FileManager.default.createDirectory(at: evidenceRoot, withIntermediateDirectories: true)
+        let storeURL = evidenceRoot.appendingPathComponent("BillBanditServerLedger-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: storeURL)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-shm"))
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: storeURL.path + "-wal"))
+        }
+
+        let configuration = ModelConfiguration(
+            "ServerLedgerPersistentReconnectTests",
+            schema: schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let scope = ServerLedgerMutationScope.serverBacked(
+            accountID: "account-relaunch",
+            groupID: "group-relaunch"
+        )
+        let operationID = UUID()
+        let payload = Data("stable-relaunch-payload".utf8)
+        let request = ServerLedgerMutationRequest(
+            operationID: operationID,
+            scope: scope,
+            expectedRevision: 7,
+            requestPayload: payload
+        )
+        do {
+            let firstContainer = try ModelContainer(for: schema, configurations: configuration)
+            let firstStore = ServerLedgerStore(context: ModelContext(firstContainer))
+            _ = try firstStore.enqueue(request)
+        }
+
+        let reopenedContainer = try ModelContainer(for: schema, configurations: configuration)
+        let reopenedStore = ServerLedgerStore(context: ModelContext(reopenedContainer))
+        let persisted = try XCTUnwrap(
+            reopenedStore.pendingOperations(for: "account-relaunch").first
+        )
+        XCTAssertEqual(persisted.operationID, operationID)
+        XCTAssertEqual(try persisted.makeRequest().requestPayload, payload)
+
+        let canonical = ServerLedgerSnapshot(
+            scope: ServerBackedLedgerScope(accountID: "account-relaunch", groupID: "group-relaunch"),
+            revision: 8,
+            payload: Data("canonical-relaunch".utf8)
+        )
+        let api = RecordingServerLedgerAPIClient(
+            fetchResult: .success(canonical),
+            submitResult: .success(canonical)
+        )
+        let sync = ServerLedgerSync(store: reopenedStore, apiClient: api)
+        try sync.activate(accountID: "account-relaunch")
+        _ = try await sync.onReconnect(
+            scope: ServerBackedLedgerScope(accountID: "account-relaunch", groupID: "group-relaunch")
+        )
+
+        let submittedRequests = await api.submittedRequests
+        let submitted = try XCTUnwrap(submittedRequests.first)
+        XCTAssertEqual(submitted.operationID, operationID)
+        XCTAssertEqual(submitted.requestPayload, payload)
+        XCTAssertEqual(
+            try reopenedStore.pendingOperations(for: "account-relaunch", includingCompleted: true)
+                .first?.retryState,
+            .succeeded
+        )
+    }
+
+    func testUnauthorizedDrainPreservesPendingOperationForReauthentication() async throws {
+        let store = try makeStore()
+        let scope = ServerLedgerMutationScope.serverBacked(
+            accountID: "account-unauthorized",
+            groupID: "group-unauthorized"
+        )
+        let operationID = UUID()
+        let request = ServerLedgerMutationRequest(
+            operationID: operationID,
+            scope: scope,
+            expectedRevision: 3,
+            requestPayload: Data("preserve-after-401".utf8)
+        )
+        _ = try store.enqueue(request)
+
+        let api = RecordingServerLedgerAPIClient(
+            submitResult: .failure(ServerLedgerAPIClientError.unauthorized)
+        )
+        let sync = ServerLedgerSync(store: store, apiClient: api)
+        try sync.activate(accountID: "account-unauthorized")
+
+        do {
+            _ = try await sync.drainPendingOperations(for: "account-unauthorized")
+            XCTFail("A 401 must pause the queue")
+        } catch let error as ServerLedgerSyncError {
+            XCTAssertEqual(error, .unauthorized)
+        }
+
+        let pending = try XCTUnwrap(
+            store.pendingOperations(for: "account-unauthorized", includingCompleted: true).first
+        )
+        XCTAssertEqual(pending.operationID, operationID)
+        XCTAssertEqual(pending.retryState, .retrying)
+        XCTAssertEqual(try pending.makeRequest().requestPayload, request.requestPayload)
+        XCTAssertEqual(sync.state, .unauthorized)
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    func testLegacyIdentityNetworkRequirementBlocksOfflineEntry() async throws {
+        guard let token = ProcessInfo.processInfo.environment["BILLBANDIT_QA_TEST_TOKEN"] else {
+            throw XCTSkip("Requires the loopback QA session")
+        }
+        _ = try await UsernameIdentityService.installSimulatorQASession(token: token)
+        CloudCollaborationService.shared.stopForegroundSync()
+        CountingOfflineURLProtocol.requestCount = 0
+        URLProtocol.registerClass(CountingOfflineURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CountingOfflineURLProtocol.self) }
+        do {
+            _ = try await UsernameIdentityService.currentUser()
+            XCTFail("The old network-first identity call must fail offline before enqueue")
+        } catch {
+            XCTAssertGreaterThanOrEqual(CountingOfflineURLProtocol.requestCount, 1)
+        }
+    }
+
+    func testBoundSessionRestoresOfflineWithoutAuthMeRequest() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["BILLBANDIT_QA_STORE_ID"]?.hasPrefix("vietnam-test-") == true,
+              let token = environment["BILLBANDIT_QA_TEST_TOKEN"], !token.isEmpty else {
+            throw XCTSkip("Requires the real loopback simulator QA session")
+        }
+
+        let verified = try await UsernameIdentityService.installSimulatorQASession(token: token)
+        CloudCollaborationService.shared.stopForegroundSync()
+        CountingOfflineURLProtocol.requestCount = 0
+        URLProtocol.registerClass(CountingOfflineURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CountingOfflineURLProtocol.self) }
+
+        let restored = try await UsernameIdentityService.authenticatedUserForLedger()
+        XCTAssertEqual(restored.id, verified.id)
+        XCTAssertEqual(CountingOfflineURLProtocol.requestCount, 0)
+    }
+
+    func testMissingMismatchedAndExpiredBindingsRequireOnlineVerification() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["BILLBANDIT_QA_STORE_ID"]?.hasPrefix("vietnam-test-") == true,
+              let token = environment["BILLBANDIT_QA_TEST_TOKEN"], !token.isEmpty else {
+            throw XCTSkip("Requires the real loopback simulator QA session")
+        }
+
+        _ = try await UsernameIdentityService.installSimulatorQASession(token: token)
+        deleteQABinding()
+        try await assertLedgerIdentityNeedsNetwork(token: token)
+
+        _ = try await UsernameIdentityService.installSimulatorQASession(token: token)
+        writeQAToken(token + ".switched")
+        try await assertLedgerIdentityNeedsNetwork(token: token + ".switched")
+
+        _ = try await UsernameIdentityService.installSimulatorQASession(token: token)
+        expireQABinding()
+        try await assertLedgerIdentityNeedsNetwork(token: token)
+
+        _ = try await UsernameIdentityService.installSimulatorQASession(token: token)
+    }
+
+    private func assertLedgerIdentityNeedsNetwork(token: String) async throws {
+        CloudCollaborationService.shared.stopForegroundSync()
+        CountingOfflineURLProtocol.requestCount = 0
+        URLProtocol.registerClass(CountingOfflineURLProtocol.self)
+        defer { URLProtocol.unregisterClass(CountingOfflineURLProtocol.self) }
+
+        let expectation = expectation(description: "offline identity failure")
+        Task { @MainActor in
+            do {
+                _ = try await UsernameIdentityService.authenticatedUserForLedger()
+                XCTFail("Binding (token.prefix(8)) should require online verification")
+            } catch {
+                expectation.fulfill()
+            }
+        }
+        await fulfillment(of: [expectation], timeout: 5)
+        XCTAssertGreaterThanOrEqual(CountingOfflineURLProtocol.requestCount, 1,
+                                    "An invalid binding must require online verification")
+    }
+
+    private func deleteQABinding() {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: "authenticated-session-binding-v1",
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private func writeQAToken(_ token: String) {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: "authenticated-session",
+        ]
+        SecItemDelete(query as CFDictionary)
+        let attributes = query.merging([
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData: Data(token.utf8),
+        ]) { _, right in right }
+        XCTAssertEqual(SecItemAdd(attributes as CFDictionary, nil), errSecSuccess)
+    }
+
+    private func expireQABinding() {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: SettlementTokenStore.keychainService,
+            kSecAttrAccount: "authenticated-session-binding-v1",
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(
+            query.merging([kSecReturnData: true]) { _, right in right } as CFDictionary,
+            &item
+        ) == errSecSuccess,
+              let data = item as? Data,
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            XCTFail("Expected a QA session binding")
+            return
+        }
+        object["tokenExpiresAt"] = 0
+        guard let expired = try? JSONSerialization.data(withJSONObject: object) else {
+            XCTFail("Could not encode the expired QA binding")
+            return
+        }
+        XCTAssertEqual(
+            SecItemUpdate(
+                query as CFDictionary,
+                [kSecValueData: expired] as CFDictionary
+            ),
+            errSecSuccess
+        )
+    }
+    #endif
 
     func testLocalOnlyScopeCannotCreateAQueuedServerMutation() throws {
         let store = try makeStore()
@@ -642,11 +899,33 @@ final class ServerLedgerCacheTests: XCTestCase {
     }
 }
 
+#if DEBUG && targetEnvironment(simulator)
+private final class CountingOfflineURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    static var requestCount = 0
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.path == "/api/mobile/auth/me"
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.requestCount += 1
+        Self.lock.unlock()
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+
+    override func stopLoading() {}
+}
+#endif
+
 private actor RecordingServerLedgerAPIClient: ServerLedgerAPIClient {
     private let fetchResult: Result<ServerLedgerSnapshot, Error>
     private let submitResult: Result<ServerLedgerSnapshot, Error>
     private(set) var fetchCount = 0
     private(set) var submitCount = 0
+    private(set) var submittedRequests: [ServerLedgerMutationRequest] = []
 
     init(
         fetchResult: Result<ServerLedgerSnapshot, Error> = .failure(ServerLedgerAPIClientError.notImplemented),
@@ -663,6 +942,7 @@ private actor RecordingServerLedgerAPIClient: ServerLedgerAPIClient {
 
     func submit(_ request: ServerLedgerMutationRequest) async throws -> ServerLedgerSnapshot {
         submitCount += 1
+        submittedRequests.append(request)
         return try submitResult.get()
     }
 }
