@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-09-30, local Vietnam-trip candidate; release approval and physical two-account verification pending.**
+> shared memory for all agents working on this repo. Last updated: **2026-09-30, approved backend release and internal TestFlight build 31 published; physical two-account verification pending.**
 
 ---
 
@@ -48,7 +48,7 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
-### 2026-09-30 — Vietnam-trip local candidate
+### 2026-09-30 — Vietnam-trip build 31 release
 
 - Candidate: `codex/vietnam-trip-20260930`, isolated from the user's dirty primary checkout. Base: release `72d7e0b7a1e2946f82efdbb1cccac3a58c44918d`.
 - Authenticated expense entry restores a Keychain account binding created by a successful server verification. The binding must match the current token and expiry. Missing, changed, and expired bindings require online verification. Server authentication remains mandatory for sync.
@@ -56,11 +56,11 @@ directly; regenerate them from sources (see §5).
 - One shared drain gate prevents overlapping sync workers. Consecutive offline expense creates reserve revisions without changing retry UUIDs. Edits retain revision conflict checks.
 - Pending rows remain visible after offline save. Shared balances update after server sync.
 - QA uses a dedicated PostgreSQL database, synthetic accounts, isolated SwiftData stores, and isolated Keychain services. QA overrides are compiled only into Debug simulator builds and require loopback API access.
-- Production currently reports backend `759b1f9` and `/api/mobile/friends` returns 404. Deploy the matching release API and migrations only after approval. Do not treat API health 200 as feature readiness.
-- Signing permits a local Release archive, development IPA, and App Store IPA (build 31). No push, deployment, upload, production configuration change, or physical-phone installation has been performed.
+- User approved publishing and deployment. Production now serves `8b1bb6c`; the friend route exists and requires authentication. The GitHub deployment passed lint/typecheck and exact-commit health verification. The container requires Prisma migration success before API startup. Do not treat health/auth-route proof as authenticated financial-flow proof.
+- Main was published at `8b1bb6c`. Version 1.0 build 31 was uploaded and processed as VALID. It is IN_BETA_TESTING in BillBandit Internal QA, with Esha and Prateek as existing testers. No physical installation or real two-account flow is verified yet. No existing trips or balances were manually modified.
 - Evidence and exact replay details: `/Users/prateekranka/Cowork/BillBandit-backend-independent-evidence-20260930/vietnam-trip/20260930T054107Z.Ku4lZO/trip-readiness.md`.
 - Local proof: 33 backend regression tests, 10 real HTTP scenarios, 23 selected iOS unit tests, and 6 simulator UI scenarios pass. The complete shared UI flow covers offline relaunch/reconnect, editing, unequal splits, and partial/full settlement. Both synthetic accounts finish at revision 5 with an empty plan.
-- Remaining release gates: approve matching backend release; check second phone provisioning; install both phones; verify real Apple sign-in, invite acceptance, and cross-device balances with two accounts.
+- Remaining release gates: install build 31 from existing internal TestFlight access on both phones; verify real Apple sign-in, invite acceptance, cross-device balances, and offline/reconnect with two accounts. TestFlight does not need the second phone to be registered in a development profile. Keep a backup until hardware checks pass.
 
 ### 2026-08-12 — canonical social and shared-ledger authority
 
