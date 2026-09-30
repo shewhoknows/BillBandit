@@ -116,7 +116,7 @@ function fakeIdentityInvitationDb() {
     groupMember: {
       findUnique: async (args: any) => {
         const key = args.where.groupId_userId
-        if (args.select?.group) return { group: { id: key.groupId, finalizedAt: null } }
+        if (args.select?.group) return { group: { id: key.groupId, finalizedAt: null, isArchived: false } }
         const member = state.members.find(
           (entry) => entry.groupId === key.groupId && entry.userId === key.userId
         )
@@ -148,8 +148,9 @@ function fakeIdentityInvitationDb() {
         }
       },
     },
+    $queryRaw: async () => [{ id: 'group-1' }],
     group: {
-      findUnique: async () => ({ id: 'group-1', finalizedAt: null }),
+      findUnique: async () => ({ id: 'group-1', finalizedAt: null, isArchived: false }),
     },
     ledgerOperation: {
       create: async (args: any) => {

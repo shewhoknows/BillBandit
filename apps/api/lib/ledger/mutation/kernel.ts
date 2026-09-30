@@ -704,6 +704,11 @@ async function prepareMembership(
         select: { id: true, groupId: true, userId: true, role: true },
       })
 
+  // Membership addition stays open to members, but assigning or changing an
+  // administrator is an authority change, not an ordinary member addition.
+  if (request.kind === 'membership.update' || payload.role === 'ADMIN') {
+    await ensureActiveMember(tx, request, true)
+  }
   if (request.kind === 'membership.add') {
     if (existing && existing.groupId === request.groupId) {
       throw new LedgerMutationError('ALREADY_MEMBER', 409, 'User is already a member')
@@ -837,7 +842,8 @@ async function prepareSettlement(
         (entry) =>
           entry.payerParticipantId === payerParticipantId &&
           entry.recipientParticipantId === recipientParticipantId &&
-          sameMutationMoney(entry.amount, amount)
+          entry.amount.currencyCode === amount.currencyCode &&
+          entry.amount.currencyExponent === amount.currencyExponent
       )
   if (!transfer) {
     throw new LedgerMutationError('TRANSFER_NOT_FOUND', 404, 'Settlement transfer is no longer available')
@@ -845,13 +851,19 @@ async function prepareSettlement(
   if (
     transfer.payerParticipantId !== payerParticipantId ||
     transfer.recipientParticipantId !== recipientParticipantId ||
-    !sameMutationMoney(transfer.amount, amount)
+    transfer.amount.currencyCode !== amount.currencyCode ||
+    transfer.amount.currencyExponent !== amount.currencyExponent
   ) {
     throw new LedgerMutationError('TRANSFER_MISMATCH', 409, 'Settlement transfer changed', {
       requiresReconfirmation: true,
     })
   }
 
+  if (amount.minorUnits <= 0n || amount.minorUnits > transfer.amount.minorUnits) {
+    throw new LedgerMutationError('INVALID_SETTLEMENT_AMOUNT', 409, 'Payment must be positive and no more than the current amount owed', {
+      requiresReconfirmation: true,
+    })
+  }
   const mode = payload.mode ?? transfer.mode
   const snapshot = allocateSettlementPaths(
     ledger,
@@ -860,6 +872,19 @@ async function prepareSettlement(
     amount,
     mode
   )
+  // A simplified transfer can connect net balances in separate obligation
+  // components. Never record cash unless the full amount has a real route
+  // through obligations. Residual credits do not reduce debt on replay.
+  const routed = snapshot.paths
+    .filter((path) => path.payerParticipantId === payerParticipantId &&
+      !path.obligationComponentKeys.includes('residual-credit'))
+    .reduce((total, path) => total + path.flowMinorUnits, 0n)
+  if (snapshot.paths.some((path) => path.obligationComponentKeys.includes('residual-credit')) ||
+      routed !== amount.minorUnits) {
+    throw new LedgerMutationError('TRANSFER_MISMATCH', 409, 'Payment cannot be allocated to the current obligations', {
+      requiresReconfirmation: true,
+    })
+  }
   const recordId = payload.settlementId ?? payload.transactionId ?? randomUUID()
   const allocationId = randomUUID()
   return {

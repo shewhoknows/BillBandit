@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { GroupLedgerReadModel, Money } from './ledger-contract'
 import { mobileExpense, mobileGroup, legacyAmount } from './mobile-dto'
 import { LedgerReadModelError } from './ledger/read-model/types'
+import { MOBILE_PROFILE_AVATAR_PREFIX, parseMobileProfileAvatar, mobileProfileAvatarImage } from './profile-avatar'
 
 function isReadOnly(model: GroupLedgerReadModel): boolean {
   return (
@@ -101,7 +102,7 @@ export function mobileExpenseFromLedger(model: GroupLedgerReadModel, expenseId: 
   return mobileCanonicalExpense(model, expenseId)
 }
 
-export function mobileGroupFromLedger(model: GroupLedgerReadModel) {
+export function mobileGroupFromLedger(model: GroupLedgerReadModel, images: ReadonlyMap<string, string | null> = new Map()) {
   return mobileGroup({
     groupId: model.groupId,
     name: model.name,
@@ -112,6 +113,17 @@ export function mobileGroupFromLedger(model: GroupLedgerReadModel) {
       role: member.role,
       displayName: member.displayName,
       email: member.email,
+      user: {
+        id: member.accountId,
+        name: member.displayName,
+        email: member.email,
+        image: (() => {
+          const image = images.get(member.accountId)
+          if (!image?.startsWith(MOBILE_PROFILE_AVATAR_PREFIX)) return null
+          const avatar = parseMobileProfileAvatar(image.slice(MOBILE_PROFILE_AVATAR_PREFIX.length))
+          return avatar ? mobileProfileAvatarImage(avatar) : null
+        })(),
+      },
     })),
     expenses: model.expenses.map((expense) => mobileCanonicalExpense(model, expense.expenseId)!).filter(Boolean),
     revision: model.revision,
@@ -132,7 +144,10 @@ function moneyForBaseCurrency(values: Money[], currencyCode: string, currencyExp
   )
 }
 
-export function buildGroupDetailResponseFromLedger(model: GroupLedgerReadModel) {
+export function buildGroupDetailResponseFromLedger(
+  model: GroupLedgerReadModel,
+  images: ReadonlyMap<string, string | null> = new Map()
+) {
   const members = memberMap(model)
   const netBalances = model.balances.byMember.map((balance) => {
     const member = members.get(balance.memberId)
@@ -168,7 +183,7 @@ export function buildGroupDetailResponseFromLedger(model: GroupLedgerReadModel) 
   })
 
   return {
-    group: mobileGroupFromLedger(model),
+    group: mobileGroupFromLedger(model, images),
     balances: { netBalances, simplifiedDebts },
     ledger: model,
   }

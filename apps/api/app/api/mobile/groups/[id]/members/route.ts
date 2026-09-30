@@ -74,6 +74,11 @@ async function mutateMembership(
     return mutationErrorResponse(error, '[MOBILE MEMBERS READ]')
   }
 
+  if ((method === 'membership.update' || parsed.data.role === 'ADMIN') &&
+      memberForAccount(loaded.group, session.user.id)?.role !== 'owner') {
+    return NextResponse.json({ code: 'FORBIDDEN' }, { status: 403 })
+  }
+
   const target = targetAccountId(loaded.group, record)
   if (method === 'membership.add' && !target.userId) {
     return NextResponse.json({ error: 'userId or accountId is required to add a member' }, { status: 400 })
