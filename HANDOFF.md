@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-09-30, approved backend release and internal TestFlight build 31 published; physical two-account verification pending.**
+> shared memory for all agents working on this repo. Last updated: **2026-10-01, feature parity source audit and competitor research complete; physical two-account verification pending.**
 
 ---
 
@@ -48,7 +48,18 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
-### 2026-09-30 — expense overview UI branch (local)
+### 2026-10-01 — feature parity audit and proposed roadmap
+
+- User requested a comparison of updated BillBandit code with Splitwise and other bill-sharing apps. Research covers Splitwise, Tricount, Settle Up and Splid using owned pages and developer listings. No competitor account session was exercised.
+- Audited branch: `codex/profile-currency-expense-review-20260930`, commit `dd0a9f3ac39cc0920c6b3b589110057b03e58bb8`. Live GitHub refs still match that UI commit and main `8b1bb6c861d56139f50f7e08d24f5b136f0e3caa`. The active target is the nested `BillBandit/BillBandit.xcodeproj`; retained scaffold does not count as an active feature.
+- Report: `docs/product/feature-parity-20261001.md`. The adjacent CSV has 34 capability rows with current status, code evidence, competitor sources, proposed phase and acceptance conditions.
+- Code-backed priorities: preserve decimal INR and other supported currencies; keep VND at zero decimals; align currency menus with backend capability; add per-expense participant selection; complete date/notes/category readback; expose authorized shared deletion; add search, pagination and CSV export.
+- Larger follow-on work: mixed currencies with original amounts and explicit settlement rates, several payer contributions, direct friend expenses, guest claim, receipts/itemization, comments, real notifications, recurring bills, spending reports, import and complete version history. Android/web and regional payment integrations follow complete ledger flows.
+- Existing whole-unit calculation remains the locked behavior above. This report proposes a future precision contract; it does not approve changing past data, authentication or production settings. Base currency remains an estimate and must never change original debts when a rate refreshes.
+- No app code changed, build/test suite run, production data modified, deployment made or TestFlight build uploaded for this audit. Historical test results remain separate from current source findings. Real Apple sign-in, invite acceptance and physical cross-device balance verification remain unverified.
+- Evidence: `/Users/prateekranka/Cowork/BillBandit-backend-independent-evidence-20260930/feature-parity/20261001T115805Z.IreOmm`, including the backend inventory, source hashes, competitor source ledger, feature matrix and report copy. Research documents remain local pending a separate publishing request.
+
+### 2026-09-30 — expense overview UI branch (pushed)
 
 - Branch `codex/profile-currency-expense-review-20260930` starts at released build 31 source `8a73576`, in `/Users/prateekranka/Cowork/BillBandit-expense-review-20260930`. The original and release checkouts are preserved.
 - Scope: remove Home's aggregate estimate box, move currency controls to Profile, and route recent shared activity directly to a read-only expense overview with creator, added time, splits, and recorded history.
@@ -57,7 +68,7 @@ directly; regenerate them from sources (see §5).
 - Focused UI cases were authored before implementation. Fresh synthetic backend fixtures are isolated from production. Added time must use durable creation activity, because the existing expense DTO `createdAt` means expense date. Missing history must remain explicit.
 - Verification complete: simulator build succeeds. Two focused UI cases pass: Home box removal/Profile selection and persistence/local receipt history; real shared activity receipt with correct creator versus payer, actual added timestamp, recorded edit, and offline relaunch. The real local backend harness passed 10 checks. The overview group's revision stays 2, with one expense, two activity events, and no pending operations after review.
 - Initial failures are retained in evidence: wrong Profile test identifier (fixed), then stale simulator account preference in the synthetic harness (isolated with a UI-only scheme and a launch preference matching the verified account). The active surface account publishes changes so dependent screens update. Shared overview cached content also checks and resets on account scope changes.
-- Original dirty checkout status, unstaged diff, and staged diff match their saved baseline exactly. Released branch remains clean and unchanged. No push, deployment, or upload occurred for this UI branch.
+- Original dirty checkout status, unstaged diff, and staged diff match their saved baseline exactly. Released branch remains clean and unchanged. User subsequently authorized a GitHub push. Commit `dd0a9f3` was pushed and remote visibility was verified. No deployment or build upload occurred for this UI branch.
 - Evidence: `/Users/prateekranka/Cowork/BillBandit-backend-independent-evidence-20260930/expense-review/20260930T095321Z.NJvHoX`.
 
 ### 2026-09-30 — Vietnam-trip build 31 release
