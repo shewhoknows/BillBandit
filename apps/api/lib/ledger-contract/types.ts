@@ -94,6 +94,9 @@ export type LedgerExpense = {
   status: 'active' | 'voided'
   createdAt: string
   updatedAt: string
+  /** Free text the person typed. Absent on older payloads. */
+  notes?: string | null
+  category?: string
 }
 
 export type MemberBalanceSurface = {

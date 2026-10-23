@@ -62,3 +62,21 @@
 - Include one small-screen iPhone and one device using Reduce Motion.
 - Ask testers to exercise invitation acceptance, simultaneous edits, offline
   recovery, expense deletion, settlement limits, and activity notifications.
+
+## 5. Next candidate (build 32) — added 2026-10-22
+
+Each step needs the owner's approval before it runs.
+
+- [ ] Review and commit the 2026-10-22 polish changes (see `HANDOFF.md`).
+- [ ] Back up the production database, then apply the three new migrations:
+  `20261022000000_add_sgd_aed_currency`, `20261022010000_user_default_currency`,
+  `20261022020000_exchange_rates`.
+- [ ] Deploy the API before any phone gets build 32. The app needs
+  `/api/mobile/rates`, `/api/mobile/activity`, group leave and delete, and
+  `defaultCurrency` on `/api/mobile/auth/me`.
+- [ ] Check that the rates route returns SGD, AED, USD and VND rates for INR in
+  production.
+- [ ] Bump to build 32, archive, upload, and complete export compliance.
+- [ ] On two phones: the default currency question appears once; ₹99.50 stays
+  ₹99.50 on both phones; a member can leave a settled group; an owner cannot
+  delete a group that still owes money.

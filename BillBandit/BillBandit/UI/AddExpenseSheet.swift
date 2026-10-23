@@ -141,18 +141,44 @@ struct AddExpenseSheet: View {
     private var participants: [Person] {
         let source = group?.members ?? []
         return source.sorted {
-            if $0.isCurrentUser != $1.isCurrentUser { return $0.isCurrentUser }
+            if isYou($0) != isYou($1) { return isYou($0) }
             return $0.name < $1.name
         }
     }
 
+    /// The person is this user, either the local "you" or the member row
+    /// that carries this user's server account.
+    private func isYou(_ person: Person) -> Bool {
+        if person.isCurrentUser { return true }
+        guard let accountID = serverLedger.activeAccountIdentifier,
+              let personAccountID = person.serverAccountID else { return false }
+        return personAccountID == accountID
+    }
+
+    /// This user inside the chosen group when they are a member, else the local "you".
+    private var defaultPayer: Person? {
+        participants.first(where: isYou) ?? you
+    }
+
+    private func choosePayerIfNeeded() {
+        if let paidBy, participants.contains(where: { $0.id == paidBy.id }) { return }
+        if let paidBy, isYou(paidBy), let member = participants.first(where: isYou) {
+            self.paidBy = member
+            return
+        }
+        if paidBy == nil { paidBy = defaultPayer }
+    }
+
     private var parsedAmount: Decimal? {
         guard let d = Money.parseInput(amountText) else { return nil }
-        if expenseCurrencyCode == "VND", Money.whole(d) != d { return nil }
+        // Reject more decimals than the currency holds (₹1.005, ₫10.5).
+        if Money.rounded(d, exponent: expenseCurrencyExponent) != d { return nil }
         return d > 0 ? d : nil
     }
 
     private var expenseCurrencyCode: String { group?.resolvedCurrencyCode ?? "INR" }
+
+    private var expenseCurrencyExponent: Int { Money.exponent(for: expenseCurrencyCode) }
 
     private var expenseCurrencySymbol: String {
         AppCurrency(rawValue: expenseCurrencyCode)?.symbol ?? expenseCurrencyCode
@@ -173,7 +199,7 @@ struct AddExpenseSheet: View {
         self.canonicalEditingExpense = canonicalEditingExpense
         _amountText = State(initialValue:
             canonicalEditingExpense.map { Money.inputString($0.amount) }
-                ?? editingExpense.map { Money.inputString($0.amount) }
+                ?? editingExpense.map { Money.inputString($0.amount, exponent: Money.exponent(for: $0.group?.resolvedCurrencyCode ?? "INR")) }
                 ?? ""
         )
         _title = State(initialValue: canonicalEditingExpense?.title ?? editingExpense?.title ?? "")
@@ -244,7 +270,7 @@ struct AddExpenseSheet: View {
         .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet() }
         .onAppear {
             hydrateCanonicalEditState()
-            if paidBy == nil { paidBy = you }
+            choosePayerIfNeeded()
             if !isCanonicalEditing,
                let group,
                !visibleGroups.contains(where: { $0.id == group.id }) {
@@ -267,10 +293,11 @@ struct AddExpenseSheet: View {
         }
         .onChange(of: people.count) {
             hydrateCanonicalEditState()
-            if paidBy == nil { paidBy = you }
+            choosePayerIfNeeded()
         }
         .onChange(of: group?.id) { _, _ in
             hydrateCanonicalEditState()
+            choosePayerIfNeeded()
             seedShareInputsIfNeeded()
         }
         .onChange(of: mode) { _, _ in
@@ -297,9 +324,9 @@ struct AddExpenseSheet: View {
                 BrandSquiggle()
                     .stroke(Color.Brand.cobalt, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                     .frame(width: 76, height: 10)
-                Text(expenseCurrencyCode == "VND"
-                     ? "VND · whole dong only"
-                     : "\(expenseCurrencyCode) · rounded to whole units")
+                Text(expenseCurrencyExponent == 0
+                     ? "\(expenseCurrencyCode) · whole amounts only"
+                     : "\(expenseCurrencyCode) · up to \(expenseCurrencyExponent) decimal places")
                     .font(BrandFont.type(10))
                     .accessibilityIdentifier("expenseCurrencyLabel")
             }
@@ -362,13 +389,17 @@ struct AddExpenseSheet: View {
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("expenseCreateGroupButton")
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(visibleGroups) { g in
-                            segmentChip(g.name, on: group?.id == g.id) { selectGroup(g) }
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(visibleGroups) { g in
+                                segmentChip(g.name, on: group?.id == g.id) { selectGroup(g) }
+                                    .id(g.id)
+                            }
                         }
+                        .padding(2)
                     }
-                    .padding(2)
+                    .onAppear { if let id = group?.id { proxy.scrollTo(id, anchor: .center) } }
                 }
                 .clipShape(Capsule())
                 .overlay(Capsule().strokeBorder(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
@@ -393,13 +424,20 @@ struct AddExpenseSheet: View {
     private var paidByRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             BrandSectionLabel("PAID BY")
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(participants, id: \.id) { p in
-                        segmentChip(compactName(p), on: paidBy?.id == p.id) { paidBy = p }
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(participants, id: \.id) { p in
+                            segmentChip(compactName(p), on: paidBy?.id == p.id) { paidBy = p }
+                                .id(p.id)
+                        }
                     }
+                    .padding(2)
                 }
-                .padding(2)
+                .onAppear { if let id = paidBy?.id { proxy.scrollTo(id, anchor: .center) } }
+                .onChange(of: paidBy?.id) { _, id in
+                    if let id { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                }
             }
             .clipShape(Capsule())
             .overlay(Capsule().strokeBorder(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
@@ -483,12 +521,12 @@ struct AddExpenseSheet: View {
             return "\(participants.count) people · splits evenly"
         }
         let splitInputs = participants.map { SplitInput(personID: $0.id, mode: .equal) }
-        guard let values = try? SplitEngine.compute(total: total, inputs: splitInputs).values,
+        guard let values = try? SplitEngine.compute(total: total, inputs: splitInputs, exponent: expenseCurrencyExponent).values,
               let low = values.min(), let high = values.max() else {
-            return "\(participants.count) people · whole-unit split"
+            return "\(participants.count) people · splits evenly"
         }
         if low == high { return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode)) each" }
-        return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode))–\(Money.currency(high, currencyCode: expenseCurrencyCode)) each"
+        return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode, keepsDecimals: true))–\(Money.currency(high, currencyCode: expenseCurrencyCode, keepsDecimals: true)) each"
     }
 
     private func selectGroup(_ selection: Group?) {
@@ -499,7 +537,7 @@ struct AddExpenseSheet: View {
         }
         group = selection
         guard let payer = paidBy, !participants.contains(where: { $0.id == payer.id }) else { return }
-        paidBy = participants.first(where: { $0.isCurrentUser }) ?? participants.first
+        paidBy = participants.first(where: isYou) ?? participants.first
     }
 
     private func hydrateCanonicalEditState() {
@@ -532,7 +570,7 @@ struct AddExpenseSheet: View {
     }
 
     private func compactName(_ person: Person) -> String {
-        if person.isCurrentUser { return "You" }
+        if isYou(person) { return "You" }
         return person.name.split(separator: " ").first.map(String.init) ?? person.name
     }
 
@@ -554,7 +592,7 @@ struct AddExpenseSheet: View {
         }
 
         do {
-            let computed = try SplitEngine.compute(total: amount, inputs: splitInputs)
+            let computed = try SplitEngine.compute(total: amount, inputs: splitInputs, exponent: expenseCurrencyExponent)
             let splits = participants.compactMap { p -> Split? in
                 guard let amt = computed[p.id] else { return nil }
                 return Split(mode: mode,
@@ -601,7 +639,7 @@ struct AddExpenseSheet: View {
         payer: Person,
         splits: [Split]
     ) {
-        let roundedAmount = Money.whole(amount)
+        let roundedAmount = Money.rounded(amount, exponent: expenseCurrencyExponent)
         let expense: Expense
         var rewardOutcome: RewardOutcome?
         if let existing = editingExpense {
@@ -851,7 +889,7 @@ struct AddExpenseSheet: View {
             currentAccountID: accountID
         )
         let money = try canonicalMoney(
-            Money.whole(amount),
+            amount,
             currencyCode: canonicalGroup.baseCurrency.currencyCode,
             currencyExponent: canonicalGroup.baseCurrency.currencyExponent
         )
@@ -921,7 +959,7 @@ struct AddExpenseSheet: View {
         currencyCode: String,
         currencyExponent: Int
     ) throws -> ServerLedgerMoneyDTO {
-        let decimalString = NSDecimalNumber(decimal: Money.whole(amount)).stringValue
+        let decimalString = NSDecimalNumber(decimal: Money.rounded(amount, exponent: currencyExponent)).stringValue
         let minorUnits = SettlementMoneyFormatting.minorUnits(
             from: decimalString,
             exponent: currencyExponent

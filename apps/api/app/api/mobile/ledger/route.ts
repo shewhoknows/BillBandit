@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { LedgerReadModelError } from '@/lib/ledger/read-model'
 import { loadAccountReadModel } from '@/lib/ledger/read-model/loader'
+import { pageActivity, parseActivityPageSize } from '@/lib/activity/pagination'
+import { loadProfileImages } from '@/lib/profile-images'
 
 const readHeaders = {
   'Cache-Control': 'no-store',
@@ -15,7 +17,19 @@ export async function GET(req: NextRequest) {
 
   try {
     const result = await loadAccountReadModel(session.user.id)
-    return NextResponse.json(result.summary, { headers: readHeaders })
+    const { searchParams } = new URL(req.url)
+    const activityLimit = parseActivityPageSize(searchParams.get('activityLimit'))
+    // Older clients ask without a limit and still receive the full feed.
+    const page = activityLimit === null
+      ? { items: result.summary.activity, nextCursor: null }
+      : pageActivity(result.summary.activity, { limit: activityLimit })
+    const profileImages = await loadProfileImages(
+      result.summary.groups.flatMap((group) => group.members.map((member) => member.accountId))
+    )
+    return NextResponse.json(
+      { ...result.summary, activity: page.items, activityNextCursor: page.nextCursor, profileImages },
+      { headers: readHeaders }
+    )
   } catch (error) {
     if (error instanceof LedgerReadModelError) {
       if (error.code === 'MONEY_REPRESENTATION_UNAVAILABLE' || error.code === 'UNSUPPORTED_CURRENCY') {

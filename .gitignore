@@ -39,4 +39,5 @@ npm-debug.log*
 
 # Task-owned synthetic simulator credentials and generated QA scheme
 .scratch/vietnam-trip/
+.scratch/polish-e2e/
 BillBandit/BillBandit.xcodeproj/xcshareddata/xcschemes/*-QA.local.xcscheme

@@ -1135,18 +1135,34 @@ enum SettlementMoneyFormatting {
     }
 
     static func display(minorUnits: String, currencyCode: String, currencyExponent: Int) -> String {
-        let amount = decimalString(fromMinorUnits: minorUnits, exponent: currencyExponent)
+        let amount = grouped(decimalString(fromMinorUnits: minorUnits, exponent: currencyExponent))
         let symbol = currencySymbol(for: currencyCode)
-        if symbol == currencyCode.uppercased() {
-            return "\(symbol) \(amount)"
-        }
+        let spaced = symbol == currencyCode.uppercased()
+            || AppCurrency(rawValue: currencyCode.uppercased())?.separatesSymbol == true
+        let separator = spaced ? " " : ""
         if amount.hasPrefix("-") {
-            return "-\(symbol)\(amount.dropFirst())"
+            return "-\(symbol)\(separator)\(amount.dropFirst())"
         }
-        return "\(symbol)\(amount)"
+        return "\(symbol)\(separator)\(amount)"
+    }
+
+    /// Adds thousands commas to the whole part: "-13664.32" becomes "-13,664.32".
+    private static func grouped(_ amount: String) -> String {
+        let negative = amount.hasPrefix("-")
+        let unsigned = negative ? String(amount.dropFirst()) : amount
+        let parts = unsigned.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        var whole = String(parts.first ?? "")
+        var index = whole.count - 3
+        while index > 0 {
+            whole.insert(",", at: whole.index(whole.startIndex, offsetBy: index))
+            index -= 3
+        }
+        let fraction = parts.count > 1 ? ".\(parts[1])" : ""
+        return (negative ? "-" : "") + whole + fraction
     }
 
     private static func currencySymbol(for currencyCode: String) -> String {
+        if let currency = AppCurrency(rawValue: currencyCode.uppercased()) { return currency.symbol }
         switch currencyCode.uppercased() {
         case "INR": return "₹"
         case "USD": return "$"

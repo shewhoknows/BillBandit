@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireMobileSession } from '@/lib/mobile-auth'
 import { LedgerReadModelError } from '@/lib/ledger/read-model'
 import { loadGroupReadModel } from '@/lib/ledger/read-model/loader'
+import { loadProfileImages } from '@/lib/profile-images'
 
 const readHeaders = {
   'Cache-Control': 'no-store',
@@ -18,7 +19,8 @@ export async function GET(
 
   try {
     const result = await loadGroupReadModel(params.id, session.user.id)
-    return NextResponse.json(result.envelope, { headers: readHeaders })
+    const profileImages = await loadProfileImages(result.group.members.map((member) => member.accountId))
+    return NextResponse.json({ ...result.envelope, profileImages }, { headers: readHeaders })
   } catch (error) {
     if (error instanceof LedgerReadModelError) {
       if (error.code === 'GROUP_NOT_FOUND') {

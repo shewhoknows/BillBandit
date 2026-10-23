@@ -77,6 +77,8 @@ const groupInclude = {
       createdAt: true,
       updatedAt: true,
       isDeleted: true,
+      notes: true,
+      category: true,
       splits: {
         select: {
           id: true,
@@ -259,6 +261,8 @@ function expenseSource(
     status: raw.isDeleted ? 'voided' : 'active',
     createdAt: isoDate(raw.date),
     updatedAt: isoDate(raw.updatedAt),
+    notes: raw.notes ?? null,
+    category: raw.category,
   }
 }
 
@@ -469,6 +473,7 @@ function groupSource(
     migration,
     migrationIssueIds,
     updatedAt: isoDate(raw.updatedAt),
+    createdAt: raw.createdAt ? isoDate(raw.createdAt) : undefined,
   }
 }
 

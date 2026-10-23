@@ -60,6 +60,7 @@ export type ReadModelGroupSource = {
   migration: MigrationState
   migrationIssueIds?: string[]
   updatedAt?: string
+  createdAt?: string
 }
 
 export type ReadModelFriendSource = {
@@ -86,6 +87,15 @@ export type ReadModelBuildOptions = {
 export type LedgerReadOnlyGroupSummary = AccountGroupSummary & {
   readOnly: boolean
   migration: MigrationState
+  /** Everyone in the group, so lists can show faces and names without a second request. */
+  members: LedgerMemberIdentity[]
+  currentMemberId: string
+  currentRole: 'owner' | 'member'
+  /** Newest ledger event, or the group's creation time when nothing has happened yet. */
+  lastActivityAt: string
+  createdAt: string | null
+  activeExpenseCount: number
+  totalSpent: Money
 }
 
 export type LedgerFriend = ReadModelFriendSource & {
@@ -205,6 +215,8 @@ export type RawReadModelExpense = {
   createdAt: Date
   updatedAt: Date
   isDeleted: boolean
+  notes: string | null
+  category: string
   splits: RawReadModelExpenseSplit[]
 }
 
@@ -243,6 +255,7 @@ export type RawReadModelGroup = {
   simplifyDebts: boolean
   settlementVersion: number
   updatedAt: Date
+  createdAt?: Date
   members: RawReadModelGroupMember[]
   participants: RawReadModelParticipant[]
   expenses: RawReadModelExpense[]

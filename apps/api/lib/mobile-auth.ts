@@ -22,6 +22,7 @@ export type MobileSession = {
     phone: string | null
     preferredName: string | null
     upiID: string | null
+    defaultCurrency: string | null
   }
 }
 
@@ -114,6 +115,7 @@ export async function getMobileSession(req: NextRequest): Promise<MobileSession 
       phone: true,
       preferredName: true,
       upiID: true,
+      defaultCurrency: true,
       deletedAt: true,
     },
   })

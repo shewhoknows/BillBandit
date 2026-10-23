@@ -278,9 +278,10 @@ final class APIClient: Sendable {
 
         if http.statusCode == 401 { throw SettlementAPIError.unauthorized }
         if !(200..<300).contains(http.statusCode) {
-            if let error = try? JSONDecoder.settlement.decode(SettlementErrorResponse.self, from: data) {
+            if let error = try? JSONDecoder.settlement.decode(SettlementErrorResponse.self, from: data),
+               let code = error.code ?? error.error {
                 throw SettlementAPIError.structured(
-                    code: error.code ?? error.error,
+                    code: code,
                     status: http.statusCode,
                     body: data
                 )
@@ -344,7 +345,8 @@ extension UpdateSettlementSettingsRequest: SettlementExpectedRevisionProviding {
 }
 
 private struct SettlementErrorResponse: Decodable {
-    let error: String
+    /// Some routes send only `code` and `message`, with no `error` key.
+    let error: String?
     let message: String?
     let code: String?
 }

@@ -770,10 +770,7 @@ struct HomeScreen: View {
                                 showsCurrencyCode: summaries.count > 1
                             )
                         }
-                        if summaries.count > 1 {
-                            Text("Original balances stay separate by currency. Exchange estimates do not change payments.")
-                                .font(BrandFont.type(10))
-                        }
+                        HomeDefaultCurrencyEstimate(summaries: summaries)
                     }
                 } else {
                     ServerLedgerUnavailableChip(
@@ -877,15 +874,8 @@ struct HomeScreen: View {
             .foregroundStyle(Color.Brand.creamSoft)
             .padding(.top, 15)
 
-            if !sharedGroups.isEmpty {
-                groupCards(for: sharedGroups)
-            }
-            if !localGroups.isEmpty {
-                Text("on-device groups")
-                    .font(BrandFont.type(10, bold: true))
-                    .foregroundStyle(Color.Brand.creamSoft.opacity(0.68))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                groupCards(for: localGroups)
+            if !visibleGroups.isEmpty {
+                groupCards(for: GroupRecency.sorted(visibleGroups, snapshot: serverLedger.snapshot))
             }
             newGroupButton
         }
@@ -920,8 +910,7 @@ struct HomeScreen: View {
     @ViewBuilder
     private func groupCard(for group: Group) -> some View {
         let serverGroupID = group.serverLedgerGroupID
-        let canonicalGroup = serverGroupID.flatMap { serverLedger.snapshot?.group(for: $0) }
-        let presentation = serverGroupID.flatMap { serverLedger.groupBalancePresentation(for: $0) }
+        let presentation = serverGroupID == nil ? nil : serverLedger.groupBalancePresentation(for: group)
         let localNet: Decimal? = serverGroupID == nil
             ? currentUsers.first.map { BalanceMath.nets(in: group)[$0.id] ?? 0 }
             : nil
@@ -932,12 +921,7 @@ struct HomeScreen: View {
                     ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0, currencyCode: group.resolvedCurrencyCode))" : "owe \(Money.currency(-$0, currencyCode: group.resolvedCurrencyCode))" }
                     : nil),
                 balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
-                sourceLabel: ServerLedgerUserFacingCopy.groupSourceLabel(
-                    isLocalOnly: serverGroupID == nil,
-                    isLoading: serverGroupID != nil
-                        && canonicalGroup == nil
-                        && serverLedger.status.phase == .loading
-                ),
+                sourceLabel: GroupCopy.memberCount(group.members.count),
                 balanceIsLoading: serverGroupID != nil
                     && presentation == nil
                     && serverLedger.status.phase == .loading
@@ -956,36 +940,25 @@ struct HomeScreen: View {
                 Text("Recent activity")
                     .font(BrandFont.display(14, weight: .semibold))
                     .padding(.bottom, 4)
-                if !sharedGroups.isEmpty {
-                    if sharedActivity.isEmpty {
-                        if serverLedger.snapshot == nil {
-                            ServerLedgerSurfaceStatusView(
-                                ledger: serverLedger,
-                                includeEmpty: true
-                            ) {
-                                Task { await serverLedger.refresh(groups: visibleGroups) }
-                            }
-                            .padding(.vertical, 7)
-                        } else {
-                            Text("No activity yet")
-                                .font(BrandFont.type(11))
-                                .opacity(0.55)
-                                .padding(.vertical, 8)
+                let merged = UnifiedActivity.merged(shared: sharedActivity, local: localActivity)
+                if merged.isEmpty, !sharedGroups.isEmpty {
+                    if serverLedger.snapshot == nil {
+                        ServerLedgerSurfaceStatusView(
+                            ledger: serverLedger,
+                            includeEmpty: true
+                        ) {
+                            Task { await serverLedger.refresh(groups: visibleGroups) }
                         }
+                        .padding(.vertical, 7)
                     } else {
-                        ForEach(Array(sharedActivity.prefix(3))) { item in
-                            ExpenseActivityNavigation(item: item, groups: visibleGroups) {
-                                ServerLedgerActivityRow(item: item, compact: true)
-                            }
-                        }
+                        Text("No activity yet")
+                            .font(BrandFont.type(11))
+                            .opacity(0.55)
+                            .padding(.vertical, 8)
                     }
                 }
-                if !localActivity.isEmpty {
-                    ForEach(Array(localActivity.prefix(3))) { item in
-                        LocalExpenseActivityNavigation(item: item, groups: visibleGroups) {
-                            ActivityLedgerRow(item: item, compact: true)
-                        }
-                    }
+                ForEach(Array(merged.prefix(3))) { item in
+                    UnifiedActivityRow(item: item, groups: visibleGroups, compact: true)
                 }
                 if sharedGroups.isEmpty && localActivity.isEmpty {
                     Text("No sightings yet")
@@ -2301,6 +2274,61 @@ private struct MotionPrototypeStage: View {
     }
 }
 
+/// When balances are in other currencies, shows one estimated total in the
+/// person's default currency and the rates behind it.
+private struct HomeDefaultCurrencyEstimate: View {
+    let summaries: [ServerLedgerSurfaceAccountBalanceSummary]
+    @ObservedObject private var store = BaseCurrencyEstimateStore.shared
+
+    private var foreign: [AppCurrency] {
+        summaries.compactMap { AppCurrency(rawValue: $0.net.currencyCode) }
+            .filter { $0 != store.selectedBaseCurrency }
+    }
+
+    private var netEstimate: Decimal? {
+        var total = Decimal.zero
+        for summary in summaries {
+            guard let amount = summary.net.majorUnits,
+                  let converted = store.estimate(amount: amount, sourceCurrency: summary.net.currencyCode) else {
+                return nil
+            }
+            total += converted
+        }
+        return total
+    }
+
+    var body: some View {
+        if !foreign.isEmpty {
+            VStack(spacing: 4) {
+                if let net = netEstimate {
+                    let text = BaseCurrencyEstimateFormatting.amount(net < 0 ? -net : net, currency: store.selectedBaseCurrency)
+                    Text(net == 0 ? "≈ all square in \(store.selectedBaseCurrency.rawValue)"
+                         : net > 0 ? "≈ \(text) owed to you in all"
+                         : "≈ \(text) you owe in all")
+                        .font(BrandFont.type(12, bold: true))
+                        .accessibilityIdentifier("homeDefaultCurrencyEstimate")
+                }
+                ForEach(foreign) { currency in
+                    if let rate = store.rate(for: currency) {
+                        Text(BaseCurrencyEstimateFormatting.rateLine(rate))
+                            .font(BrandFont.type(9.5))
+                            .opacity(0.78)
+                    }
+                }
+                Text("Estimates only. Each balance is settled in its own currency.")
+                    .font(BrandFont.type(9))
+                    .opacity(0.62)
+            }
+            .foregroundStyle(Color.Brand.creamSoft)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .task(id: foreign.map(\.rawValue).joined(separator: ",") + store.selectedBaseCurrency.rawValue) {
+                for currency in foreign { await store.ensureRate(sourceCurrency: currency) }
+            }
+        }
+    }
+}
+
 private struct GroupCard: View {
     let group: Group
     let balanceText: String?
@@ -2390,12 +2418,19 @@ struct ActivityScreen: View {
         ActivityData.localItems(items, groups: groups)
     }
 
-    private var localSections: [ActivitySection] {
-        ActivitySectioning.sections(from: localItems)
-    }
-
     private var sharedItems: [ServerLedgerSurfaceActivityItem] {
         serverLedger.snapshot?.activity ?? []
+    }
+
+    @State private var visibleCount = 60
+
+    private var allItems: [UnifiedActivity] {
+        UnifiedActivity.merged(shared: sharedItems, local: localItems)
+    }
+
+    /// Long histories draw in pages so the tab opens fast.
+    private var sections: [RecencySection<UnifiedActivity>] {
+        RecencySectioning.sections(Array(allItems.prefix(visibleCount))) { $0.date }
     }
 
     var body: some View {
@@ -2405,34 +2440,33 @@ struct ActivityScreen: View {
                     Text(BrandFont.handText("recent activity"))
                         .font(BrandFont.hand(21, weight: .bold))
                         .padding(.bottom, 2)
-                    if !sharedGroups.isEmpty {
-                        if sharedItems.isEmpty {
-                            if serverLedger.status.phase != .loading {
-                                Text("no activity yet")
-                                    .font(BrandFont.type(11))
-                                    .opacity(0.62)
-                            }
-                        } else {
-                            ForEach(sharedItems) { item in
-                                ExpenseActivityNavigation(item: item, groups: visibleGroups) {
-                                    ServerLedgerActivityRow(item: item)
-                                }
+                    if sections.isEmpty, !sharedGroups.isEmpty, serverLedger.status.phase != .loading {
+                        Text("no activity yet")
+                            .font(BrandFont.type(11))
+                            .opacity(0.62)
+                    }
+                    ForEach(sections) { section in
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(section.title)
+                                .font(BrandFont.display(13, weight: .bold))
+                                .padding(.bottom, 7)
+                                .accessibilityAddTraits(.isHeader)
+                            ForEach(section.items) { item in
+                                UnifiedActivityRow(item: item, groups: visibleGroups)
                             }
                         }
                     }
-                    if !localItems.isEmpty {
-                        ForEach(localSections) { section in
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(section.date.map(dayLabel) ?? "Earlier activity")
-                                    .font(BrandFont.display(13, weight: .bold))
-                                    .padding(.bottom, 7)
-                                ForEach(section.items) { item in
-                                    LocalExpenseActivityNavigation(item: item, groups: visibleGroups) {
-                                        ActivityLedgerRow(item: item)
-                                    }
-                                }
-                            }
+                    if allItems.count > visibleCount {
+                        Button {
+                            visibleCount += 60
+                        } label: {
+                            Text("Show older activity")
+                                .font(BrandFont.display(14, weight: .bold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .overlay(Capsule().stroke(Color.Brand.creamSoft, lineWidth: 2))
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("activityShowOlder")
                     }
                     if sharedGroups.isEmpty && localItems.isEmpty {
                         VStack(spacing: 10) {
@@ -2456,10 +2490,121 @@ struct ActivityScreen: View {
         }
     }
 
-    private func dayLabel(_ date: Date) -> String {
-        if Calendar.current.isDateInToday(date) { return "Today" }
-        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
-        return date.formatted(.dateTime.month(.wide).day().year())
+}
+
+/// Shared (server) and older on-phone activity in one list, newest first.
+enum UnifiedActivity: Identifiable {
+    case shared(ServerLedgerSurfaceActivityItem)
+    case local(ActivityItem)
+
+    var id: String {
+        switch self {
+        case .shared(let item): return "shared-\(item.id)"
+        case .local(let item): return "local-\(item.id.uuidString)"
+        }
+    }
+
+    var date: Date {
+        switch self {
+        case .shared(let item): return item.at
+        case .local(let item): return item.timestamp
+        }
+    }
+
+    static func merged(
+        shared: [ServerLedgerSurfaceActivityItem],
+        local: [ActivityItem]
+    ) -> [UnifiedActivity] {
+        (shared.map(UnifiedActivity.shared) + local.map(UnifiedActivity.local))
+            .sorted { $0.date > $1.date }
+    }
+}
+
+struct UnifiedActivityRow: View {
+    let item: UnifiedActivity
+    let groups: [Group]
+    var compact = false
+
+    var body: some View {
+        switch item {
+        case .shared(let shared):
+            ExpenseActivityNavigation(item: shared, groups: groups) {
+                ServerLedgerActivityRow(item: shared, compact: compact)
+            }
+        case .local(let local):
+            LocalExpenseActivityNavigation(item: local, groups: groups) {
+                ActivityLedgerRow(item: local, compact: compact)
+            }
+        }
+    }
+}
+
+/// Who paid whom, how much, and when, with a way into the group.
+private struct PaymentActivityDetailScreen: View {
+    let item: ServerLedgerSurfaceActivityItem
+    let group: Group
+
+    private var title: String {
+        item.type == "reversal" ? "Payment undone" : "Payment"
+    }
+
+    /// This user's name in the group, so the page can say "you".
+    private var currentMemberName: String? {
+        guard let surface = ServerLedgerSurfaceStore.shared.snapshot?.group(for: item.groupID) else { return nil }
+        return surface.members.first { $0.memberID == surface.currentMemberID }?.displayName
+    }
+
+    private var headline: String {
+        let you = currentMemberName
+        let payerName = item.payerName ?? item.actorName ?? "Someone"
+        let recipientName = item.recipientName ?? "the group"
+        let payerIsYou = payerName == you
+        let recipient = recipientName == you ? "you" : recipientName
+        if item.type == "reversal" {
+            return payerIsYou
+                ? "Your payment to \(recipient) was undone"
+                : "\(payerName)'s payment to \(recipient) was undone"
+        }
+        return "\(payerIsYou ? "You" : payerName) paid \(recipient)"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                VStack(spacing: 8) {
+                    Text(group.name)
+                        .font(BrandFont.body(12, weight: .semibold))
+                        .opacity(0.7)
+                    Text(item.amount.absoluteDisplayText)
+                        .font(BrandFont.type(34, bold: true))
+                        .minimumScaleFactor(0.65)
+                        .lineLimit(1)
+                    Text(headline)
+                        .font(BrandFont.display(20, weight: .bold))
+                        .multilineTextAlignment(.center)
+                    Text(item.at.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute()))
+                        .font(BrandFont.type(10))
+                        .opacity(0.7)
+                }
+                .foregroundStyle(Color.Brand.creamSoft)
+
+                NavigationLink {
+                    GroupDetailScreen(group: group)
+                } label: {
+                    Text("Open \(group.name)")
+                        .font(BrandFont.display(15, weight: .bold))
+                        .foregroundStyle(Color.Brand.cobalt)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Color.Brand.creamSoft, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("paymentOpenGroupButton")
+            }
+            .padding(20)
+        }
+        .background(Color.Brand.cobalt.ignoresSafeArea())
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -2480,6 +2625,10 @@ private struct ExpenseActivityNavigation<Content: View>: View {
     private var canOpen: Bool {
         item.type == "expense" && item.action != "deleted" && item.expenseID != nil && group != nil
     }
+    private var isPayment: Bool {
+        item.type == "settlement" || item.type == "reversal"
+    }
+
     var body: some View {
         if canOpen, let group, let expenseID = item.expenseID {
             NavigationLink {
@@ -2487,6 +2636,18 @@ private struct ExpenseActivityNavigation<Content: View>: View {
             } label: { content.contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .accessibilityHint("Open expense")
+        } else if isPayment, let group {
+            NavigationLink {
+                PaymentActivityDetailScreen(item: item, group: group)
+            } label: { content.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .accessibilityHint("Open payment")
+        } else if let group {
+            NavigationLink {
+                GroupDetailScreen(group: group)
+            } label: { content.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .accessibilityHint("Open group")
         } else {
             content
         }
@@ -2510,6 +2671,11 @@ private struct LocalExpenseActivityNavigation<Content: View>: View {
               let group = groups.first(where: { $0.id == groupID && $0.serverLedgerGroupID == nil }) else { return nil }
         return group.expenses.first(where: { $0.id == expenseID })
     }
+    private var group: Group? {
+        guard let groupID = item.groupID else { return nil }
+        return groups.first { $0.id == groupID }
+    }
+
     var body: some View {
         if let expense {
             NavigationLink { ExpenseDetailScreen(expense: expense) } label: {
@@ -2517,6 +2683,12 @@ private struct LocalExpenseActivityNavigation<Content: View>: View {
             }
             .buttonStyle(.plain)
             .accessibilityHint("Open expense")
+        } else if let group {
+            NavigationLink { GroupDetailScreen(group: group) } label: {
+                content.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Open group")
         } else {
             content
         }

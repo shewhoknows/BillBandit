@@ -1222,15 +1222,57 @@ final class BalanceEngineTests: XCTestCase {
         XCTAssertEqual(Money.cents(Decimal(string: "1.005")!), Decimal(string: "1.01")!)
         XCTAssertEqual(Money.cents(Decimal(string: "1.004")!), Decimal(string: "1.00")!)
         XCTAssertEqual(Money.whole(Decimal(string: "86.5")!), 87)
-        XCTAssertEqual(Money.string(Decimal(string: "1234.5")!), "1,235")
+        XCTAssertEqual(Money.string(Decimal(string: "1234.5")!), "1,234.50")
+        XCTAssertEqual(Money.string(1234), "1,234")
+        XCTAssertEqual(Money.string(Decimal(string: "1234.5")!, exponent: 0), "1,235")
     }
 
 
     func testSelectableCurrencyFormattingAndParsing() {
-        XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .usd), "$143")
-        XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .aed), "د.إ 143")
+        XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .usd), "$142.50")
+        XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .aed), "\u{200E}د.إ\u{200E} 142.50")
+        XCTAssertEqual(Money.currency(Decimal(string: "99.50")!, currency: .inr), "₹99.50")
+        XCTAssertEqual(Money.currency(100, currency: .sgd), "S$100")
+        XCTAssertEqual(Money.currency(Decimal(string: "142.5")!, currency: .vnd), "₫143")
         XCTAssertEqual(Money.parseInput("S$3,496"), 3496)
         XCTAssertEqual(Money.parseInput("AED 86,5"), Decimal(string: "86.5"))
+        XCTAssertEqual(Money.parseInput("\u{200E}د.إ\u{200E} 86.50"), Decimal(string: "86.5"))
+    }
+
+    func testServerMoneyDisplayGroupsAndUsesAppSymbols() {
+        XCTAssertEqual(SettlementMoneyFormatting.display(minorUnits: "1366432", currencyCode: "INR", currencyExponent: 2), "₹13,664.32")
+        XCTAssertEqual(SettlementMoneyFormatting.display(minorUnits: "-150000", currencyCode: "INR", currencyExponent: 2), "-₹1,500.00")
+        XCTAssertEqual(SettlementMoneyFormatting.display(minorUnits: "192501", currencyCode: "VND", currencyExponent: 0), "₫192,501")
+        XCTAssertEqual(SettlementMoneyFormatting.display(minorUnits: "2430", currencyCode: "SGD", currencyExponent: 2), "S$24.30")
+        XCTAssertEqual(SettlementMoneyFormatting.display(minorUnits: "22500", currencyCode: "AED", currencyExponent: 2), "\u{200E}د.إ\u{200E} 225.00")
+        XCTAssertEqual(SettlementMoneyFormatting.display(minorUnits: "999", currencyCode: "INR", currencyExponent: 2), "₹9.99")
+    }
+
+    func testUnevenSplitRangeKeepsDecimals() {
+        XCTAssertEqual(Money.currency(20, currency: .inr), "₹20")
+        XCTAssertEqual(Money.currency(20, currency: .inr, keepsDecimals: true), "₹20.00")
+        XCTAssertEqual(Money.currency(20, currency: .vnd, keepsDecimals: true), "₫20")
+    }
+
+    func testRecencySectionTitles() {
+        let calendar = Calendar.current
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 22, hour: 12))!
+        func daysAgo(_ days: Int) -> Date { calendar.date(byAdding: .day, value: -days, to: now)! }
+
+        XCTAssertEqual(RecencySectioning.title(for: now, now: now), "Today")
+        XCTAssertEqual(RecencySectioning.title(for: daysAgo(1), now: now), "Yesterday")
+        XCTAssertEqual(RecencySectioning.title(for: daysAgo(3), now: now),
+                       daysAgo(3).formatted(.dateTime.weekday(.wide)))
+        XCTAssertEqual(RecencySectioning.title(for: daysAgo(9), now: now), "Last week")
+        XCTAssertEqual(RecencySectioning.title(for: daysAgo(20), now: now), "Last month")
+        XCTAssertEqual(RecencySectioning.title(for: daysAgo(60), now: now),
+                       daysAgo(60).formatted(.dateTime.month(.wide)))
+        XCTAssertEqual(RecencySectioning.title(for: daysAgo(400), now: now),
+                       daysAgo(400).formatted(.dateTime.month(.wide).year()))
+
+        let sections = RecencySectioning.sections([now, daysAgo(0), daysAgo(1), daysAgo(9), daysAgo(10)], now: now) { $0 }
+        XCTAssertEqual(sections.map(\.title), ["Today", "Yesterday", "Last week"])
+        XCTAssertEqual(sections.map(\.items.count), [2, 1, 2])
     }
 
     func testMoneyInputDistinguishesGroupingAndDecimalCommas() {

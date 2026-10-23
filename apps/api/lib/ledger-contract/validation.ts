@@ -292,6 +292,8 @@ function ledgerExpense(value: unknown, path: string): LedgerExpense {
     status: status as LedgerExpense['status'],
     createdAt: isoDate(required(object, 'createdAt', path), `${path}.createdAt`),
     updatedAt: isoDate(required(object, 'updatedAt', path), `${path}.updatedAt`),
+    ...(typeof object.notes === 'string' || object.notes === null ? { notes: object.notes as string | null } : {}),
+    ...(typeof object.category === 'string' ? { category: object.category } : {}),
   }
 }
 

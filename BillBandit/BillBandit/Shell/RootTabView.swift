@@ -186,6 +186,8 @@ struct ServerLedgerSurfaceMoney: Codable, Equatable, Hashable, Sendable {
         formatter.minimumFractionDigits = currencyExponent
         formatter.maximumFractionDigits = currencyExponent
         formatter.groupingSeparator = ","
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSize = 3
         let value = formatter.string(from: NSDecimalNumber(decimal: major)) ?? rawMagnitude
         let symbol = AppCurrency(rawValue: currencyCode)?.symbol ?? currencyCode
         return "\(symbol)\(AppCurrency(rawValue: currencyCode)?.separatesSymbol == true ? " " : "")\(value)"
@@ -587,6 +589,9 @@ enum ServerLedgerSurfaceBalanceAudience {
 struct ServerLedgerSurfaceBalancePresentation: Equatable {
     let label: String
     let isPositive: Bool
+
+    /// A one-person group can never owe anyone, so it never needs a balance read.
+    static let justYou = ServerLedgerSurfaceBalancePresentation(label: "just you", isPositive: false)
 }
 
 enum ServerLedgerSurfaceBalanceFormatter {
@@ -869,6 +874,9 @@ final class ServerLedgerSurfaceStore: ObservableObject {
 
     func groupBalancePresentation(for serverGroupID: String) -> ServerLedgerSurfaceBalancePresentation? {
         guard let group = snapshot?.group(for: serverGroupID) else { return nil }
+        if group.members.count == 1, group.transfers.isEmpty, group.currentAccount.allSatisfy(\.isZero) {
+            return .justYou
+        }
         let amounts = group.currentAccount.isEmpty && group.members.count == 1 && group.transfers.isEmpty && !group.isStale
             ? group.baseCurrency.map { [$0] } ?? []
             : group.currentAccount
@@ -876,6 +884,16 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             amounts: amounts,
             audience: .group
         )
+    }
+
+    /// Same as the server-ID lookup, but a one-person group shows "just you"
+    /// even before its first read, instead of "Balance unavailable".
+    func groupBalancePresentation(for group: Group) -> ServerLedgerSurfaceBalancePresentation? {
+        if let serverGroupID = group.serverLedgerGroupID,
+           let presentation = groupBalancePresentation(for: serverGroupID) {
+            return presentation
+        }
+        return group.members.count == 1 ? .justYou : nil
     }
 
     func accountBalancePresentation() -> ServerLedgerSurfaceBalancePresentation? {
@@ -1418,6 +1436,19 @@ enum AccountOnboardingAccessPolicy {
     }
 }
 
+/// Lets any group screen, on any tab, tell the tab bar which group is open,
+/// so the + button adds an expense to that group.
+private struct GroupContextChangeKey: EnvironmentKey {
+    static let defaultValue: (Group?) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var groupContextChange: (Group?) -> Void {
+        get { self[GroupContextChangeKey.self] }
+        set { self[GroupContextChangeKey.self] = newValue }
+    }
+}
+
 struct AppRootView: View {
     private enum AccountGateState: Equatable { case checking, signedOut, authorized }
 
@@ -1727,6 +1758,7 @@ struct RootTabView: View {
     @State private var showAdd = false
     @State private var showAddGroup = false
     @State private var dockGroup: Group?
+    @State private var showCurrencyPrompt = false
     @State private var movesForward = true
     @State private var profilePickerRequested = false
     @StateObject private var rewardFeedback = RewardFeedbackCenter.shared
@@ -1770,6 +1802,7 @@ struct RootTabView: View {
                 }
             }
             .id(tab.rawValue)
+            .environment(\.groupContextChange) { dockGroup = $0 }
             .transition(tabTransition)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.bottom, 76) // keep content clear of the floating dock
@@ -1794,9 +1827,13 @@ struct RootTabView: View {
         .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
                    value: rewardFeedback.current?.id)
         .fullScreenCover(isPresented: $showAdd) {
-            AddExpenseSheet(initialGroup: tab == .groups ? dockGroup : nil)
+            AddExpenseSheet(initialGroup: dockGroup)
         }
         .fullScreenCover(isPresented: $showAddGroup) { AddGroupSheet() }
+        .sheet(isPresented: $showCurrencyPrompt) {
+            DefaultCurrencyPromptSheet { showCurrencyPrompt = false }
+        }
+        .task { await askForDefaultCurrencyIfNeeded() }
         .fullScreenCover(isPresented: $friendInvitations.shouldPresentInviteSheet) {
             FriendInvitationSheet(initialCode: friendInvitations.incomingCode)
         }
@@ -1889,12 +1926,25 @@ struct RootTabView: View {
         )
     }
 
+    /// Uses the server's saved currency, or asks once when the server has none yet.
+    private func askForDefaultCurrencyIfNeeded() async {
+        guard !BaseCurrencyEstimateStore.shared.isDefaultConfirmed,
+              UsernameIdentityService.hasStoredSession,
+              !ProcessInfo.processInfo.arguments.contains("-skipCurrencyPrompt"),
+              let user = try? await UsernameIdentityService.currentUser() else { return }
+        if let saved = user.defaultCurrency.flatMap(AppCurrency.init(rawValue:)) {
+            BaseCurrencyEstimateStore.shared.applyServerDefault(saved)
+        } else {
+            showCurrencyPrompt = true
+        }
+    }
+
     private func selectTab(_ newTab: Tab, showAvatarPicker: Bool = false) {
         if newTab == .activity { markActivityRead() }
         guard tab != newTab else { return }
         movesForward = newTab.rawValue > tab.rawValue
         profilePickerRequested = newTab == .profile && showAvatarPicker
-        if newTab != .groups { dockGroup = nil }
+        dockGroup = nil
         withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
             tab = newTab
         }

@@ -1189,7 +1189,14 @@ async function prepareMutation(
     case 'membership.add':
       await ensureActiveMember(tx, request)
       return prepareMembership(tx, request)
-    case 'membership.remove':
+    case 'membership.remove': {
+      // A member may always remove themself (leaving a group). Removing anyone
+      // else stays an administrator action.
+      const target = membershipPayload(request.payload)
+      const leavingSelf = target.userId === request.actorUserId && !target.memberId && !target.membershipId
+      await ensureActiveMember(tx, request, !leavingSelf)
+      return prepareMembership(tx, request)
+    }
     case 'membership.update':
       await ensureActiveMember(tx, request, true)
       return prepareMembership(tx, request)

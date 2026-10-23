@@ -149,14 +149,6 @@ struct FriendsScreen: View {
                         isLoading: serverLedger.status.phase == .loading
                     )
                 }
-                if localFriendIDs.contains(friend.id) {
-                    HStack(spacing: 4) {
-                        Text("on-device")
-                            .font(BrandFont.type(8, bold: true))
-                            .opacity(0.62)
-                        LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 })
-                    }
-                }
             }
         } else {
             LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 })
@@ -310,14 +302,6 @@ struct ProfileFriendsSection: View {
                         onLight: true,
                         isLoading: serverLedger.status.phase == .loading
                     )
-                }
-                if localFriendIDs.contains(friend.id) {
-                    HStack(spacing: 4) {
-                        Text("on-device")
-                            .font(BrandFont.type(8, bold: true))
-                            .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
-                        LocalFriendBalanceChips(balances: localNets.mapValues { $0[friend.id] ?? 0 }, onLight: true)
-                    }
                 }
             }
         } else {

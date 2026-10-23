@@ -113,6 +113,9 @@ enum UsernameIdentityService {
         let name: String?
         let preferredName: String?
         let image: String?
+        /// The person's own currency, chosen once and stored on the server.
+        /// Nil when they have not chosen yet, or for a user restored offline.
+        var defaultCurrency: String? = nil
     }
 
     fileprivate struct AuthenticatedSessionBinding: Codable, Sendable {
@@ -180,6 +183,7 @@ enum UsernameIdentityService {
 
     private struct UsernameRequest: Encodable { let username: String }
     private struct AvatarRequest: Encodable { let avatar: String }
+    private struct DefaultCurrencyRequest: Encodable { let defaultCurrency: String }
     private struct AuthenticationResponse: Decodable {
         let token: String
         let user: RemoteUser
@@ -269,6 +273,18 @@ enum UsernameIdentityService {
             return cachedUser
         }
         return try await currentUser()
+    }
+
+    /// Saves the person's default currency on the server.
+    static func updateDefaultCurrency(_ currency: AppCurrency) async throws -> RemoteUser {
+        guard let token = MobileTokenStore.read() else { throw ServiceError.missingSession }
+        let response: UserResponse = try await perform(
+            path: "/api/mobile/auth/me",
+            method: "PATCH",
+            body: DefaultCurrencyRequest(defaultCurrency: currency.rawValue),
+            bearerToken: token
+        )
+        return response.user
     }
 
     static func updateAvatar(_ avatar: ProfileAvatar) async throws -> RemoteUser {

@@ -49,7 +49,10 @@ export async function DELETE(
       const read = await loadGroupReadModel(params.id, session.user.id, {}, tx)
       const group = read.group
       const actor = group.members.find((member) => member.accountId === session.user.id)
-      if (!actor || actor.role !== 'owner') return { status: 403, code: 'NOT_GROUP_OWNER' }
+      if (!actor || actor.role !== 'owner') {
+        const owner = group.members.find((member) => member.role === 'owner')
+        return { status: 403, code: 'NOT_GROUP_OWNER', ownerName: owner?.displayName ?? null }
+      }
       if (group.migration.status !== 'complete' && group.migration.status !== 'not_required') {
         return { status: 409, code: 'GROUP_READ_ONLY' }
       }
@@ -64,7 +67,7 @@ export async function DELETE(
       }
       if (group.settlementPlan.transfers.length > 0 ||
           group.balances.byMember.some((balance) => balance.byCurrency.some((amount) => amount.minorUnits !== '0'))) {
-        return { status: 409, code: 'GROUP_UNSETTLED' }
+        return { status: 409, code: 'GROUP_UNSETTLED', openTransfers: group.settlementPlan.transfers.length }
       }
       if (pending.length > 0) {
         await tx.ledgerOperation.updateMany({
@@ -81,16 +84,44 @@ export async function DELETE(
         : { status: 409, code: 'GROUP_STATE_STALE' }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
     return NextResponse.json(
-      { code: result.code, archived: result.status === 200 },
+      { ...result, status: undefined, archived: result.status === 200, message: groupDeleteMessage(result) },
       { status: result.status, headers: { 'Cache-Control': 'no-store' } }
     )
   } catch (error) {
     const errorResponse = readModelErrorResponse(error, params.id)
     if (errorResponse) return errorResponse
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
-      return NextResponse.json({ code: 'GROUP_STATE_STALE', archived: false }, { status: 409 })
+      return NextResponse.json(
+        { code: 'GROUP_STATE_STALE', archived: false, message: groupDeleteMessage({ code: 'GROUP_STATE_STALE' }) },
+        { status: 409 }
+      )
     }
     console.error('[MOBILE DELETE /groups/:id]', error)
-    return NextResponse.json({ code: 'GROUP_DELETE_FAILED', archived: false }, { status: 500 })
+    return NextResponse.json(
+      { code: 'GROUP_DELETE_FAILED', archived: false, message: groupDeleteMessage({ code: 'GROUP_DELETE_FAILED' }) },
+      { status: 500 }
+    )
+  }
+}
+
+/** Plain words for each delete outcome, so every client can explain a refusal the same way. */
+function groupDeleteMessage(result: { code: string; ownerName?: string | null; openTransfers?: number }): string {
+  switch (result.code) {
+    case 'GROUP_ARCHIVED':
+      return 'Group deleted. Its history stays in Activity.'
+    case 'NOT_GROUP_OWNER':
+      return result.ownerName
+        ? `Only ${result.ownerName} can delete this group, because they created it. You can leave it instead.`
+        : 'Only the person who created this group can delete it. You can leave it instead.'
+    case 'GROUP_UNSETTLED':
+      return result.openTransfers === 1
+        ? 'This group still has 1 payment to settle. Settle up first, then delete it.'
+        : `This group still has ${result.openTransfers ?? 'some'} payments to settle. Settle up first, then delete it.`
+    case 'GROUP_READ_ONLY':
+      return 'This group is being moved to the new ledger. Try again in a few minutes.'
+    case 'GROUP_STATE_STALE':
+      return 'Someone changed this group just now. Pull to refresh, then try again.'
+    default:
+      return 'The group could not be deleted. Try again.'
   }
 }

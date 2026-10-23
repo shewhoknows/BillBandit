@@ -272,7 +272,11 @@ test('sync token tracks friend discovery, shared ledger changes, and group disco
     params: { id: scratch.group.id },
   })
   assert.equal(archived.status, 200)
-  assert.deepEqual(await archived.json(), { code: 'GROUP_ARCHIVED', archived: true })
+  assert.deepEqual(await archived.json(), {
+    code: 'GROUP_ARCHIVED',
+    archived: true,
+    message: 'Group deleted. Its history stays in Activity.',
+  })
   assert.equal((await db.group.findUniqueOrThrow({ where: { id: scratch.group.id } })).isArchived, true)
   assert.equal((await db.ledgerOperation.findUniqueOrThrow({ where: { id: groupInvitation.invitation.id } })).state, 'FAILED')
   await assert.rejects(

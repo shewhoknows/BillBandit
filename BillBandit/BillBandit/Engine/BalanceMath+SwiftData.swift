@@ -103,7 +103,7 @@ enum AchievementEngine {
         let isTopPayer = groups.contains { group in
             let paidByPerson = Dictionary(grouping: group.expenses.compactMap { expense -> (UUID, Decimal)? in
                 guard let payerID = expense.paidBy?.id else { return nil }
-                return (payerID, Money.whole(expense.amount))
+                return (payerID, Money.cents(expense.amount))
             }, by: { $0.0 }).mapValues { entries in
                 entries.reduce(Decimal.zero) { $0 + $1.1 }
             }
@@ -139,15 +139,17 @@ enum BalanceMath {
             if rawShares[pid] == nil { order.append(pid) }
             rawShares[pid, default: 0] += s.computedAmount
         }
-        let total = Money.whole(expense.amount)
+        let exponent = Money.exponent(for: expense.group?.resolvedCurrencyCode ?? "INR")
+        let total = Money.rounded(expense.amount, exponent: exponent)
         let inputs = order.map { SplitInput(personID: $0, mode: .shares, value: rawShares[$0] ?? 0) }
-        let shares = (try? SplitEngine.compute(total: total, inputs: inputs)) ?? rawShares.mapValues(Money.whole)
+        let shares = (try? SplitEngine.compute(total: total, inputs: inputs, exponent: exponent))
+            ?? rawShares.mapValues { Money.rounded($0, exponent: exponent) }
         return ExpenseSnapshot(paidBy: payer, total: total, shares: shares)
     }
 
     static func snapshot(_ settlement: Settlement) -> SettlementSnapshot? {
         guard let from = settlement.from?.id, let to = settlement.to?.id else { return nil }
-        return SettlementSnapshot(from: from, to: to, amount: Money.whole(settlement.amount))
+        return SettlementSnapshot(from: from, to: to, amount: Money.cents(settlement.amount))
     }
 
     /// Net balance per person within one group (positive = owed).
@@ -186,11 +188,11 @@ enum BalanceMath {
         }
         for s in settlements {
             guard let from = s.from?.id, let to = s.to?.id else { continue }
-            let amount = Money.whole(s.amount)
+            let amount = Money.cents(s.amount)
             if from == you.id { net[to, default: 0] += amount }
             else if to == you.id { net[from, default: 0] -= amount }
         }
-        return net.mapValues(Money.whole)
+        return net.mapValues(Money.cents)
     }
 
     /// Transfers that settle a group (respecting its simplifyDebts flag).
@@ -203,12 +205,12 @@ enum BalanceMath {
         // v1 keeps it simple: greedy is only applied when the flag is on;
         // otherwise return per-debtor payments against creditors in order.
         var transfers = [DebtTransfer]()
-        let epsilon = Decimal(string: "0.5")!
+        let epsilon = Decimal(string: "0.005")!
         var creditors = nets.filter { $0.value > epsilon }.sorted { $0.key.uuidString < $1.key.uuidString }
         for (debtor, amount) in nets where amount < -epsilon {
             var remaining = -amount
             for i in creditors.indices where remaining > epsilon {
-                let pay = Money.whole(min(remaining, creditors[i].value))
+                let pay = Money.cents(min(remaining, creditors[i].value))
                 guard pay > 0 else { continue }
                 transfers.append(DebtTransfer(from: debtor, to: creditors[i].key, amount: pay))
                 creditors[i].value -= pay

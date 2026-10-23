@@ -21,8 +21,19 @@ struct GroupDetailScreen: View {
     @State private var canonicalExpenseForEditing: CanonicalExpenseEditDraft?
     @State private var pendingExpenseID: String?
     @State private var showMissingExpense = false
+    @State private var membershipAction: SharedGroupMembershipAction?
+    @State private var membershipResult: MembershipResult?
+    @State private var isChangingMembership = false
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.groupContextChange) private var reportGroupContext
     @ObservedObject private var baseCurrencyStore = BaseCurrencyEstimateStore.shared
     @Query private var pendingLedgerOperations: [PendingLedgerOperation]
+
+    private struct MembershipResult: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
 
     init(group: Group, targetCanonicalExpenseID: String? = nil, onContextChange: @escaping (Group?) -> Void = { _ in }) {
         self.group = group
@@ -209,6 +220,8 @@ struct GroupDetailScreen: View {
                     .font(BrandFont.type(10, bold: true))
                     .foregroundStyle(Color.Brand.creamSoft.opacity(0.7))
                     .padding(.vertical, 8)
+
+                membershipButton
             }
             .padding(.horizontal, 18)
             .padding(.bottom, 22)
@@ -244,7 +257,7 @@ struct GroupDetailScreen: View {
                 celebration = nil
             }
         }
-        .onAppear { revealInvoice(); onContextChange(group) }
+        .onAppear { revealInvoice(); onContextChange(group); reportGroupContext(group) }
         .onChange(of: canonicalSettlementStore.hasCanonicalReadModel) { _, _ in
             openRequestedExpenseIfReady()
         }
@@ -257,6 +270,35 @@ struct GroupDetailScreen: View {
         .alert("Expense unavailable", isPresented: $showMissingExpense) {
             Button("OK", role: .cancel) {}
         } message: { Text("This expense was removed or is not available in this group.") }
+        .alert(
+            membershipAction == .delete ? "Delete this group?" : "Leave this group?",
+            isPresented: Binding(
+                get: { membershipAction != nil },
+                set: { if !$0 { membershipAction = nil } }
+            ),
+            presenting: membershipAction
+        ) { action in
+            Button(action == .delete ? "Delete group" : "Leave group", role: .destructive) {
+                Task { await changeMembership(action) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { action in
+            Text(action == .delete
+                 ? "Everyone must be settled first. The group leaves every member's list. Its history stays in Activity."
+                 : "Your own balance must be zero first. You will stop seeing this group. Its history stays in Activity.")
+        }
+        .alert(
+            membershipResult?.title ?? "",
+            isPresented: Binding(
+                get: { membershipResult != nil },
+                set: { if !$0 { membershipResult = nil } }
+            ),
+            presenting: membershipResult
+        ) { result in
+            Button("OK", role: .cancel) {}
+        } message: { result in
+            Text(result.message)
+        }
         .task(id: serverGroupID) {
             guard let serverGroupID else { return }
             guard let remoteUser = try? await UsernameIdentityService.authenticatedUserForLedger() else {
@@ -292,9 +334,57 @@ struct GroupDetailScreen: View {
         }
         .onDisappear {
             onContextChange(nil)
+            reportGroupContext(nil)
             if !showSettle {
                 canonicalSettlementStore.setVisible(false)
             }
+        }
+    }
+
+    /// The owner deletes a group; everyone else leaves it. The server checks
+    /// the rules again and explains any refusal.
+    private var currentUserIsOwner: Bool? {
+        guard let group = canonicalSettlementStore.canonicalSnapshot?.group,
+              let memberID = group.currentMemberID else { return nil }
+        return group.members.first(where: { $0.memberID == memberID })?.role == "owner"
+    }
+
+    @ViewBuilder
+    private var membershipButton: some View {
+        if usesCanonicalLedger, let isOwner = currentUserIsOwner {
+            let action: SharedGroupMembershipAction = isOwner ? .delete : .leave
+            Button {
+                membershipAction = action
+            } label: {
+                Label(
+                    isChangingMembership
+                        ? (isOwner ? "Deleting group…" : "Leaving group…")
+                        : (isOwner ? "Delete group" : "Leave group"),
+                    systemImage: isOwner ? "trash" : "rectangle.portrait.and.arrow.right"
+                )
+                .font(BrandFont.type(12, bold: true))
+                .foregroundStyle(Color.Brand.creamSoft)
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .disabled(isChangingMembership)
+            .accessibilityIdentifier(isOwner ? "groupDeleteButton" : "groupLeaveButton")
+        }
+    }
+
+    private func changeMembership(_ action: SharedGroupMembershipAction) async {
+        guard let serverGroupID, !isChangingMembership else { return }
+        isChangingMembership = true
+        defer { isChangingMembership = false }
+        do {
+            _ = try await SharedGroupMembershipService.perform(action, serverGroupID: serverGroupID)
+            // The group leaves the list on the next sync, so close it now.
+            dismiss()
+            Task { await ServerSocialSyncService.shared.refresh() }
+        } catch {
+            membershipResult = MembershipResult(
+                title: action == .delete ? "Group not deleted" : "You are still in this group",
+                message: SharedGroupMembershipService.message(for: error, action: action)
+            )
         }
     }
 
@@ -1202,9 +1292,11 @@ struct RecordPaymentSheet: View {
         Money.parseInput(amount)
     }
 
+    private var currencyExponent: Int { Money.exponent(for: group.resolvedCurrencyCode) }
+
     private var canSave: Bool {
         guard let parsed, let suggestedAmount else { return false }
-        let payment = Money.whole(parsed)
+        let payment = Money.rounded(parsed, exponent: currencyExponent)
         return payment > 0 && payment <= suggestedAmount
     }
 
@@ -1286,7 +1378,7 @@ struct RecordPaymentSheet: View {
                     .frame(height: 68)
                     .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
 
-                    if let parsed, let suggestedAmount, Money.whole(parsed) > suggestedAmount {
+                    if let parsed, let suggestedAmount, Money.rounded(parsed, exponent: currencyExponent) > suggestedAmount {
                         Text("Maximum outstanding payment: \(Money.currency(suggestedAmount, currencyCode: group.resolvedCurrencyCode)).")
                             .font(BrandFont.type(10, bold: true))
                             .foregroundStyle(Color.red.opacity(0.8))
@@ -1368,7 +1460,7 @@ struct RecordPaymentSheet: View {
     }
 
     private func syncSuggestedAmount() {
-        amount = suggestedAmount.map(Money.inputString) ?? ""
+        amount = suggestedAmount.map { Money.inputString($0, exponent: currencyExponent) } ?? ""
     }
 
     private func save() {
@@ -1377,7 +1469,7 @@ struct RecordPaymentSheet: View {
               let from = group.members.first(where: { $0.id == fromID }),
               let to = group.members.first(where: { $0.id == toID }),
               from.id != to.id else { return }
-        let amount = Money.whole(rawAmount)
+        let amount = Money.rounded(rawAmount, exponent: currencyExponent)
         guard amount > 0, amount <= suggestedAmount else { return }
         let settlement = Settlement(amount: amount, from: from, to: to, group: group)
         context.insert(settlement)

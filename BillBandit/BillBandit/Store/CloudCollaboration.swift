@@ -513,7 +513,7 @@ final class CloudCollaborationService: ObservableObject {
     func startForegroundSync() {
         guard foregroundSyncWorker == nil else { return }
         foregroundSyncWorker = Task { [weak self] in
-            await self?.refreshWhileVisible(every: .seconds(1))
+            await self?.refreshWhileVisible(every: .seconds(5))
         }
     }
 
@@ -524,14 +524,17 @@ final class CloudCollaborationService: ObservableObject {
 
     /// Foreground/reconnect work is API-backed for ledger data. CloudKit is
     /// limited to non-ledger friend profiles and invitation records.
-    func refreshWhileVisible(every interval: Duration = .seconds(1)) async {
+    /// The poll reads one small change token. Full group reads run only when
+    /// it changes, and cached data shows meanwhile, so a slower poll costs
+    /// little freshness and saves battery and data.
+    func refreshWhileVisible(every interval: Duration = .seconds(5)) async {
         var tick = 0
         while !Task.isCancelled {
             // Keep the fast path API-only. CloudKit profile work runs once on
-            // prepare/foreground and must not run every second.
+            // prepare/foreground and must not run on every poll.
             await ServerSocialSyncService.shared.pollForChanges()
             tick += 1
-            if tick.isMultiple(of: 10) {
+            if tick.isMultiple(of: 3) {
                 await ServerLedgerAccountLifecycle.shared.reconcile(trigger: .foreground)
             }
             guard !Task.isCancelled else { return }
@@ -1701,6 +1704,9 @@ final class ServerSocialSyncService: ObservableObject {
     private init() {}
 
     func accountDidAuthenticate(_ remoteUser: UsernameIdentityService.RemoteUser) {
+        if let code = remoteUser.defaultCurrency, let currency = AppCurrency(rawValue: code) {
+            BaseCurrencyEstimateStore.shared.applyServerDefault(currency)
+        }
         let accountChanged = activeAccountID != remoteUser.id
         if accountChanged {
             accountGeneration &+= 1

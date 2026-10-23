@@ -27,6 +27,7 @@ struct BillBanditApp: App {
         WindowGroup {
             AppRootView()
                 .preferredColorScheme(.light) // v1 is light-only (approved 2026-07-18)
+                .tint(Color.Brand.cobalt)
                 .task {
                     await CloudCollaborationService.shared.prepare()
                     if scenePhase == .active {

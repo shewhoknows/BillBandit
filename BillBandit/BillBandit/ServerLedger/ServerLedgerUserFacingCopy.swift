@@ -3,8 +3,6 @@ import Foundation
 /// Maps server/API ledger codes and internal status strings to copy safe for UI.
 enum ServerLedgerUserFacingCopy {
     static let sharedBalancesTitle = "Balances"
-    static let onDevice = "On this device"
-    static let sharedGroup = "Synced"
     static let loadingBalance = "Loading balance…"
     static let balanceUnavailable = "Balance unavailable"
     static let loadingSharedBalances = "Loading balances…"
@@ -63,11 +61,5 @@ enum ServerLedgerUserFacingCopy {
             return friendly
         }
         return sharedBalancesUnavailable
-    }
-
-    static func groupSourceLabel(isLocalOnly: Bool, isLoading: Bool) -> String {
-        if isLocalOnly { return onDevice }
-        if isLoading { return loadingBalance }
-        return sharedGroup
     }
 }

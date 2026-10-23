@@ -60,6 +60,7 @@ model User {
   phone         String?   @unique
   preferredName String?
   upiID         String?
+  defaultCurrency String?
 
   accounts Account[]
   sessions Session[]
@@ -649,4 +650,19 @@ enum ActivityType {
   GROUP_JOINED
   FRIEND_ADDED
   COMMENT_ADDED
+}
+
+/// Daily reference rates, cached so the app never calls a rate provider itself.
+/// `rate` is how many units of `quote` one unit of `base` buys.
+model ExchangeRate {
+  id        String   @id @default(cuid())
+  base      String
+  quote     String
+  rate      Decimal  @db.Decimal(28, 12)
+  rateDate  DateTime @db.Date
+  source    String
+  fetchedAt DateTime @default(now())
+
+  @@unique([base, quote])
+  @@index([base])
 }

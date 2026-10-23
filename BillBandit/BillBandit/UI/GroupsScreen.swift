@@ -56,76 +56,29 @@ struct GroupsScreen: View {
                     .listRowBackground(Color.Brand.cobalt)
                     .listRowSeparator(.hidden)
                 }
-                ForEach(visibleGroups) { group in
-                    NavigationLink(value: group.id) {
-                        HStack(spacing: 11) {
-                            Circle()
-                                .fill(Color.Brand.creamSoft)
-                                .frame(width: 36, height: 36)
-                                .overlay(BrandIconView(icon: group.icon.icon, size: 17)
-                                    .foregroundStyle(Color.Brand.cobalt))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(group.name)
-                                    .font(BrandFont.display(13.5))
-                                Text(GroupCopy.memberCount(group.members.count))
-                                    .font(BrandFont.type(9.5))
-                                    .opacity(0.65)
-                                if group.serverLedgerGroupID == nil {
-                                    Text(ServerLedgerUserFacingCopy.onDevice)
-                                        .font(BrandFont.type(8.5, bold: true))
-                                        .opacity(0.58)
-                                }
-                            }
-                            .foregroundStyle(Color.Brand.creamSoft)
-                            Spacer()
-                            if let serverGroupID = group.serverLedgerGroupID {
-                                if let presentation = serverLedger.groupBalancePresentation(for: serverGroupID) {
-                                    ServerLedgerBalanceChip(presentation: presentation)
-                                } else {
-                                    ServerLedgerUnavailableChip(
-                                        isLoading: serverLedger.status.phase == .loading
-                                    )
-                                }
-                            } else if let me = me.first {
-                                NetChip(
-                                    net: BalanceMath.nets(in: group)[me.id] ?? 0,
-                                    currencyCode: group.resolvedCurrencyCode
-                                )
-                            }
-                        }
+                ForEach(groupSections) { section in
+                    Text(section.title)
+                        .font(BrandFont.display(13, weight: .bold))
+                        .foregroundStyle(Color.Brand.creamSoft.opacity(0.8))
+                        .listRowBackground(Color.Brand.cobalt)
+                        .listRowSeparator(.hidden)
+                        .padding(.top, 6)
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(section.items) { group in
+                        groupRow(group)
                     }
-                    .listRowBackground(Color.Brand.cobalt)
-                    .listRowSeparator(.hidden)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity
-                    ))
-                }
-                .onDelete { idx in
-                    // A shared group has server-owned membership and history. A local
-                    // model delete cannot represent a server deletion or leave action.
-                    if idx.contains(where: { visibleGroups[$0].serverLedgerGroupID != nil }) {
-                        guard idx.count == 1, let index = idx.first,
-                              visibleGroups[index].serverLedgerGroupID != nil else {
-                            groupDeleteErrorMessage = "Remove one shared group at a time. No group was changed."
-                            showGroupDeleteError = true
-                            return
-                        }
-                        groupPendingSharedRemoval = visibleGroups[index]
-                        showSharedGroupRemovalConfirmation = true
-                        return
+                    .onDelete { idx in
+                        requestDelete(idx.map { section.items[$0] })
                     }
-                    groupsPendingLocalDeletion = idx.map { visibleGroups[$0] }
-                    showLocalGroupDeleteConfirmation = !groupsPendingLocalDeletion.isEmpty
                 }
             }
-            .alert("Remove shared group?", isPresented: $showSharedGroupRemovalConfirmation) {
-                Button("Remove Group", role: .destructive) {
+            .alert("Delete this group?", isPresented: $showSharedGroupRemovalConfirmation) {
+                Button("Delete group", role: .destructive) {
                     Task { await removePendingSharedGroup() }
                 }
                 Button("Cancel", role: .cancel) { groupPendingSharedRemoval = nil }
             } message: {
-                Text("The group must be settled. It will leave every member's group list. Its ledger history stays on the server for audit.")
+                Text("Everyone must be settled first. The group leaves every member's list. Its history stays in Activity.")
             }
             .alert(
                 groupsPendingLocalDeletion.count == 1 ? "Delete this group?" : "Delete these groups?",
@@ -142,8 +95,8 @@ struct GroupsScreen: View {
                 }
             } message: {
                 Text(groupsPendingLocalDeletion.count == 1
-                     ? "This permanently removes the group and its on-device data. This can't be undone."
-                     : "This permanently removes the selected groups and their on-device data. This can't be undone.")
+                     ? "This permanently removes the group. This can't be undone."
+                     : "This permanently removes the selected groups. This can't be undone.")
             }
             .listStyle(.plain)
             .animation(reduceMotion ? nil : BrandMotion.revealSpring, value: visibleGroups.map(\.id))
@@ -160,6 +113,10 @@ struct GroupsScreen: View {
             .navigationDestination(for: UUID.self) { id in
                 if let group = visibleGroups.first(where: { $0.id == id }) {
                     GroupDetailScreen(group: group, onContextChange: onGroupContextChange)
+                } else {
+                    // The group was left, deleted, or removed by a sync while open.
+                    Color.Brand.cobalt.ignoresSafeArea()
+                        .onAppear { if !path.isEmpty { path.removeLast() } }
                 }
             }
         }
@@ -182,6 +139,71 @@ struct GroupsScreen: View {
         }
     }
 
+    private var groupSections: [RecencySection<Group>] {
+        RecencySectioning.sections(
+            GroupRecency.sorted(visibleGroups, snapshot: serverLedger.snapshot)
+        ) { GroupRecency.lastActivity(of: $0, snapshot: serverLedger.snapshot) }
+    }
+
+    @ViewBuilder
+    private func groupRow(_ group: Group) -> some View {
+        NavigationLink(value: group.id) {
+            HStack(spacing: 11) {
+                Circle()
+                    .fill(Color.Brand.creamSoft)
+                    .frame(width: 36, height: 36)
+                    .overlay(BrandIconView(icon: group.icon.icon, size: 17)
+                        .foregroundStyle(Color.Brand.cobalt))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.name)
+                        .font(BrandFont.display(13.5))
+                    Text(GroupCopy.memberCount(group.members.count))
+                        .font(BrandFont.type(9.5))
+                        .opacity(0.65)
+                }
+                .foregroundStyle(Color.Brand.creamSoft)
+                Spacer()
+                if group.serverLedgerGroupID != nil {
+                    if let presentation = serverLedger.groupBalancePresentation(for: group) {
+                        ServerLedgerBalanceChip(presentation: presentation)
+                    } else {
+                        ServerLedgerUnavailableChip(
+                            isLoading: serverLedger.status.phase == .loading
+                        )
+                    }
+                } else if let me = me.first {
+                    NetChip(
+                        net: BalanceMath.nets(in: group)[me.id] ?? 0,
+                        currencyCode: group.resolvedCurrencyCode
+                    )
+                }
+            }
+        }
+        .listRowBackground(Color.Brand.cobalt)
+        .listRowSeparator(.hidden)
+        .transition(.asymmetric(
+            insertion: .move(edge: .top).combined(with: .opacity),
+            removal: .opacity
+        ))
+    }
+
+    /// A shared group has server-owned membership and history. A local model
+    /// delete cannot stand in for a server delete or leave.
+    private func requestDelete(_ selection: [Group]) {
+        if selection.contains(where: { $0.serverLedgerGroupID != nil }) {
+            guard selection.count == 1, let group = selection.first else {
+                groupDeleteErrorMessage = "Delete one group at a time. No group was changed."
+                showGroupDeleteError = true
+                return
+            }
+            groupPendingSharedRemoval = group
+            showSharedGroupRemovalConfirmation = true
+            return
+        }
+        groupsPendingLocalDeletion = selection
+        showLocalGroupDeleteConfirmation = !selection.isEmpty
+    }
+
     private func removePendingSharedGroup() async {
         guard !isRemovingSharedGroup, let group = groupPendingSharedRemoval,
               let serverID = group.serverLedgerGroupID,
@@ -194,33 +216,14 @@ struct GroupsScreen: View {
         isRemovingSharedGroup = true
         defer { isRemovingSharedGroup = false; groupPendingSharedRemoval = nil }
         do {
-            let encoded = serverID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? serverID
-            let response: SharedGroupRemovalResponse = try await APIClient.live().delete("/api/mobile/groups/\(encoded)")
-            guard response.archived, response.code == "GROUP_ARCHIVED" else {
-                throw SettlementAPIError.server("The server did not confirm group removal.")
-            }
+            _ = try await SharedGroupMembershipService.perform(.delete, serverGroupID: serverID)
             await ServerSocialSyncService.shared.refresh()
             if visibleGroups.contains(where: { $0.id == group.id }) {
-                groupDeleteErrorMessage = "The server removed the group, but this device has not refreshed. Pull down to retry."
+                groupDeleteErrorMessage = "The group was deleted, but this phone has not caught up yet. Pull down to refresh."
                 showGroupDeleteError = true
             }
-        } catch let error as SettlementAPIError {
-            switch error {
-            case .structured(let code, _, _):
-                switch code {
-                case "GROUP_UNSETTLED": groupDeleteErrorMessage = "This group has unsettled balances. Settle all payments before removing it."
-                case "NOT_GROUP_OWNER": groupDeleteErrorMessage = "Only the group owner can remove this shared group."
-                case "GROUP_STATE_STALE": groupDeleteErrorMessage = "The group changed or has payments waiting to sync. Refresh and try again."
-                case "GROUP_READ_ONLY", "LEDGER_READ_UNAVAILABLE": groupDeleteErrorMessage = "The shared ledger is not ready. No group was changed."
-                default: groupDeleteErrorMessage = "The server could not remove this group. Refresh and try again."
-                }
-            case .offline: groupDeleteErrorMessage = "You are offline. Connect to remove this shared group."
-            case .unauthorized: groupDeleteErrorMessage = "Sign in to remove this shared group."
-            default: groupDeleteErrorMessage = "The server could not remove this group. Try again."
-            }
-            showGroupDeleteError = true
         } catch {
-            groupDeleteErrorMessage = "The server could not confirm group removal. No local group was deleted."
+            groupDeleteErrorMessage = SharedGroupMembershipService.message(for: error, action: .delete)
             showGroupDeleteError = true
         }
     }
@@ -258,7 +261,139 @@ struct GroupsScreen: View {
     }
 }
 
-private struct SharedGroupRemovalResponse: Decodable {
-    let code: String
-    let archived: Bool
+enum SharedGroupMembershipAction {
+    case delete
+    case leave
+}
+
+/// Delete and leave for server groups. The server decides who may do what and
+/// explains why in `message`; the app shows that text as is.
+@MainActor
+enum SharedGroupMembershipService {
+    private struct Response: Decodable {
+        let code: String
+        let message: String?
+    }
+
+    private struct ErrorBody: Decodable {
+        let message: String?
+    }
+
+    /// Returns the server's confirmation text. Throws when the server refuses.
+    /// Callers refresh the group list afterwards, once no screen shows the group.
+    static func perform(_ action: SharedGroupMembershipAction, serverGroupID: String) async throws -> String {
+        let encoded = serverGroupID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? serverGroupID
+        let response: Response
+        switch action {
+        case .delete:
+            response = try await APIClient.live().delete("/api/mobile/groups/\(encoded)")
+            guard response.code == "GROUP_ARCHIVED" else {
+                throw SettlementAPIError.server(response.message ?? "The server did not confirm the delete.")
+            }
+        case .leave:
+            response = try await APIClient.live().post(
+                "/api/mobile/groups/\(encoded)/leave",
+                body: SettlementEmptyBody(),
+                idempotencyKey: UUID().uuidString
+            )
+            guard response.code == "GROUP_LEFT" else {
+                throw SettlementAPIError.server(response.message ?? "The server did not confirm that you left.")
+            }
+        }
+        return response.message ?? (action == .delete ? "Group deleted." : "You left the group.")
+    }
+
+    /// The reason to show the person. Prefers the server's own words.
+    static func message(for error: Error, action: SharedGroupMembershipAction) -> String {
+        let verb = action == .delete ? "delete this group" : "leave this group"
+        switch error {
+        case SettlementAPIError.structured(_, _, let body):
+            if let body,
+               let message = try? JSONDecoder().decode(ErrorBody.self, from: body).message,
+               !message.isEmpty {
+                return message
+            }
+            return "The server could not \(verb). Pull down to refresh and try again."
+        case SettlementAPIError.server(let message):
+            return message
+        case SettlementAPIError.offline:
+            return "You are offline. Connect to the internet to \(verb)."
+        case SettlementAPIError.unauthorized:
+            return "Sign in again to \(verb)."
+        default:
+            return "The server could not \(verb). Try again."
+        }
+    }
+}
+
+/// Orders groups by their latest activity, newest first.
+enum GroupRecency {
+    static func lastActivity(of group: Group, snapshot: ServerLedgerSurfaceSnapshot?) -> Date {
+        // The server's dates win. A local copy's createdAt is when this phone
+        // first saw the group, not when the group was made.
+        if let serverGroupID = group.serverLedgerGroupID,
+           let last = snapshot?.group(for: serverGroupID)?.activity.map(\.at).max() {
+            return last
+        }
+        var latest = group.createdAt
+        if let last = group.expenses.map(\.date).max() { latest = max(latest, last) }
+        if let last = group.settlements.map(\.date).max() { latest = max(latest, last) }
+        return latest
+    }
+
+    static func sorted(_ groups: [Group], snapshot: ServerLedgerSurfaceSnapshot?) -> [Group] {
+        let keyed = groups.map { ($0, lastActivity(of: $0, snapshot: snapshot)) }
+        return keyed.sorted { lhs, rhs in
+            if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+            return lhs.0.createdAt > rhs.0.createdAt
+        }
+        .map(\.0)
+    }
+}
+
+/// One dated block of a list: "Today", "Yesterday", "Monday", "Last week",
+/// "Last month", then month names.
+struct RecencySection<Item>: Identifiable {
+    let title: String
+    var items: [Item]
+    var id: String { title }
+}
+
+enum RecencySectioning {
+    static func title(for date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        let today = calendar.startOfDay(for: now)
+        let day = calendar.startOfDay(for: date)
+        let days = calendar.dateComponents([.day], from: day, to: today).day ?? 0
+        switch days {
+        case ..<1: return "Today"
+        case 1: return "Yesterday"
+        case 2...6: return date.formatted(.dateTime.weekday(.wide))
+        case 7...13: return "Last week"
+        case 14...30: return "Last month"
+        default:
+            let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+            return sameYear
+                ? date.formatted(.dateTime.month(.wide))
+                : date.formatted(.dateTime.month(.wide).year())
+        }
+    }
+
+    /// Splits items that are already sorted newest first into dated blocks,
+    /// keeping their order.
+    static func sections<Item>(
+        _ items: [Item],
+        now: Date = .now,
+        date: (Item) -> Date
+    ) -> [RecencySection<Item>] {
+        var result = [RecencySection<Item>]()
+        for item in items {
+            let title = title(for: date(item), now: now)
+            if result.last?.title == title {
+                result[result.count - 1].items.append(item)
+            } else {
+                result.append(RecencySection(title: title, items: [item]))
+            }
+        }
+        return result
+    }
 }

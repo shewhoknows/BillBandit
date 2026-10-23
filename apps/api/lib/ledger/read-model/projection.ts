@@ -607,6 +607,15 @@ function groupSummary(
   group: GroupLedgerReadModel,
   readOnly: boolean
 ): LedgerReadOnlyGroupSummary {
+  const activeExpenses = group.expenses.filter((expense) => expense.status === 'active')
+  const spentMinorUnits = activeExpenses
+    .filter((expense) => expense.amount.currencyCode === source.baseCurrency.currencyCode)
+    .reduce((total, expense) => total + BigInt(expense.amount.minorUnits), 0n)
+  const newestActivity = group.activity.reduce<string | null>(
+    (latest, item) => (latest === null || item.at > latest ? item.at : latest),
+    null
+  )
+  const currentMember = group.members.find((member) => member.memberId === group.balances.currentAccount.memberId)
   return {
     groupId: source.groupId,
     name: source.name,
@@ -616,6 +625,17 @@ function groupSummary(
     balanceByCurrency: group.balances.currentAccount.byCurrency,
     readOnly,
     migration: group.migration,
+    members: group.members,
+    currentMemberId: group.balances.currentAccount.memberId,
+    currentRole: currentMember?.role ?? 'member',
+    lastActivityAt: newestActivity ?? source.createdAt ?? source.updatedAt ?? new Date(0).toISOString(),
+    createdAt: source.createdAt ?? null,
+    activeExpenseCount: activeExpenses.length,
+    totalSpent: {
+      minorUnits: spentMinorUnits.toString(),
+      currencyCode: source.baseCurrency.currencyCode,
+      currencyExponent: source.baseCurrency.currencyExponent,
+    },
   }
 }
 
@@ -777,7 +797,7 @@ export function buildAccountLedgerSummary(
   const groups = groupProjections.map((projection) => {
     const groupSource = source.groups.find((group) => group.groupId === projection.model.groupId)!
     return groupSummary(groupSource, projection.model, projection.readOnly)
-  })
+  }).sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt) || a.groupId.localeCompare(b.groupId))
   const currencies = new Map<CurrencyKey, Money>()
   const balanceTotals = new Map<CurrencyKey, bigint>()
   for (const projection of groupProjections) {

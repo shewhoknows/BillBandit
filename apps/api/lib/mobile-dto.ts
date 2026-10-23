@@ -11,6 +11,7 @@ type UserInput = {
   phone?: string | null
   preferredName?: string | null
   upiID?: string | null
+  defaultCurrency?: string | null
 }
 
 type MemberInput = {
@@ -112,6 +113,7 @@ export function mobileUser(user: UserInput) {
     phone: user.phone ?? null,
     preferredName: user.preferredName ?? null,
     upiID: user.upiID ?? null,
+    defaultCurrency: user.defaultCurrency ?? null,
     hasUsername: Boolean(user.username),
     isProfileComplete: Boolean((user.name ?? user.preferredName) && user.upiID),
   }

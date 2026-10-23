@@ -9,7 +9,7 @@ struct AddGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var icon: GroupIcon = .house
-    @State private var currency: AppCurrency = .inr
+    @State private var currency: AppCurrency = Money.currentCurrency
     @State private var selected = Set<UUID>()
     @State private var simplify = true
     @State private var showAddFriend = false
@@ -60,12 +60,23 @@ struct AddGroupSheet: View {
                     }
 
                     BrandSectionLabel("CURRENCY")
-                    Picker("Currency", selection: $currency) {
-                        ForEach([AppCurrency.inr, .vnd], id: \.self) { option in
-                            Text("\(option.symbol) \(option.rawValue)").tag(option)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                        ForEach(AppCurrency.allCases) { option in
+                            Button { currency = option } label: {
+                                Text("\(option.symbol) \(option.rawValue)")
+                                    .font(BrandFont.type(12, bold: true))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                    .foregroundStyle(currency == option ? Color.Brand.creamSoft : Color.Brand.cobalt)
+                                    .frame(maxWidth: .infinity, minHeight: 40)
+                                    .background(currency == option ? Color.Brand.cobalt : .clear, in: Capsule())
+                                    .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(option.name)
+                            .accessibilityAddTraits(currency == option ? .isSelected : [])
                         }
                     }
-                    .pickerStyle(.segmented)
                     .accessibilityIdentifier("groupCurrencyPicker")
 
                     BrandSectionLabel("MEMBERS")
@@ -248,42 +259,10 @@ struct AddGroupSheet: View {
             return
         }
 
-        createLocalGroup(named: finalName)
-    }
-
-    private func createLocalGroup(named finalName: String) {
-        let creator = people.first(where: \.isCurrentUser) ?? Person(name: "You", isCurrentUser: true)
-        if creator.modelContext == nil { context.insert(creator) }
-        var memberIDs: Set<UUID> = [creator.id]
-        let friends = memberOptions.compactMap { person -> Person? in
-            guard selected.contains(person.id) else { return nil }
-            let preferred = ConnectedFriendIdentity.preferredPerson(for: person, among: people)
-            return memberIDs.insert(preferred.id).inserted ? preferred : nil
-        }
-        let members = [creator] + friends
-        let group = Group(name: finalName, icon: icon, simplifyDebts: simplify,
-                          members: members, currencyCode: currency.rawValue)
-        context.insert(group)
-        let currentUser = people.first(where: \.isCurrentUser)
-        context.insert(ActivityItem(kind: .groupCreated,
-                                    summary: "\(currentUser?.name ?? "You") created “\(finalName)”",
-                                    refID: group.id, actorID: currentUser?.id,
-                                    groupID: group.id, groupName: group.name))
-        let rewardOutcome = currentUser.flatMap { currentUser in
-            try? RewardEngine.award(action: .groupCreated, eventID: group.id,
-                                    personID: currentUser.id, context: context)
-        }
-        do {
-            try context.save()
-            CloudCollaborationService.shared.groupDidChange(group)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            dismiss()
-            if let rewardOutcome {
-                RewardFeedbackCenter.shared.present(rewardOutcome)
-            }
-        } catch {
-            return
-        }
+        // Groups live on the BillBandit server only. Without a session there
+        // is nowhere trustworthy to save one.
+        errorMessage = "Sign in again to create a group. Groups are saved to your BillBandit account."
+        statusMessage = nil
     }
 
     @MainActor

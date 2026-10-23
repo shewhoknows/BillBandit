@@ -39,7 +39,7 @@ enum BalanceEngine {
             net[s.from] = (net[s.from] ?? 0) + s.amount
             net[s.to] = (net[s.to] ?? 0) - s.amount
         }
-        return net.mapValues(Money.whole)
+        return net.mapValues(Money.cents)
     }
 
     /// Net for one person within the given fact set.
@@ -53,7 +53,7 @@ enum BalanceEngine {
         let amount = transfers
             .filter { $0.from == from && $0.to == to }
             .reduce(Decimal.zero) { $0 + $1.amount }
-        let rounded = Money.whole(amount)
+        let rounded = Money.cents(amount)
         return rounded > 0 ? rounded : nil
     }
 
@@ -77,15 +77,15 @@ enum BalanceEngine {
         var creditors = nets.filter { $0.value > 0 }.map { (id: $0.key, amt: $0.value) }
         var debtors   = nets.filter { $0.value < 0 }.map { (id: $0.key, amt: -$0.value) }
         var transfers = [DebtTransfer]()
-        let epsilon = Decimal(string: "0.5")!
+        let epsilon = Decimal(string: "0.005")!
 
         while let cMax = creditors.max(by: { $0.amt < $1.amt }),
               let dMax = debtors.max(by: { $0.amt < $1.amt }),
               cMax.amt > epsilon, dMax.amt > epsilon {
-            let pay = Money.whole(min(cMax.amt, dMax.amt))
+            let pay = Money.cents(min(cMax.amt, dMax.amt))
             transfers.append(DebtTransfer(from: dMax.id, to: cMax.id, amount: pay))
-            creditors = creditors.map { $0.id == cMax.id ? ($0.id, Money.whole($0.amt - pay)) : $0 }.filter { $0.1 > epsilon }
-            debtors   = debtors.map   { $0.id == dMax.id ? ($0.id, Money.whole($0.amt - pay)) : $0 }.filter { $0.1 > epsilon }
+            creditors = creditors.map { $0.id == cMax.id ? ($0.id, Money.cents($0.amt - pay)) : $0 }.filter { $0.1 > epsilon }
+            debtors   = debtors.map   { $0.id == dMax.id ? ($0.id, Money.cents($0.amt - pay)) : $0 }.filter { $0.1 > epsilon }
         }
         return transfers
     }

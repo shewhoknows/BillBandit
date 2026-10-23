@@ -5,6 +5,7 @@ import {
   LEDGER_ENFORCEMENT_ENABLED,
   readClientCapabilityHeaders,
 } from '../../../../lib/compatibility/ledger-gate'
+import { CURRENCY_EXPONENTS } from '../../../../lib/settlement/money/registry'
 
 export async function GET(req: NextRequest) {
   const clientHeaders = readClientCapabilityHeaders(req.headers)
@@ -29,6 +30,9 @@ export async function GET(req: NextRequest) {
       migrationRequired: decision.migrationRequired,
       readOnly: decision.readOnly,
       rolloutCohort: decision.rolloutCohort,
+      currencies: Object.entries(CURRENCY_EXPONENTS)
+        .map(([code, exponent]) => ({ code, exponent }))
+        .sort((a, b) => a.code.localeCompare(b.code)),
       gate: {
         outcome: decision.outcome,
         reasonCode: decision.reasonCode,
