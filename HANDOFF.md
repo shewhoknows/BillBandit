@@ -50,6 +50,14 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
+### 2026-10-23 — Build 32 release
+
+- Commits `bbaecea` (polish) and `b3ab93a` (build 32) are on `main`.
+- Production database backed up first: `~/Cowork/BillBandit-db-backups/prod-before-build32-20261023T190522.dump` (pg_dump 18, custom format, 43 expenses checked).
+- GitHub deploy failed: the `RAILWAY_TOKEN` repo secret is invalid. The API was deployed with `railway up` from a clean `git archive` of `b3ab93a`, logged in as the project owner. `/api/health` serves `b3ab93a`. All 3 new migrations applied. New routes return 401 without a token.
+- Build 32 uploaded to App Store Connect ("Upload succeeded"). Processing and export compliance still to confirm.
+- Open: replace the `RAILWAY_TOKEN` secret; signed-in rates check; two-phone checks.
+
 ### 2026-10-22 — App Store polish pass (uncommitted, not deployed)
 
 - Scope set by the user: point-1 polish items, exact minor-unit money, server-only data, SGD and AED on the server, a default currency per person with clear exchange rates, and colour fixes only where screens leave the cobalt and cream palette. A full redesign was started and stopped; do not restart it. Red error text and the red Delete account button stay.
