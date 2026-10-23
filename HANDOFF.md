@@ -55,7 +55,7 @@ directly; regenerate them from sources (see §5).
 - Commits `bbaecea` (polish) and `b3ab93a` (build 32) are on `main`.
 - Production database backed up first: `~/Cowork/BillBandit-db-backups/prod-before-build32-20261023T190522.dump` (pg_dump 18, custom format, 43 expenses checked).
 - GitHub deploy failed: the `RAILWAY_TOKEN` repo secret is invalid. The API was deployed with `railway up` from a clean `git archive` of `b3ab93a`, logged in as the project owner. `/api/health` serves `b3ab93a`. All 3 new migrations applied. New routes return 401 without a token.
-- Build 32 uploaded to App Store Connect ("Upload succeeded"). Processing and export compliance still to confirm.
+- Build 32 uploaded and processed as VALID. Export compliance is answered by `ITSAppUsesNonExemptEncryption = false`. It is IN_BETA_TESTING in BillBandit Internal QA.
 - Open: replace the `RAILWAY_TOKEN` secret; signed-in rates check; two-phone checks.
 
 ### 2026-10-22 — App Store polish pass (uncommitted, not deployed)
