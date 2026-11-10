@@ -18,7 +18,7 @@ struct GroupDetailScreen: View {
     @State private var revealFreshExpense = true
     @State private var balanceBreakdownExpanded = false
     @State private var canonicalSettlementStore = SettlementStore()
-    @State private var canonicalExpenseForEditing: CanonicalExpenseEditDraft?
+    @State private var canonicalExpenseForOverview: String?
     @State private var pendingExpenseID: String?
     @State private var showMissingExpense = false
     @State private var membershipAction: SharedGroupMembershipAction?
@@ -247,8 +247,10 @@ struct GroupDetailScreen: View {
         .fullScreenCover(isPresented: $showAddExpense, onDismiss: expenseSheetDidDismiss) {
             AddExpenseSheet(initialGroup: group)
         }
-        .fullScreenCover(item: $canonicalExpenseForEditing, onDismiss: expenseSheetDidDismiss) { draft in
-            AddExpenseSheet(initialGroup: group, canonicalEditingExpense: draft)
+        .navigationDestination(item: $canonicalExpenseForOverview) { expenseID in
+            SharedExpenseOverviewScreen(group: group, expenseID: expenseID) {
+                await canonicalSettlementStore.refresh(forceWritesDisabled: true)
+            }
         }
         .fullScreenCover(isPresented: $showSettle) {
             if prefersSharedSettleUp {
@@ -528,7 +530,7 @@ struct GroupDetailScreen: View {
             } else {
                 ForEach(canonicalSettlementStore.canonicalExpenses) { expense in
                     Button {
-                        beginEditingCanonicalExpense(expense.id)
+                        canonicalExpenseForOverview = expense.id
                     } label: {
                         CanonicalInvoiceExpenseRow(expense: expense)
                             .contentShape(Rectangle())
@@ -536,7 +538,7 @@ struct GroupDetailScreen: View {
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("invoiceExpense-\(expense.title)")
-                    .accessibilityHint("Edit expense")
+                    .accessibilityHint("Open expense overview")
                 }
             }
         }
@@ -647,22 +649,10 @@ struct GroupDetailScreen: View {
               canonicalSettlementStore.canonicalSnapshot?.isStale == false else { return }
         pendingExpenseID = nil
         if canonicalSettlementStore.canonicalExpenses.contains(where: { $0.id == expenseID }) {
-            beginEditingCanonicalExpense(expenseID)
+            canonicalExpenseForOverview = expenseID
         } else {
             showMissingExpense = true
         }
-    }
-
-    private func beginEditingCanonicalExpense(_ expenseID: String) {
-        guard let canonicalGroup = canonicalSettlementStore.canonicalSnapshot?.group,
-              let expense = canonicalGroup.expenses.first(where: { $0.expenseID == expenseID }),
-              let draft = CanonicalExpenseEditDraft(
-                expense: expense,
-                canonicalGroup: canonicalGroup
-              ) else {
-            return
-        }
-        canonicalExpenseForEditing = draft
     }
 
     private func expenseSheetDidDismiss() {
@@ -1854,7 +1844,9 @@ private struct GroupAddMembersSheet: View {
 struct SharedExpenseOverviewScreen: View {
     let group: Group
     let expenseID: String
+    var onDeleted: () async -> Void = {}
     @State private var ledger = SettlementStore()
+    @State private var editDraft: CanonicalExpenseEditDraft?
     @ObservedObject private var surface = ServerLedgerSurfaceStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -1894,6 +1886,15 @@ struct SharedExpenseOverviewScreen: View {
                             .font(BrandFont.type(11)).opacity(0.7)
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
+                    if let draft = CanonicalExpenseEditDraft(expense: expense, canonicalGroup: canonicalGroup) {
+                        Button("Edit") { editDraft = draft }
+                            .font(BrandFont.display(15, weight: .bold))
+                            .foregroundStyle(Color.Brand.cobalt)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .background(Color.Brand.creamSoft, in: Capsule())
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("expenseOverviewEditButton")
+                    }
                     receiptSection("ADDED & UPDATED") {
                         Text("Added by \(memberName(expense.createdByMemberID ?? creation?.actorMemberID, fallback: "unavailable"))")
                             .font(BrandFont.body(14, weight: .bold))
@@ -1925,7 +1926,10 @@ struct SharedExpenseOverviewScreen: View {
                     }
                     SharedExpenseDeleteControl(group: group, expenseID: expenseID, expenseTitle: expense.description,
                                                expectedRevision: Int64(canonicalGroup.revision)) {
-                        dismiss()
+                        Task {
+                            await onDeleted()
+                            dismiss()
+                        }
                     }
                     receiptSection("CHANGE HISTORY", identifier: "expenseChangeHistory") {
                         if history.isEmpty {
@@ -1963,6 +1967,15 @@ struct SharedExpenseOverviewScreen: View {
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .navigationTitle("Expense")
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(item: $editDraft, onDismiss: {
+            ledger.setVisible(true)
+            Task {
+                await ledger.refresh(forceWritesDisabled: true)
+                await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
+            }
+        }) { draft in
+            AddExpenseSheet(initialGroup: group, canonicalEditingExpense: draft)
+        }
         .refreshable { await ledger.refresh(forceWritesDisabled: true) }
         .task(id: expenseID + (surface.activeAccountIdentifier ?? "")) {
             ledger.setVisible(false)
