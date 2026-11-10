@@ -306,9 +306,6 @@ struct SharedSettleUpScreen: View {
                         Button {
                             store.setInteractionActive(true)
                             confirmationNote = ""
-                            confirmationAmount = SettlementMoneyFormatting.decimalString(
-                                fromMinorUnits: transfer.minorUnits, exponent: transfer.currencyExponent
-                            )
                             actionError = nil
                             confirmationTransfer = transfer
                         } label: {
@@ -447,11 +444,12 @@ struct SharedSettleUpScreen: View {
                         TextField("Amount", text: $confirmationAmount)
                             .keyboardType(.decimalPad)
                             .font(BrandFont.display(20, weight: .bold))
+                            .foregroundStyle(Color.Brand.cobalt)
                             .accessibilityIdentifier("settlementAmountField")
                             .padding(14)
                             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control))
-                        if enteredMinorUnits == nil {
-                            Text("Enter an amount above zero, up to the amount owed.")
+                        if let amountError = settlementAmountError(for: transfer) {
+                            Text(amountError)
                                 .font(BrandFont.type(11, bold: true))
                                 .foregroundStyle(Color.red)
                         }
@@ -536,6 +534,11 @@ struct SharedSettleUpScreen: View {
             }
             .background(Color.Brand.cobalt.ignoresSafeArea())
         }
+        .onAppear {
+            confirmationAmount = SettlementMoneyFormatting.decimalString(
+                fromMinorUnits: transfer.minorUnits, exponent: transfer.currencyExponent
+            )
+        }
     }
 
     private func settleBanner(_ text: String, showsProgress: Bool = false) -> some View {
@@ -561,6 +564,25 @@ struct SharedSettleUpScreen: View {
               SettlementMoneyFormatting.compare(minor, "0") == .orderedDescending,
               SettlementMoneyFormatting.compare(minor, transfer.minorUnits) != .orderedDescending else { return nil }
         return minor
+    }
+
+    private func settlementAmountError(for transfer: SettlementPlanTransferDTO) -> String? {
+        let text = confirmationAmount.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = transfer.currencyExponent == 0
+            ? #"^[0-9]+$"#
+            : "^[0-9]+(?:\\.[0-9]{1,\(transfer.currencyExponent)})?$"
+        guard text.range(of: pattern, options: .regularExpression) != nil else {
+            return "Enter an amount above zero with a valid number of decimal places."
+        }
+        let minor = SettlementMoneyFormatting.minorUnits(from: text, exponent: transfer.currencyExponent)
+        guard ServerLedgerMoneyDTO.isCanonicalMinorUnits(minor),
+              SettlementMoneyFormatting.compare(minor, "0") == .orderedDescending else {
+            return "Enter an amount above zero."
+        }
+        guard SettlementMoneyFormatting.compare(minor, transfer.minorUnits) != .orderedDescending else {
+            return "Enter an amount no greater than the amount owed."
+        }
+        return nil
     }
 
     private func transferAmount(_ transfer: SettlementPlanTransferDTO) -> String {
