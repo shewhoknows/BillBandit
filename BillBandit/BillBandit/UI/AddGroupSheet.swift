@@ -99,9 +99,14 @@ struct AddGroupSheet: View {
                                     BrandCheckmark(isOn: selected.contains(person.id))
                                 }
                                 .padding(.horizontal, 15)
-                                .frame(height: 50)
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(person.name)
+                            .accessibilityAddTraits(selected.contains(person.id) ? .isSelected : [])
+                            .accessibilityIdentifier("groupFriendRow-\(person.name)")
                             if index < memberOptions.count - 1 {
                                 Rectangle().fill(Color.Brand.cobalt.opacity(0.18)).frame(height: 1)
                                     .padding(.horizontal, 15)
@@ -133,9 +138,14 @@ struct AddGroupSheet: View {
                         }
                         .foregroundStyle(Color.Brand.cobalt)
                         .padding(.horizontal, 16)
-                        .frame(height: 62)
+                        .frame(maxWidth: .infinity, minHeight: 62)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("groupSimplifyDebtsButton")
+                    .accessibilityLabel("Simplify debts")
+                    .accessibilityValue(simplify ? "On" : "Off")
+                    .accessibilityAddTraits(simplify ? .isSelected : [])
                     .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
 
                     if let statusMessage {

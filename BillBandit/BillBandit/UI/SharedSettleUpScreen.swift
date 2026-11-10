@@ -356,8 +356,13 @@ struct SharedSettleUpScreen: View {
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(Color.Brand.cobalt)
                     }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("settledHistoryToggle")
+                .accessibilityLabel("Settled payments")
+                .accessibilityValue(settledExpanded ? "Expanded" : "Collapsed")
                 if settledExpanded {
                     if snapshot.settled.items.isEmpty {
                         Text("No settlements yet.")

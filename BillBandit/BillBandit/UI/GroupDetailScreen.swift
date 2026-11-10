@@ -1589,11 +1589,15 @@ private struct GroupAddMembersSheet: View {
                             .font(BrandFont.body(14, weight: .bold))
                             .foregroundStyle(Color.Brand.cobalt)
                             .padding(.horizontal, 16)
-                            .frame(minHeight: 50)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .contentShape(Rectangle())
                             .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("addMemberCandidate-\(friend.id.uuidString)")
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(friend.name)
+                        .accessibilityAddTraits(selectedID == friend.id ? .isSelected : [])
+                        .accessibilityIdentifier("addMemberRow-\(friend.name)")
                     }
                     Button { showAddFriend = true } label: {
                         Label("Add a friend", systemImage: "person.badge.plus")
