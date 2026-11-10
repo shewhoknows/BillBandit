@@ -492,6 +492,30 @@ struct GroupDetailScreen: View {
                             .accessibilityIdentifier("invoicePayments")
                     }
 
+                    if let canonical = canonicalSettlementStore.canonicalSnapshot?.group {
+                        let deleted = canonical.activity.filter { $0.type == "expense" && $0.action == "deleted" }.suffix(3).reversed()
+                        if !deleted.isEmpty {
+                            DottedRule().padding(.vertical, 9)
+                            Text("RECENT CHANGES").font(BrandFont.type(11, bold: true))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            ForEach(Array(deleted), id: \.activityID) { event in
+                                if let id = event.expenseID {
+                                    Button {
+                                        canonicalExpenseForOverview = id
+                                    } label: {
+                                        let actor = canonical.memberByID[event.actorMemberID ?? ""]
+                                        let name = actor?.accountID == canonical.accountID ? "You" : (actor?.displayName ?? "Unknown member")
+                                        Text("\(name) deleted “\(event.description ?? "Expense")”")
+                                            .font(BrandFont.type(11)).frame(maxWidth: .infinity, alignment: .leading)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("groupDeletedExpense-\(id)")
+                                }
+                            }
+                        }
+                    }
+
                     balanceStampControl
 
                     baseCurrencyEstimates
@@ -1894,7 +1918,7 @@ struct SharedExpenseOverviewScreen: View {
         return snapshot.group
     }
     private var expense: SettlementCanonicalLedgerExpense? {
-        canonicalGroup?.expenses.first { $0.expenseID == expenseID && $0.status == "active" }
+        canonicalGroup?.expenses.first { $0.expenseID == expenseID }
     }
     private var history: [SettlementCanonicalLedgerActivity] {
         // Legacy fallback events use the expense date, not the time it was added.
@@ -1912,6 +1936,10 @@ struct SharedExpenseOverviewScreen: View {
                 if let expense, let canonicalGroup {
                     VStack(spacing: 8) {
                         Text(group.name).font(BrandFont.body(12, weight: .semibold)).opacity(0.7)
+                        if expense.status == "voided" {
+                            Text("DELETED").font(BrandFont.type(14, bold: true))
+                                .accessibilityIdentifier("expenseDeletedStamp")
+                        }
                         Text(expense.description).font(BrandFont.display(28, weight: .bold))
                             .multilineTextAlignment(.center)
                         Text(money(expense.amount)).font(BrandFont.type(34, bold: true))
@@ -1922,7 +1950,7 @@ struct SharedExpenseOverviewScreen: View {
                             .font(BrandFont.type(11)).opacity(0.7)
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
-                    if let draft = CanonicalExpenseEditDraft(expense: expense, canonicalGroup: canonicalGroup) {
+                    if expense.status == "active", let draft = CanonicalExpenseEditDraft(expense: expense, canonicalGroup: canonicalGroup) {
                         Button("Edit") { editDraft = draft }
                             .font(BrandFont.display(15, weight: .bold))
                             .foregroundStyle(Color.Brand.cobalt)
@@ -1960,6 +1988,7 @@ struct SharedExpenseOverviewScreen: View {
                                 .accessibilityIdentifier("expenseNote")
                         }
                     }
+                    if expense.status == "active" {
                     SharedExpenseDeleteControl(group: group, expenseID: expenseID, expenseTitle: expense.description,
                                                expectedRevision: Int64(canonicalGroup.revision),
                                                isPayer: canonicalGroup.memberByID[expense.paidByMemberID]?.accountID == surface.activeAccountIdentifier,
@@ -1969,6 +1998,7 @@ struct SharedExpenseOverviewScreen: View {
                             await onDeleted()
                             dismiss()
                         }
+                    }
                     }
                     receiptSection("CHANGE HISTORY", identifier: "expenseChangeHistory") {
                         if history.isEmpty {
@@ -2037,7 +2067,8 @@ struct SharedExpenseOverviewScreen: View {
 
     private func memberName(_ id: String?, fallback: String = "Unknown member") -> String {
         guard let id else { return fallback }
-        return canonicalGroup?.memberByID[id]?.displayName ?? fallback
+        guard let member = canonicalGroup?.memberByID[id] else { return fallback }
+        return member.accountID == surface.activeAccountIdentifier ? "You" : member.displayName
     }
     private func money(_ value: ServerLedgerMoneyDTO) -> String {
         SettlementMoneyFormatting.display(minorUnits: value.minorUnits, currencyCode: value.currencyCode,

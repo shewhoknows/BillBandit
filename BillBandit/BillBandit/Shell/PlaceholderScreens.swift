@@ -1886,13 +1886,7 @@ struct ServerLedgerActivityRow: View {
     let item: ServerLedgerSurfaceActivityItem
     var compact = false
 
-    private var summary: String {
-        guard item.type == "expense", let title = item.description, !title.isEmpty else {
-            return item.displaySummary
-        }
-        let action = item.action == "updated" ? "updated" : item.action == "deleted" ? "deleted" : "added"
-        return "\(title) \(action) in \(item.groupName)"
-    }
+    private var summary: String { item.displaySummary }
 
     var body: some View {
         HStack(spacing: 9) {
@@ -1910,7 +1904,7 @@ struct ServerLedgerActivityRow: View {
                 }
             }
             Spacer(minLength: 4)
-            if item.showsAmount {
+            if item.showsAmount && item.type != "expense" {
                 Text(item.amount.absoluteDisplayText)
                     .font(BrandFont.type(compact ? 11 : 11, bold: true))
                     .lineLimit(1)
@@ -2163,7 +2157,7 @@ private struct SharedActivityDestination: View {
 
     var body: some View {
         if let group = groups.first(where: { $0.serverLedgerGroupID == item.groupID }) {
-            if item.type == "expense", item.action != "deleted", let expenseID = item.expenseID {
+            if item.type == "expense", let expenseID = item.expenseID {
                 SharedExpenseOverviewScreen(group: group, expenseID: expenseID)
             } else if item.type == "settlement" || item.type == "reversal" {
                 PaymentActivityDetailScreen(item: item, group: group)

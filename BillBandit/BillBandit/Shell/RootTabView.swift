@@ -257,22 +257,9 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
         case "expense":
             let title = description?.trimmingCharacters(in: .whitespacesAndNewlines)
             let subject = title.flatMap { $0.isEmpty ? nil : $0 } ?? "Expense"
-            if action == "updated" {
-                if let actorName, !actorName.isEmpty {
-                    return "\(actorName) updated \(subject) in \(groupName)"
-                }
-                return "\(subject) updated in \(groupName)"
-            }
-            if action == "deleted" {
-                if let actorName, !actorName.isEmpty {
-                    return "\(actorName) deleted \(subject) in \(groupName)"
-                }
-                return "\(subject) deleted in \(groupName)"
-            }
-            if let actorName, !actorName.isEmpty {
-                return "\(subject) added in \(groupName) by \(actorName)"
-            }
-            return "\(subject) added in \(groupName)"
+            let verb = action == "updated" ? "updated" : action == "deleted" ? "deleted" : "added"
+            let payer = payerName ?? "Unknown member"
+            return "\(actorName ?? "Unknown member") \(verb) “\(subject)” · \(amount.absoluteDisplayText) · paid by \(payer) · \(groupName)"
         case "settlement":
             if let payerName, let recipientName {
                 return "\(payerName) paid \(recipientName) in \(groupName)"
@@ -688,6 +675,7 @@ private struct ServerLedgerSurfaceReadGroup: Decodable {
     let localOnly: Bool
     let readRevision: Int64
     let members: [ServerLedgerSurfaceReadMember]
+    let expenses: [SettlementCanonicalLedgerExpense]
     let baseCurrency: ServerLedgerSurfaceReadCurrency
     let balances: ServerLedgerSurfaceReadBalances
     let settlementPlan: ServerLedgerSurfaceReadPlan
@@ -702,6 +690,7 @@ private struct ServerLedgerSurfaceReadGroup: Decodable {
         case localOnly
         case readRevision
         case members
+        case expenses
         case baseCurrency
         case balances
         case settlementPlan
@@ -1151,8 +1140,9 @@ final class ServerLedgerSurfaceStore: ObservableObject {
                 throw ServerLedgerAPIClientError.invalidResponse
             }
             let memberByID = Dictionary(uniqueKeysWithValues: members.map {
-                ($0.memberID, $0.displayName)
+                ($0.memberID, $0.accountID == snapshot.accountID ? "You" : $0.displayName)
             })
+            let expensePayer = $0.expenseID.flatMap { id in group.expenses.first { $0.expenseID == id }?.paidByMemberID }
             return ServerLedgerSurfaceActivityItem(
                 id: $0.activityID,
                 type: $0.type,
@@ -1162,7 +1152,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
                 groupName: group.name,
                 description: $0.description,
                 actorName: $0.actorMemberID.flatMap { memberByID[$0] },
-                payerName: $0.payerMemberID.flatMap { memberByID[$0] },
+                payerName: ($0.payerMemberID ?? expensePayer).flatMap { memberByID[$0] },
                 recipientName: $0.recipientMemberID.flatMap { memberByID[$0] },
                 targetName: $0.targetMemberID.flatMap { memberByID[$0] },
                 amount: amount,
