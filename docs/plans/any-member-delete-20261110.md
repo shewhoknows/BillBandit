@@ -75,8 +75,23 @@ One commit per Work item, plain messages, each ending with `Co-Authored-By: Clau
 
 ## Open questions
 
-(fill in during the work)
+- The mobile DELETE route returns 404 for both a non-member and a departed member because it cannot find the expense in their account read model. Both were refused; the plan explicitly requires 403. Changing the route or authorization behavior needs owner direction because only the payer rule change was approved.
+- A switched simulator account initially showed onboarding and an empty ledger for You. A second launch restored the ledger. Live propagation to another already-running app was not proved.
+- A simultaneous edit/delete race, finalized-group refusal, queued offline deletion, and TestFlight build 32 compatibility were not exercised. The delete response code was not changed by this work.
+- The deleted overview was checked with equal splits and no note. Other split methods and notes remain unverified.
 
 ## Report
 
-(fill in at the end: per item done / partly / not done, commit, how verified, doubts)
+| Work | Status | Commit | Verification and limits |
+| --- | --- | --- | --- |
+| 1 | Partly verified | `2ebfbd9` | Non-payer deletion succeeded over HTTP and in the simulator. Non-member and departed member requests were refused with 404, not the specified 403. Archived-group refusal passed. Finalized group was not exercised. |
+| 2 | Verified for sampled deletion | `e766d75` | The HTTP scenario read the atomic activity metadata and verified date, exact amount, payer, deleter, and canonical activity actor. Deleted expense and history remain in the canonical read model. No schema change. |
+| 3 | Partly verified | `5f3a189` | Kabir saw Delete, the payer line and payment warning, then deleted two expenses. The edit-sheet entry point and offline failure were not exercised. |
+| 4 | Partly verified | `e65925e` plus final verification commit | Both viewer perspectives, deleted overview and history, receipt changes, and payment balances were seen. A follow-up removes Activity text truncation. Already-running other-member sync, note, and other split methods were not exercised. |
+| 5 | Partly verified | `267068a` | `signin --as dev_kabir` supplied a local simulator session. Switching back to You required completing onboarding and one extra launch before the ledger appeared. |
+
+Verification A: six checks passed and two failed the specified status code: non-member and departed member received 404, not 403. They could not delete. The local scenario uses real HTTP requests and two member tokens. The full table and DELETE request logs are in `.scratch/launch-blockers/evidence/any-member-delete/`.
+
+Verification B: You created a ₹100 expense; Kabir saw the payer warning, deleted it, and saw the group at ₹0 and the correct Activity actor and payer. After switching to You and an extra launch, Activity named Kabir and the deleted overview showed the title, amount, payer, date, split and history, without edit/delete. For a second ₹100 expense with a ₹20 payment, Kabir saw the payment warning, then was owed ₹20; You saw a ₹20 amount owed and the payment retained. No already-running second device was available to prove sync without relaunch. Screenshots and steps are in the evidence directory.
+
+Verification C: `npm run typecheck` and `npm run lint` passed. The Debug build passed with the existing script-phase and App Intents warnings. No new warning was found. The final source-only accessibility identifiers and Activity wrapping were built; the Activity wrapping was viewed on the simulator.

@@ -1208,6 +1208,7 @@ private struct DeleteExpenseConfirmationSheet: View {
                         .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2.5))
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("keepExpenseButton")
                 Button(action: onDelete) {
                     Text("Delete expense")
                         .font(BrandFont.display(15, weight: .bold))
@@ -1216,6 +1217,7 @@ private struct DeleteExpenseConfirmationSheet: View {
                         .background(Color.Brand.cobalt, in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("confirmDeleteExpenseButton")
             }
             .padding(22)
             .frame(maxWidth: .infinity, maxHeight: .infinity)

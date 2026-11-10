@@ -50,6 +50,13 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
+### 2026-11-10 — Any member can delete a shared expense
+
+- Work commits `2ebfbd9`, `e766d75`, `5f3a189`, `e65925e`, and `267068a` implement the approved payer-rule exception, deletion date metadata, shared Delete control and warnings, actor-aware Activity and deleted overview, and local second-member sign-in. The final verification commit adds the local HTTP scenario, Activity wrapping, accessibility identifiers, and this report. No deploy or push.
+- Local HTTP scenario: six checks passed; non-member and departed-member deletion were refused with 404, not the plan's required 403. The route hides expenses outside the account read model. No additional authorization or server validation change was made. Concurrent deletion, activity attribution, balance agreement, edit-after-delete, payment retention, and archived refusal were sampled.
+- Simulator: Kabir deleted You's ₹100 expense, saw the payer warning, correct Activity and a zero receipt. A second deletion after a ₹20 payment warned that payments stay and left Kabir owed ₹20; You saw ₹20 owed. You's Activity identified Kabir and the deleted overview showed history and no edit/delete. Switching back required onboarding and a second launch; already-running cross-member sync remains unverified. The simulator was returned to You.
+- Debug build, typecheck and lint passed. Build retained the two existing warnings. Evidence and exact steps: `.scratch/launch-blockers/evidence/any-member-delete/`. See `docs/plans/any-member-delete-20261110.md` for open questions and limits.
+
 ### 2026-11-10 — Launch blockers round 4 (branch `fix/launch-blockers`)
 
 - Commits `1e18677`, `ef6daea`, and `457a201` cover terminal client refusals and payer-only deletion, receipt payment totals, and personal square labels. The server, ledger math, auth, and schema were not changed.

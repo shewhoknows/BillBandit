@@ -1896,7 +1896,7 @@ struct ServerLedgerActivityRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary)
                     .font(BrandFont.type(compact ? 11 : 12, bold: true))
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if !compact {
                     Text(item.at.formatted(date: .omitted, time: .shortened))
                         .font(BrandFont.type(11))
