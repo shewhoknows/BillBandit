@@ -15,8 +15,6 @@ enum ServerLedgerUserFacingCopy {
 
     static func message(forAPIErrorCode code: String) -> String? {
         switch code.uppercased() {
-        case "ONLY THE PAYER CAN DELETE AN EXPENSE":
-            return "Only the person who paid can delete this expense."
         case "LEDGER_READ_UNAVAILABLE":
             return sharedBalancesRetryHint
         case "MONEY_MIGRATION_REQUIRED":

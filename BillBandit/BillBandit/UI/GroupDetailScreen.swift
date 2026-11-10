@@ -1137,6 +1137,8 @@ struct ExpenseDetailScreen: View {
 private struct DeleteExpenseConfirmationSheet: View {
     let expenseTitle: String
     let showsSettlementWarning: Bool
+    var otherPayerName: String? = nil
+    var isShared = false
     let cancel: () -> Void
     let onDelete: () -> Void
 
@@ -1160,8 +1162,14 @@ private struct DeleteExpenseConfirmationSheet: View {
                     .foregroundStyle(Color.Brand.cobalt)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 18)
+                if let otherPayerName {
+                    Text("\(otherPayerName) paid for this. Everyone in the group will see that you deleted it.")
+                        .font(BrandFont.body(12.5, weight: .semibold))
+                        .foregroundStyle(Color.Brand.cobalt)
+                        .multilineTextAlignment(.center)
+                }
                 Text(showsSettlementWarning
-                     ? "A payment has already been recorded. Deleting this expense creates a refund balance; if it is the last expense, those payments will be cleared."
+                     ? (isShared ? "Payments already recorded stay. Balances will be recalculated." : "A payment has already been recorded. Deleting this expense creates a refund balance; if it is the last expense, those payments will be cleared.")
                      : "This removes the expense and recalculates everyone’s balance. It cannot be undone.")
                     .font(BrandFont.body(12.5, weight: .semibold))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
@@ -1201,8 +1209,9 @@ struct SharedExpenseDeleteControl: View {
     let expenseID: String
     let expenseTitle: String
     let expectedRevision: Int64
-    let canDelete: Bool
+    let isPayer: Bool
     let payerName: String
+    let showsSettlementWarning: Bool
     let onDeleted: () -> Void
     @State private var showConfirmation = false
     @State private var isDeleting = false
@@ -1211,17 +1220,10 @@ struct SharedExpenseDeleteControl: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if canDelete {
-                Button("Delete expense", role: .destructive) { showConfirmation = true }
-                    .font(BrandFont.type(12, bold: true))
-                    .accessibilityIdentifier("deleteSharedExpenseButton")
-                    .disabled(isDeleting || operationID != nil)
-            } else {
-                Text("Only \(payerName) can delete this expense.")
-                    .font(BrandFont.body(12, weight: .semibold))
-                    .opacity(0.7)
-                    .accessibilityIdentifier("deleteSharedExpensePayerOnly")
-            }
+            Button("Delete expense", role: .destructive) { showConfirmation = true }
+                .font(BrandFont.type(12, bold: true))
+                .accessibilityIdentifier("deleteSharedExpenseButton")
+                .disabled(isDeleting || operationID != nil)
             if let errorMessage {
                 Text(errorMessage)
                     .font(BrandFont.body(12, weight: .semibold))
@@ -1229,7 +1231,8 @@ struct SharedExpenseDeleteControl: View {
             }
         }
         .fullScreenCover(isPresented: $showConfirmation) {
-            DeleteExpenseConfirmationSheet(expenseTitle: expenseTitle, showsSettlementWarning: false) {
+            DeleteExpenseConfirmationSheet(expenseTitle: expenseTitle, showsSettlementWarning: showsSettlementWarning,
+                                           otherPayerName: isPayer ? nil : payerName, isShared: true) {
                 showConfirmation = false
             } onDelete: {
                 showConfirmation = false
@@ -1959,8 +1962,9 @@ struct SharedExpenseOverviewScreen: View {
                     }
                     SharedExpenseDeleteControl(group: group, expenseID: expenseID, expenseTitle: expense.description,
                                                expectedRevision: Int64(canonicalGroup.revision),
-                                               canDelete: canonicalGroup.memberByID[expense.paidByMemberID]?.accountID == surface.activeAccountIdentifier,
-                                               payerName: memberName(expense.paidByMemberID)) {
+                                               isPayer: canonicalGroup.memberByID[expense.paidByMemberID]?.accountID == surface.activeAccountIdentifier,
+                                               payerName: memberName(expense.paidByMemberID),
+                                               showsSettlementWarning: !canonicalGroup.settlementHistory.isEmpty) {
                         Task {
                             await onDeleted()
                             dismiss()

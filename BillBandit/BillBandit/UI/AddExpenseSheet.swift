@@ -49,6 +49,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
     let notes: String?
     let category: String?
     let revision: Int64
+    let showsSettlementWarning: Bool
 
     init?(
         expense: SettlementCanonicalLedgerExpense,
@@ -98,6 +99,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
         self.notes = expense.notes
         self.category = expense.category
         self.revision = Int64(canonicalGroup.revision)
+        self.showsSettlementWarning = !canonicalGroup.settlementHistory.isEmpty
     }
 }
 
@@ -265,8 +267,9 @@ struct AddExpenseSheet: View {
                     if let group, let draft = canonicalEditingExpense {
                         SharedExpenseDeleteControl(group: group, expenseID: draft.id, expenseTitle: draft.title,
                                                    expectedRevision: draft.revision,
-                                                   canDelete: draft.paidByAccountID == serverLedger.activeAccountIdentifier,
-                                                   payerName: draft.payerName) {
+                                                   isPayer: draft.paidByAccountID == serverLedger.activeAccountIdentifier,
+                                                   payerName: draft.payerName,
+                                                   showsSettlementWarning: draft.showsSettlementWarning) {
                             dismiss()
                         }
                         .foregroundStyle(Color.Brand.cobalt)
