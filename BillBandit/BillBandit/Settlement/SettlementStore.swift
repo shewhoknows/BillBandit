@@ -50,6 +50,7 @@ final class SettlementStore {
     private var isVisible = false
     private var isInteractionActive = false
     private var isRefreshInFlight = false
+    private var refreshRequestedWhileInFlight = false
     private var realtimeClient: SettlementRealtimeClient
     private var pendingRefreshVersion: Int?
     private var currentUserLabel = "You"
@@ -259,7 +260,10 @@ final class SettlementStore {
 
     func refresh(forceWritesDisabled: Bool = false) async {
         guard let scope = configuredScope, let serverLedgerSync else { return }
-        guard !isRefreshInFlight else { return }
+        guard !isRefreshInFlight else {
+            refreshRequestedWhileInFlight = true
+            return
+        }
         isRefreshInFlight = true
         let hadSnapshot = snapshot != nil
         let showsVisibleActivity = hadSnapshot && forceWritesDisabled
@@ -274,6 +278,10 @@ final class SettlementStore {
                 isUpdating = false
             }
             isRefreshInFlight = false
+            if refreshRequestedWhileInFlight {
+                refreshRequestedWhileInFlight = false
+                Task { await refresh(forceWritesDisabled: true) }
+            }
             if !isInteractionActive,
                let pendingRefreshVersion,
                pendingRefreshVersion > appliedVersion {

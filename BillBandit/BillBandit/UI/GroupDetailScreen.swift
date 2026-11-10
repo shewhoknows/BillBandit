@@ -257,7 +257,12 @@ struct GroupDetailScreen: View {
                 celebration = nil
             }
         }
-        .onAppear { revealInvoice(); onContextChange(group); reportGroupContext(group) }
+        .onAppear {
+            revealInvoice()
+            onContextChange(group)
+            reportGroupContext(group)
+            canonicalSettlementStore.setVisible(true)
+        }
         .onChange(of: canonicalSettlementStore.hasCanonicalReadModel) { _, _ in
             openRequestedExpenseIfReady()
         }
@@ -1226,6 +1231,8 @@ struct SharedExpenseDeleteControl: View {
                     throw T15LedgerUIError.canonicalSnapshotUnavailable
                 }
                 await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
+                NotificationCenter.default.post(name: .billBanditServerCatalogDidRefresh, object: nil,
+                                                userInfo: ["groupIDs": [groupID]])
                 isDeleting = false
                 onDeleted()
             } catch {
