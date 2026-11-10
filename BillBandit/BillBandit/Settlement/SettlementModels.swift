@@ -685,6 +685,18 @@ struct SettlementLedgerExpense: Equatable, Identifiable, Sendable {
     let date: String
 }
 
+enum ExpenseDate {
+    static func parse(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    static func display(_ value: String) -> String {
+        parse(value)?.formatted(.dateTime.day().month(.abbreviated).year()) ?? "Unavailable"
+    }
+}
+
 struct SettlementLedgerBalanceLine: Equatable, Identifiable, Sendable {
     let id: String
     let memberID: String
@@ -709,16 +721,21 @@ extension SettlementCanonicalLedgerGroup {
         let memberByID = memberByID
         return expenses
             .filter { $0.status == "active" }
-            .sorted { $0.createdAt > $1.createdAt }
+            .enumerated()
+            .sorted { left, right in
+                let leftDate = ExpenseDate.parse(left.element.createdAt).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast
+                let rightDate = ExpenseDate.parse(right.element.createdAt).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast
+                return leftDate == rightDate ? left.offset < right.offset : leftDate > rightDate
+            }
             .map {
                 SettlementLedgerExpense(
-                    id: $0.expenseID,
-                    title: $0.description,
-                    amount: $0.amount,
-                    payerMemberID: $0.paidByMemberID,
-                    payerName: memberByID[$0.paidByMemberID]?.displayName ?? "Unknown",
-                    splitCount: $0.splits.filter { SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending }.count,
-                    date: $0.createdAt
+                    id: $0.element.expenseID,
+                    title: $0.element.description,
+                    amount: $0.element.amount,
+                    payerMemberID: $0.element.paidByMemberID,
+                    payerName: memberByID[$0.element.paidByMemberID]?.displayName ?? "Unknown",
+                    splitCount: $0.element.splits.filter { SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending }.count,
+                    date: $0.element.createdAt
                 )
             }
     }

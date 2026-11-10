@@ -893,7 +893,7 @@ private struct CanonicalInvoiceExpenseRow: View {
                     currencyExponent: expense.amount.currencyExponent
                 )
             )
-            Text("paid by \(expense.payerName) · split \(expense.splitCount) ways")
+            Text("\(ExpenseDate.display(expense.date)) · paid by \(expense.payerName) · split \(expense.splitCount) ways")
                 .font(BrandFont.type(8.5))
                 .opacity(0.55)
         }
@@ -1872,7 +1872,7 @@ struct SharedExpenseOverviewScreen: View {
                             .minimumScaleFactor(0.65).lineLimit(1)
                         Text("Paid by \(memberName(expense.paidByMemberID))")
                             .font(BrandFont.type(13)).accessibilityIdentifier("expensePayer")
-                        Text("Expense date · \(timestamp(expense.createdAt, includesTime: false))")
+                        Text("Expense date · \(ExpenseDate.display(expense.createdAt))")
                             .font(BrandFont.type(10)).opacity(0.7)
                     }
                     .foregroundStyle(Color.Brand.creamSoft)

@@ -114,6 +114,9 @@ struct AddExpenseSheet: View {
     @State private var category: ExpenseCategory = .food
     @State private var categoryChanged = false
     @State private var notes = ""
+    @State private var expenseDate: Date
+    @State private var dateChanged = false
+    @State private var showDatePicker = false
     @State private var group: Group?
     @State private var showNewGroup = false
     @State private var paidBy: Person?
@@ -221,6 +224,7 @@ struct AddExpenseSheet: View {
         _title = State(initialValue: canonicalEditingExpense?.title ?? editingExpense?.title ?? "")
         _category = State(initialValue: canonicalEditingExpense?.category.flatMap(ExpenseCategory.init(rawValue:)) ?? editingExpense?.category ?? .food)
         _notes = State(initialValue: canonicalEditingExpense?.notes ?? editingExpense?.notes ?? "")
+        _expenseDate = State(initialValue: canonicalEditingExpense.flatMap { ExpenseDate.parse($0.originalDate) } ?? editingExpense?.date ?? .now)
         _group = State(initialValue: editingExpense?.group ?? initialGroup)
         _paidBy = State(initialValue: editingExpense?.paidBy)
         let initialMode = canonicalEditingExpense?.mode ?? editingExpense?.splits.first?.mode ?? .equal
@@ -245,6 +249,7 @@ struct AddExpenseSheet: View {
                 VStack(spacing: 14) {
                     amountHero
                     titleField
+                    dateSection
                     categorySection
                     noteSection
                     if isCanonicalEditing {
@@ -292,6 +297,20 @@ struct AddExpenseSheet: View {
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet() }
+        .sheet(isPresented: $showDatePicker) {
+            VStack(spacing: 16) {
+                BrandModalHeader(title: "Expense date") { showDatePicker = false }
+                DatePicker("Expense date", selection: $expenseDate, in: ...Date.now, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .tint(Color.Brand.cobalt)
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .padding()
+                    .onChange(of: expenseDate) { _, _ in dateChanged = true }
+                    .accessibilityIdentifier("expenseDatePicker")
+                Spacer()
+            }
+            .background(Color.Brand.creamSoft.ignoresSafeArea())
+        }
         .onAppear {
             initializeParticipantsIfNeeded()
             hydrateCanonicalEditState()
@@ -735,6 +754,27 @@ struct AddExpenseSheet: View {
         }
     }
 
+    private var dateSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            BrandSectionLabel("DATE")
+            Button { showDatePicker = true } label: {
+                HStack {
+                    Image(systemName: "calendar")
+                    Text(Calendar.current.isDateInToday(expenseDate) ? "Today" : expenseDate.formatted(.dateTime.day().month(.abbreviated).year()))
+                    Spacer()
+                }
+                .font(BrandFont.body(14, weight: .bold))
+                .foregroundStyle(Color.Brand.cobalt)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .contentShape(Rectangle())
+                .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("expenseDateButton")
+        }
+    }
+
     private func saveLocalExpense(
         amount: Decimal,
         title: String,
@@ -756,6 +796,7 @@ struct AddExpenseSheet: View {
             existing.amount = roundedAmount
             existing.categoryRaw = category.rawValue
             existing.notes = notes
+            existing.date = expenseDate
             existing.group = group
             existing.paidBy = payer
             existing.splits = splits
@@ -773,6 +814,7 @@ struct AddExpenseSheet: View {
             expense = Expense(title: title, amount: roundedAmount,
                               category: category, group: group, paidBy: payer, splits: splits)
             expense.notes = notes
+            expense.date = expenseDate
             context.insert(expense)
             let actorName = you?.name ?? "You"
             context.insert(ActivityItem(kind: .expenseAdded,
@@ -1046,7 +1088,7 @@ struct AddExpenseSheet: View {
             description: title,
             amount: money,
             currency: canonicalGroup.baseCurrency.currencyCode,
-            date: canonicalEditingExpense?.originalDate ?? serverDate(editingExpense?.date ?? .now),
+            date: !dateChanged ? (canonicalEditingExpense?.originalDate ?? serverDate(expenseDate)) : serverDate(expenseDate),
             category: categoryChanged ? category.rawValue : (canonicalEditingExpense?.category ?? category.rawValue),
             splitMethod: mode.serverValue,
             splits: encodedSplits,
