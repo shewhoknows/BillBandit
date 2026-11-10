@@ -29,6 +29,7 @@ struct AddGroupSheet: View {
         VStack(spacing: 12) {
             BrandModalHeader(title: "New group") { dismiss() }
 
+            VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     BrandSectionLabel("NAME")
@@ -182,11 +183,10 @@ struct AddGroupSheet: View {
                 }
                 .padding(18)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                createButton
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(Color.Brand.creamSoft)
+            .clipped()
+            createButton
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
             }
             .background(Color.Brand.creamSoft)
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
