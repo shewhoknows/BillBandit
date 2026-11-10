@@ -43,6 +43,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
     let paidByAccountID: String
     let mode: SplitMode
     let inputValuesByAccountID: [String: String]
+    let participantAccountIDs: Set<String>
     let originalDate: String
 
     init?(
@@ -87,6 +88,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
         self.paidByAccountID = paidByAccountID
         self.mode = mode
         self.inputValuesByAccountID = inputValuesByAccountID
+        self.participantAccountIDs = Set(expense.splits.compactMap { canonicalGroup.memberByID[$0.memberID]?.accountID })
         self.originalDate = expense.createdAt
     }
 }
@@ -109,6 +111,8 @@ struct AddExpenseSheet: View {
     @State private var paidBy: Person?
     @State private var mode: SplitMode = .equal
     @State private var inputs: [UUID: String] = [:] // per-person values for exact/%/shares
+    @State private var excludedMemberIDs: Set<UUID> = []
+    @State private var initializedParticipants = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var isSubmitting = false
@@ -144,6 +148,10 @@ struct AddExpenseSheet: View {
             if isYou($0) != isYou($1) { return isYou($0) }
             return $0.name < $1.name
         }
+    }
+
+    private var includedParticipants: [Person] {
+        participants.filter { !excludedMemberIDs.contains($0.id) }
     }
 
     /// The person is this user, either the local "you" or the member row
@@ -237,6 +245,7 @@ struct AddExpenseSheet: View {
                         groupRow
                     }
                     paidByRow
+                    participantSection
                     splitSection
                     if let errorMessage {
                         Text(errorMessage)
@@ -269,6 +278,7 @@ struct AddExpenseSheet: View {
         .background(Color.Brand.cobalt.ignoresSafeArea())
         .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet() }
         .onAppear {
+            initializeParticipantsIfNeeded()
             hydrateCanonicalEditState()
             choosePayerIfNeeded()
             if !isCanonicalEditing,
@@ -292,10 +302,12 @@ struct AddExpenseSheet: View {
             }
         }
         .onChange(of: people.count) {
+            initializeParticipantsIfNeeded()
             hydrateCanonicalEditState()
             choosePayerIfNeeded()
         }
         .onChange(of: group?.id) { _, _ in
+            initializeParticipantsIfNeeded()
             hydrateCanonicalEditState()
             choosePayerIfNeeded()
             seedShareInputsIfNeeded()
@@ -444,6 +456,38 @@ struct AddExpenseSheet: View {
         }
     }
 
+    private var participantSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            BrandSectionLabel("SPLIT BETWEEN")
+            ForEach(participants, id: \.id) { person in
+                let included = !excludedMemberIDs.contains(person.id)
+                Button {
+                    if included {
+                        if includedParticipants.count > 1 { excludedMemberIDs.insert(person.id) }
+                    } else {
+                        excludedMemberIDs.remove(person.id)
+                    }
+                } label: {
+                    HStack {
+                        Text(compactName(person))
+                            .font(BrandFont.body(14, weight: .bold))
+                        Spacer()
+                        BrandCheckmark(isOn: included)
+                    }
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(person.name)
+                .accessibilityIdentifier("expenseParticipant-\(person.id.uuidString)")
+                .accessibilityAddTraits(included ? .isSelected : [])
+            }
+        }
+    }
+
     private var splitSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             BrandSectionLabel("SPLIT TYPE")
@@ -463,7 +507,7 @@ struct AddExpenseSheet: View {
             .overlay(Capsule().strokeBorder(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
 
             if mode != .equal {
-                ForEach(participants, id: \.id) { p in
+                ForEach(includedParticipants, id: \.id) { p in
                     HStack {
                         Text(p.name).font(BrandFont.type(12)).foregroundStyle(Color.Brand.cobalt)
                         Spacer()
@@ -517,16 +561,17 @@ struct AddExpenseSheet: View {
     }
 
     private var equalSplitSummary: String {
-        guard let total = parsedAmount, !participants.isEmpty else {
-            return "\(participants.count) people · splits evenly"
+        let count = "\(includedParticipants.count) of \(participants.count) people"
+        guard let total = parsedAmount, !includedParticipants.isEmpty else {
+            return "\(count) · splits evenly"
         }
-        let splitInputs = participants.map { SplitInput(personID: $0.id, mode: .equal) }
+        let splitInputs = includedParticipants.map { SplitInput(personID: $0.id, mode: .equal) }
         guard let values = try? SplitEngine.compute(total: total, inputs: splitInputs, exponent: expenseCurrencyExponent).values,
               let low = values.min(), let high = values.max() else {
-            return "\(participants.count) people · splits evenly"
+            return "\(count) · splits evenly"
         }
-        if low == high { return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode)) each" }
-        return "\(participants.count) people · \(Money.currency(low, currencyCode: expenseCurrencyCode, keepsDecimals: true))–\(Money.currency(high, currencyCode: expenseCurrencyCode, keepsDecimals: true)) each"
+        if low == high { return "\(count) · \(Money.currency(low, currencyCode: expenseCurrencyCode)) each" }
+        return "\(count) · \(Money.currency(low, currencyCode: expenseCurrencyCode, keepsDecimals: true))–\(Money.currency(high, currencyCode: expenseCurrencyCode, keepsDecimals: true)) each"
     }
 
     private func selectGroup(_ selection: Group?) {
@@ -535,9 +580,27 @@ struct AddExpenseSheet: View {
             errorMessage = "Keep this expense in a \(current.resolvedCurrencyCode) group. Currency conversion is not supported."
             return
         }
+        if group?.id != selection?.id {
+            excludedMemberIDs.removeAll()
+            initializedParticipants = !isEditingExpense
+        }
         group = selection
         guard let payer = paidBy, !participants.contains(where: { $0.id == payer.id }) else { return }
         paidBy = participants.first(where: isYou) ?? participants.first
+    }
+
+    private func initializeParticipantsIfNeeded() {
+        guard !initializedParticipants, !participants.isEmpty else { return }
+        if let draft = canonicalEditingExpense {
+            excludedMemberIDs = Set(participants.filter { person in
+                let accountID = person.serverAccountID ?? (isYou(person) ? serverLedger.activeAccountIdentifier : nil)
+                return accountID.map { !draft.participantAccountIDs.contains($0) } ?? true
+            }.map(\.id))
+        } else if let expense = editingExpense {
+            let included = Set(expense.splits.compactMap { $0.person?.id })
+            excludedMemberIDs = Set(participants.filter { !included.contains($0.id) }.map(\.id))
+        }
+        initializedParticipants = true
     }
 
     private func hydrateCanonicalEditState() {
@@ -583,9 +646,9 @@ struct AddExpenseSheet: View {
         var splitInputs = [SplitInput]()
         switch mode {
         case .equal:
-            splitInputs = participants.map { SplitInput(personID: $0.id, mode: .equal) }
+            splitInputs = includedParticipants.map { SplitInput(personID: $0.id, mode: .equal) }
         case .exact, .percent, .shares:
-            for p in participants {
+            for p in includedParticipants {
                 let v = Money.parseInput(inputs[p.id] ?? "") ?? 0
                 splitInputs.append(SplitInput(personID: p.id, mode: mode, value: v))
             }
@@ -593,7 +656,7 @@ struct AddExpenseSheet: View {
 
         do {
             let computed = try SplitEngine.compute(total: amount, inputs: splitInputs, exponent: expenseCurrencyExponent)
-            let splits = participants.compactMap { p -> Split? in
+            let splits = includedParticipants.compactMap { p -> Split? in
                 guard let amt = computed[p.id] else { return nil }
                 return Split(mode: mode,
                              value: Money.parseInput(inputs[p.id] ?? "0") ?? 0,
@@ -893,7 +956,7 @@ struct AddExpenseSheet: View {
             currencyCode: canonicalGroup.baseCurrency.currencyCode,
             currencyExponent: canonicalGroup.baseCurrency.currencyExponent
         )
-        let encodedSplits = try participants.enumerated().map { index, person in
+        let encodedSplits = try includedParticipants.enumerated().map { index, person in
             let memberID = try CanonicalMemberIdentity.memberID(
                 for: person,
                 canonicalGroup: canonicalGroup,

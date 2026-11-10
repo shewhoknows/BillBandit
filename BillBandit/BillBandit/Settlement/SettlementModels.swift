@@ -713,7 +713,7 @@ extension SettlementCanonicalLedgerGroup {
                     amount: $0.amount,
                     payerMemberID: $0.paidByMemberID,
                     payerName: memberByID[$0.paidByMemberID]?.displayName ?? "Unknown",
-                    splitCount: $0.splits.count,
+                    splitCount: $0.splits.filter { SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending }.count,
                     date: $0.createdAt
                 )
             }

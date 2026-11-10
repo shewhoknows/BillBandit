@@ -861,7 +861,7 @@ private struct InvoiceExpenseRow: View {
         VStack(alignment: .leading, spacing: 2) {
             InvoiceLeaderRow(label: expense.title, amount: Money.string(expense.amount),
                              animationValue: expense.amount)
-            Text("paid by \(payerName) · split \(expense.splits.count) ways")
+            Text("paid by \(payerName) · split \(expense.splits.filter { $0.computedAmount > 0 }.count) ways")
                 .font(BrandFont.type(8.5))
                 .opacity(0.55)
         }
@@ -1806,7 +1806,7 @@ struct SharedExpenseOverviewScreen: View {
                         }
                     }
                     receiptSection("SPLIT BREAKDOWN") {
-                        Text(expense.splitMethod.capitalized + " · \(expense.splits.count) people")
+                        Text(expense.splitMethod.capitalized + " · \(expense.splits.filter { SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending }.count) people")
                             .font(BrandFont.body(12, weight: .semibold))
                         ForEach(expense.splits.sorted { memberName($0.memberID) < memberName($1.memberID) }, id: \.splitID) { split in
                             SplitBreakdownRow(name: canonicalGroup.memberByID[split.memberID]?.displayName ?? "Unknown member",
