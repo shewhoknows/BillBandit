@@ -1181,6 +1181,8 @@ struct SharedExpenseDeleteControl: View {
     let expenseID: String
     let expenseTitle: String
     let expectedRevision: Int64
+    let canDelete: Bool
+    let payerName: String
     let onDeleted: () -> Void
     @State private var showConfirmation = false
     @State private var isDeleting = false
@@ -1189,10 +1191,17 @@ struct SharedExpenseDeleteControl: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Button("Delete expense", role: .destructive) { showConfirmation = true }
-                .font(BrandFont.type(12, bold: true))
-                .accessibilityIdentifier("deleteSharedExpenseButton")
-                .disabled(isDeleting || operationID != nil)
+            if canDelete {
+                Button("Delete expense", role: .destructive) { showConfirmation = true }
+                    .font(BrandFont.type(12, bold: true))
+                    .accessibilityIdentifier("deleteSharedExpenseButton")
+                    .disabled(isDeleting || operationID != nil)
+            } else {
+                Text("Only \(payerName) can delete this expense.")
+                    .font(BrandFont.body(12, weight: .semibold))
+                    .opacity(0.7)
+                    .accessibilityIdentifier("deleteSharedExpensePayerOnly")
+            }
             if let errorMessage {
                 Text(errorMessage)
                     .font(BrandFont.body(12, weight: .semibold))
@@ -1248,7 +1257,11 @@ struct SharedExpenseDeleteControl: View {
                 if queued && T15LedgerUIError.isOffline(error) {
                     errorMessage = "Deletion is queued. It will sync when the connection returns."
                 } else {
-                    if !queued || T15LedgerUIError.isConflict(error) { operationID = nil }
+                    if !queued || T15LedgerUIError.isConflict(error) || T15LedgerUIError.isUnauthorized(error) {
+                        operationID = nil
+                    } else if case let ServerLedgerAPIClientError.server(status, _) = error, (400..<500).contains(status) {
+                        operationID = nil
+                    }
                     errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not delete this expense.")
                 }
             }
@@ -1925,7 +1938,9 @@ struct SharedExpenseOverviewScreen: View {
                         }
                     }
                     SharedExpenseDeleteControl(group: group, expenseID: expenseID, expenseTitle: expense.description,
-                                               expectedRevision: Int64(canonicalGroup.revision)) {
+                                               expectedRevision: Int64(canonicalGroup.revision),
+                                               canDelete: canonicalGroup.memberByID[expense.paidByMemberID]?.accountID == surface.activeAccountIdentifier,
+                                               payerName: memberName(expense.paidByMemberID)) {
                         Task {
                             await onDeleted()
                             dismiss()

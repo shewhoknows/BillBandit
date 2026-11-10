@@ -41,6 +41,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
     let title: String
     let amount: Decimal
     let paidByAccountID: String
+    let payerName: String
     let mode: SplitMode
     let inputValuesByAccountID: [String: String]
     let participantAccountIDs: Set<String>
@@ -89,6 +90,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
         self.title = expense.description
         self.amount = amount
         self.paidByAccountID = paidByAccountID
+        self.payerName = canonicalGroup.memberByID[expense.paidByMemberID]?.displayName ?? "the payer"
         self.mode = mode
         self.inputValuesByAccountID = inputValuesByAccountID
         self.participantAccountIDs = Set(expense.splits.compactMap { canonicalGroup.memberByID[$0.memberID]?.accountID })
@@ -262,7 +264,9 @@ struct AddExpenseSheet: View {
                     splitSection
                     if let group, let draft = canonicalEditingExpense {
                         SharedExpenseDeleteControl(group: group, expenseID: draft.id, expenseTitle: draft.title,
-                                                   expectedRevision: draft.revision) {
+                                                   expectedRevision: draft.revision,
+                                                   canDelete: draft.paidByAccountID == serverLedger.activeAccountIdentifier,
+                                                   payerName: draft.payerName) {
                             dismiss()
                         }
                         .foregroundStyle(Color.Brand.cobalt)
@@ -988,9 +992,10 @@ struct AddExpenseSheet: View {
                     return
                 }
                 if queued && T15LedgerUIError.isUnauthorized(error) {
-                    isSubmitting = true
-                    errorMessage = nil
-                    statusMessage = "Your session expired. Re-authenticate; this shared expense remains queued."
+                    isSubmitting = false
+                    activeOperationID = nil
+                    errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not save that shared expense.")
+                    statusMessage = nil
                     return
                 }
                 if queued && T15LedgerUIError.isConflict(error) {
@@ -1001,6 +1006,20 @@ struct AddExpenseSheet: View {
                     return
                 }
                 if queued {
+                    if case ServerLedgerAPIClientError.idempotencyKeyReused = error {
+                        isSubmitting = false
+                        activeOperationID = nil
+                        errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not save that shared expense.")
+                        statusMessage = nil
+                        return
+                    }
+                    if case let ServerLedgerAPIClientError.server(status, _) = error, (400..<500).contains(status) {
+                        isSubmitting = false
+                        activeOperationID = nil
+                        errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not save that shared expense.")
+                        statusMessage = nil
+                        return
+                    }
                     // Keep the same operation ID attached to the durable row
                     // until the user explicitly resolves the visible state.
                     // A second tap must never create a competing mutation.

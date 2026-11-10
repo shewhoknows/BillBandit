@@ -338,10 +338,9 @@ final class ServerLedgerSync {
             case .idempotencyKeyReused:
                 operation.markFailed(error: "idempotency_key_reused")
             case .unauthorized:
-                // Keep the operation durable across token renewal, but do not
-                // give it another attempt until the caller explicitly enters
-                // a new authenticated/reconnected sync cycle.
-                operation.retry(after: nil, error: "unauthorized")
+                operation.markFailed(error: "unauthorized")
+            case let .server(status, _) where (400..<500).contains(status):
+                operation.markFailed(error: ServerLedgerErrorDescription.string(error))
             case .offline:
                 operation.retry(after: now().addingTimeInterval(backoff.delay(for: operation.retryCount + 1)), error: "offline")
             default:

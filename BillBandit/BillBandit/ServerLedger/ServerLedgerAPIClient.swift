@@ -349,6 +349,9 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
 
     private static func errorCode(from data: Data) -> String? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let message = object["message"] as? String, !message.isEmpty {
+            return message
+        }
         return object["error"] as? String
             ?? (object["code"] as? String)
             ?? ((object["conflict"] as? [String: Any])?["code"] as? String)
