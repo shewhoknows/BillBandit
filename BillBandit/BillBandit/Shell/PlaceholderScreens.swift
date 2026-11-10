@@ -692,6 +692,9 @@ struct HomeScreen: View {
             .navigationDestination(for: Group.self) { group in
                 GroupDetailScreen(group: group)
             }
+            .navigationDestination(for: ServerLedgerSurfaceActivityItem.self) { item in
+                SharedActivityDestination(item: item, groups: visibleGroups)
+            }
             .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
                 await serverLedger.refresh(groups: visibleGroups)
             }
@@ -1997,6 +2000,9 @@ struct ActivityScreen: View {
             }
             .background(Color.Brand.cobalt)
             .navigationTitle("Activity")
+            .navigationDestination(for: ServerLedgerSurfaceActivityItem.self) { item in
+                SharedActivityDestination(item: item, groups: visibleGroups)
+            }
             .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
                 await serverLedger.refresh(groups: visibleGroups)
             }
@@ -2012,7 +2018,7 @@ enum UnifiedActivity: Identifiable {
 
     var id: String {
         switch self {
-        case .shared(let item): return "shared-\(item.id)"
+        case .shared(let item): return "shared-\(item.groupID)-\(item.id)"
         case .local(let item): return "local-\(item.id.uuidString)"
         }
     }
@@ -2132,37 +2138,32 @@ private struct ExpenseActivityNavigation<Content: View>: View {
         self.content = content()
     }
 
-    private var group: Group? {
-        groups.first { $0.serverLedgerGroupID == item.groupID }
-    }
-    private var canOpen: Bool {
-        item.type == "expense" && item.action != "deleted" && item.expenseID != nil && group != nil
-    }
-    private var isPayment: Bool {
-        item.type == "settlement" || item.type == "reversal"
-    }
-
     var body: some View {
-        if canOpen, let group, let expenseID = item.expenseID {
-            NavigationLink {
-                SharedExpenseOverviewScreen(group: group, expenseID: expenseID)
-            } label: { content.contentShape(Rectangle()) }
+        if groups.contains(where: { $0.serverLedgerGroupID == item.groupID }) {
+            NavigationLink(value: item) { content.contentShape(Rectangle()) }
             .buttonStyle(.plain)
-            .accessibilityHint("Open expense")
-        } else if isPayment, let group {
-            NavigationLink {
-                PaymentActivityDetailScreen(item: item, group: group)
-            } label: { content.contentShape(Rectangle()) }
-            .buttonStyle(.plain)
-            .accessibilityHint("Open payment")
-        } else if let group {
-            NavigationLink {
-                GroupDetailScreen(group: group)
-            } label: { content.contentShape(Rectangle()) }
-            .buttonStyle(.plain)
-            .accessibilityHint("Open group")
+            .accessibilityHint("Open activity")
         } else {
             content
+        }
+    }
+}
+
+private struct SharedActivityDestination: View {
+    let item: ServerLedgerSurfaceActivityItem
+    let groups: [Group]
+
+    var body: some View {
+        if let group = groups.first(where: { $0.serverLedgerGroupID == item.groupID }) {
+            if item.type == "expense", item.action != "deleted", let expenseID = item.expenseID {
+                SharedExpenseOverviewScreen(group: group, expenseID: expenseID)
+            } else if item.type == "settlement" || item.type == "reversal" {
+                PaymentActivityDetailScreen(item: item, group: group)
+            } else {
+                GroupDetailScreen(group: group)
+            }
+        } else {
+            Text("Group unavailable")
         }
     }
 }
