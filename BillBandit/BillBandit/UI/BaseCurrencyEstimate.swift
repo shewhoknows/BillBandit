@@ -153,7 +153,7 @@ struct DefaultCurrencyPromptSheet: View {
                                 Text("\(option.symbol) \(option.rawValue)")
                                     .font(BrandFont.type(13, bold: true))
                                 Text(option.name)
-                                    .font(BrandFont.body(9, weight: .semibold))
+                                    .font(BrandFont.body(11, weight: .semibold))
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.7)
                                     .opacity(0.75)
@@ -715,9 +715,9 @@ struct BaseCurrencyEstimatePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title.uppercased())
-                .font(BrandFont.type(9, bold: true))
+                .font(BrandFont.type(11, bold: true))
                 .tracking(1)
-                .opacity(0.6)
+                .opacity(0.7)
 
             if let sourceCurrency,
                let estimate = store.estimate(amount: amount, sourceCurrency: sourceCurrency.rawValue) {
@@ -728,14 +728,14 @@ struct BaseCurrencyEstimatePanel: View {
 
                 if let rate = store.rate(for: sourceCurrency), sourceCurrency != store.selectedBaseCurrency {
                     Text(BaseCurrencyEstimateFormatting.rateLine(rate))
-                        .font(BrandFont.type(9.5))
+                        .font(BrandFont.type(11))
                         .opacity(0.7)
                 }
             } else {
                 Text(store.isRefreshing
                      ? "Getting today's \(currencyCode) to \(store.selectedBaseCurrency.rawValue) rate…"
                      : "No \(currencyCode) to \(store.selectedBaseCurrency.rawValue) rate yet. Pull to refresh.")
-                    .font(BrandFont.type(9.5))
+                    .font(BrandFont.type(11))
                     .opacity(0.7)
             }
         }

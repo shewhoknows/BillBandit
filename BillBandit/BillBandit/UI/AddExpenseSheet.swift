@@ -269,14 +269,14 @@ struct AddExpenseSheet: View {
                     }
                     if let errorMessage {
                         Text(errorMessage)
-                            .font(BrandFont.type(10, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.red.opacity(0.85))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("expenseMutationError")
                     }
                     if let statusMessage {
                         Text(statusMessage)
-                            .font(BrandFont.type(10, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("expenseMutationStatus")
@@ -373,7 +373,8 @@ struct AddExpenseSheet: View {
                 Text(expenseCurrencyExponent == 0
                      ? "\(expenseCurrencyCode) · whole amounts only"
                      : "\(expenseCurrencyCode) · up to \(expenseCurrencyExponent) decimal places")
-                    .font(BrandFont.type(10))
+                    .font(BrandFont.type(11))
+                    .foregroundStyle(Color.Brand.cobalt)
                     .accessibilityIdentifier("expenseCurrencyLabel")
             }
             Spacer(minLength: 4)
@@ -399,7 +400,7 @@ struct AddExpenseSheet: View {
         .padding(.vertical, 10)
         .overlay(alignment: .bottom) {
             Rectangle().stroke(style: StrokeStyle(lineWidth: 2, dash: [5]))
-                .foregroundStyle(Color.Brand.cobalt.opacity(0.5)).frame(height: 2)
+                .foregroundStyle(Color.Brand.cobalt.opacity(0.7)).frame(height: 2)
         }
     }
 
@@ -595,7 +596,7 @@ struct AddExpenseSheet: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("saveExpenseButton")
         .disabled(isSubmitting || group == nil || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil)
-        .opacity((isSubmitting || group == nil || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil) ? 0.5 : 1)
+        .opacity((isSubmitting || group == nil || parsedAmount == nil || title.trimmingCharacters(in: .whitespaces).isEmpty || paidBy == nil) ? 0.7 : 1)
     }
 
     // MARK: helpers
@@ -1203,9 +1204,9 @@ struct BrandSectionLabel: View {
 
     var body: some View {
         Text(text)
-            .font(BrandFont.body(10, weight: .extraBold))
+            .font(BrandFont.body(11, weight: .extraBold))
             .tracking(1.8)
-            .foregroundStyle(Color.Brand.cobalt.opacity(0.6))
+            .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
     }
 }
 

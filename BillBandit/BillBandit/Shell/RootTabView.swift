@@ -1249,13 +1249,13 @@ struct ServerLedgerSurfaceStatusView: View {
         HStack(spacing: 7) {
             BrandIconView(icon: .pulse, size: 13)
             Text(ledger.status.label)
-                .font(BrandFont.type(9, bold: true))
+                .font(BrandFont.type(11, bold: true))
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
             if showsRetry, onRetry != nil {
                 Text("retry")
-                    .font(BrandFont.type(8.5, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .opacity(0.72)
             }
         }
@@ -1275,7 +1275,7 @@ struct ServerLedgerBalanceChip: View {
 
     var body: some View {
         Text(presentation.label)
-            .font(BrandFont.type(10.5, bold: true))
+            .font(BrandFont.type(11, bold: true))
             .lineLimit(1)
             .minimumScaleFactor(0.72)
             .padding(.horizontal, 10)
@@ -1297,12 +1297,12 @@ struct ServerLedgerUnavailableChip: View {
         Text(isLoading
              ? ServerLedgerUserFacingCopy.loadingBalance
              : ServerLedgerUserFacingCopy.balanceUnavailable)
-            .font(BrandFont.type(9, bold: true))
+            .font(BrandFont.type(11, bold: true))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.68) : Color.Brand.creamSoft.opacity(0.74))
+            .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.7) : Color.Brand.creamSoft.opacity(0.74))
             .overlay(Capsule().stroke(
                 onLight ? Color.Brand.cobalt.opacity(0.6) : Color.Brand.creamSoft.opacity(0.7),
                 style: StrokeStyle(
@@ -1870,7 +1870,7 @@ struct RootTabView: View {
                     BrandIconView(icon: t.icon, size: 22)
                 }
                 Text(t.title)
-                    .font(BrandFont.body(9.5, weight: .extraBold))
+                    .font(BrandFont.body(11, weight: .extraBold))
             }
             .foregroundStyle(Color.Brand.creamSoft.opacity(t == tab ? 1 : 0.9))
             .frame(maxWidth: .infinity)
@@ -2028,8 +2028,8 @@ private struct RewardToastView: View {
                 Text(unlocked == nil
                     ? "\(outcome.totalXP) lifetime XP"
                     : "+\(outcome.xpAwarded) XP · pin unlocked")
-                    .font(BrandFont.type(9.5, bold: true))
-                    .opacity(0.62)
+                    .font(BrandFont.type(11, bold: true))
+                    .opacity(0.7)
             }
             Spacer(minLength: 4)
         }

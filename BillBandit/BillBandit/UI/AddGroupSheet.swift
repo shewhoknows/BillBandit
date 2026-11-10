@@ -131,8 +131,8 @@ struct AddGroupSheet: View {
                                 Text("Simplify debts")
                                     .font(BrandFont.display(14, weight: .semibold))
                                 Text("Fewer payments between members")
-                                    .font(BrandFont.type(9.5, bold: true))
-                                    .opacity(0.58)
+                                    .font(BrandFont.type(11, bold: true))
+                                    .opacity(0.7)
                             }
                             Spacer()
                             BrandCheckmark(isOn: simplify)
@@ -151,7 +151,7 @@ struct AddGroupSheet: View {
 
                     if let statusMessage {
                         Text(statusMessage)
-                            .font(BrandFont.type(10, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("groupMutationStatus")
@@ -159,7 +159,7 @@ struct AddGroupSheet: View {
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .font(BrandFont.type(10, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.red.opacity(0.85))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityIdentifier("groupMutationError")
@@ -215,7 +215,7 @@ struct AddGroupSheet: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("createGroupButton")
                     .disabled(trimmedName.isEmpty || isSubmitting || requiresReconfirmation)
-                    .opacity(trimmedName.isEmpty || isSubmitting || requiresReconfirmation ? 0.45 : 1)
+                    .opacity(trimmedName.isEmpty || isSubmitting || requiresReconfirmation ? 0.7 : 1)
     }
 
     private func refreshFriends() {

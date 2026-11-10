@@ -299,7 +299,7 @@ struct SleepingMascotSceneView: View {
                         let phase = (time * 0.20 + Double(index) * 0.46)
                             .truncatingRemainder(dividingBy: 1)
                         Text("Z")
-                            .font(BrandFont.display(10 + CGFloat(index) * 2.5, weight: .bold))
+                            .font(BrandFont.display(11 + CGFloat(index) * 2.5, weight: .bold))
                             .foregroundStyle(Color.Brand.cobalt)
                             .opacity((1 - phase) * 0.72)
                             .offset(x: width * 0.04 + CGFloat(index) * 13 + phase * 13,

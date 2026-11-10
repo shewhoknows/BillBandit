@@ -211,13 +211,13 @@ struct GroupDetailScreen: View {
                             .overlay(Capsule().stroke(Color.Brand.creamSoft, lineWidth: 2))
                     }
                     .disabled(settleButtonDisabled)
-                    .opacity(settleButtonDisabled ? 0.55 : 1)
+                    .opacity(settleButtonDisabled ? 0.7 : 1)
                     .accessibilityIdentifier("groupSettleUpButton")
                 }
                 .padding(.top, 18)
 
                 Text(simplificationLabel)
-                    .font(BrandFont.type(10, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .foregroundStyle(Color.Brand.creamSoft.opacity(0.7))
                     .padding(.vertical, 8)
 
@@ -228,6 +228,18 @@ struct GroupDetailScreen: View {
         }
         .background(Color.Brand.cobalt)
         .navigationTitle(group.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(group.name)
+                    .font(BrandFont.display(16, weight: .semibold))
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        }
         .toolbar(.visible, for: .navigationBar)
         .fullScreenCover(isPresented: $showAddMembers) {
             GroupAddMembersSheet(group: group)
@@ -408,15 +420,15 @@ struct GroupDetailScreen: View {
         HStack {
             if usesCanonicalLedger, canonicalSettlementStore.canonicalSnapshot == nil {
                 Text("loading members…")
-                    .font(BrandFont.type(10))
-                    .opacity(0.65)
+                    .font(BrandFont.type(11))
+                    .opacity(0.7)
             } else {
                 let memberCount = usesCanonicalLedger
                     ? (canonicalSettlementStore.canonicalSnapshot?.group.members.count ?? 0)
                     : group.members.count
                 Text("\(GroupCopy.memberCount(memberCount)) · est. \(group.createdAt.formatted(.dateTime.month(.abbreviated).year()))")
-                    .font(BrandFont.type(10))
-                    .opacity(0.65)
+                    .font(BrandFont.type(11))
+                    .opacity(0.7)
             }
             Spacer()
         }
@@ -433,8 +445,8 @@ struct GroupDetailScreen: View {
                         .font(BrandFont.type(14, bold: true))
                         .tracking(1.3)
                     Text("EXPENSE REPORT #\(reportNumber) · \(Date.now.formatted(.dateTime.month(.abbreviated).day().year()).uppercased())")
-                        .font(BrandFont.type(9))
-                        .opacity(0.58)
+                        .font(BrandFont.type(11))
+                        .opacity(0.7)
                         .padding(.top, 3)
                     DottedRule().padding(.vertical, 10)
 
@@ -454,8 +466,8 @@ struct GroupDetailScreen: View {
                     Text(usesCanonicalLedger
                          ? canonicalPaidShareString
                          : "you paid \(Money.currency(myPaid, currencyCode: group.resolvedCurrencyCode)) · your share \(Money.currency(myShare, currencyCode: group.resolvedCurrencyCode))")
-                        .font(BrandFont.type(9.5))
-                        .opacity(0.6)
+                        .font(BrandFont.type(11))
+                        .opacity(0.7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 5)
 
@@ -534,14 +546,14 @@ struct GroupDetailScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("PENDING")
-                    .font(BrandFont.type(10, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                 Spacer()
                 Text("\(pendingExpensePreviews.count)")
-                    .font(BrandFont.type(10, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .accessibilityIdentifier("groupPendingExpenseCount")
             }
             Text("Saved on this device. The shared balance updates after sync.")
-                .font(BrandFont.type(10))
+                .font(BrandFont.type(11))
                 .opacity(0.7)
             ForEach(pendingExpensePreviews) { preview in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -549,8 +561,8 @@ struct GroupDetailScreen: View {
                         Text(preview.title)
                             .font(BrandFont.type(12, bold: true))
                         Text(preview.status)
-                            .font(BrandFont.type(9))
-                            .opacity(0.65)
+                            .font(BrandFont.type(11))
+                            .opacity(0.7)
                     }
                     Spacer(minLength: 6)
                     Text(preview.amount)
@@ -561,8 +573,8 @@ struct GroupDetailScreen: View {
                 .accessibilityIdentifier("groupPendingOperation-\(preview.id.uuidString)")
             }
             Text("Refresh when you reconnect to retry any failed item.")
-                .font(BrandFont.type(9))
-                .opacity(0.65)
+                .font(BrandFont.type(11))
+                .opacity(0.7)
         }
         .foregroundStyle(Color.Brand.cobalt)
         .padding(12)
@@ -757,7 +769,7 @@ struct GroupDetailScreen: View {
             DottedRule()
                 .padding(.bottom, 9)
             Text(balanceStamp.hasPrefix("YOU OWE") ? "WHO YOU OWE" : "WHO OWES YOU")
-                .font(BrandFont.body(9.5, weight: .extraBold))
+                .font(BrandFont.body(11, weight: .extraBold))
                 .tracking(1.1)
                 .padding(.bottom, 7)
             if usesCanonicalLedger {
@@ -867,8 +879,8 @@ private struct InvoiceExpenseRow: View {
             InvoiceLeaderRow(label: expense.title, amount: Money.string(expense.amount),
                              animationValue: expense.amount)
             Text("paid by \(payerName) · split \(expense.splits.filter { $0.computedAmount > 0 }.count) ways")
-                .font(BrandFont.type(8.5))
-                .opacity(0.55)
+                .font(BrandFont.type(11))
+                .opacity(0.7)
         }
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -894,8 +906,8 @@ private struct CanonicalInvoiceExpenseRow: View {
                 )
             )
             Text("\(ExpenseDate.display(expense.date)) · paid by \(expense.payerName) · split \(expense.splitCount) ways")
-                .font(BrandFont.type(8.5))
-                .opacity(0.55)
+                .font(BrandFont.type(11))
+                .opacity(0.7)
         }
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1007,11 +1019,11 @@ struct ExpenseDetailScreen: View {
                     .font(BrandFont.type(36, bold: true))
                 Text("paid by \(expense.paidBy?.name ?? "?") · \(expense.date.formatted(date: .abbreviated, time: .omitted))")
                     .font(BrandFont.type(11))
-                    .opacity(0.65)
+                    .opacity(0.7)
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text("SPLIT BREAKDOWN")
-                        .font(BrandFont.body(10, weight: .extraBold))
+                        .font(BrandFont.body(11, weight: .extraBold))
                         .tracking(1.2)
                         .padding(.bottom, 7)
                     ForEach(expense.splits.sorted { ($0.person?.name ?? "") < ($1.person?.name ?? "") }, id: \.persistentModelID) { split in
@@ -1021,7 +1033,7 @@ struct ExpenseDetailScreen: View {
                     if !expense.notes.isEmpty {
                         DottedRule().padding(.vertical, 8)
                         Text("NOTES")
-                            .font(BrandFont.body(10, weight: .extraBold))
+                            .font(BrandFont.body(11, weight: .extraBold))
                         Text(expense.notes)
                             .font(BrandFont.type(11))
                             .padding(.top, 5)
@@ -1039,7 +1051,7 @@ struct ExpenseDetailScreen: View {
                          ?? "Added time unavailable")
                         .font(BrandFont.type(11))
                     DottedRule().padding(.vertical, 4)
-                    Text("CHANGE HISTORY").font(BrandFont.body(10, weight: .extraBold))
+                    Text("CHANGE HISTORY").font(BrandFont.body(11, weight: .extraBold))
                         .accessibilityIdentifier("expenseChangeHistory")
                     if recordedHistory.isEmpty {
                         Text("No recorded change history is available.")
@@ -1048,7 +1060,7 @@ struct ExpenseDetailScreen: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(item.summary).font(BrandFont.body(12, weight: .semibold))
                             Text(item.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                .font(BrandFont.type(10)).opacity(0.65)
+                                .font(BrandFont.type(11)).opacity(0.7)
                         }
                     }
                 }
@@ -1136,7 +1148,7 @@ private struct DeleteExpenseConfirmationSheet: View {
                      ? "A payment has already been recorded. Deleting this expense creates a refund balance; if it is the last expense, those payments will be cleared."
                      : "This removes the expense and recalculates everyone’s balance. It cannot be undone.")
                     .font(BrandFont.body(12.5, weight: .semibold))
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.66))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 18)
                 Spacer()
@@ -1347,9 +1359,9 @@ struct RecordPaymentSheet: View {
                                 .fixedSize(horizontal: true, vertical: true)
                                 .padding(.trailing, 10)
                             Text(group.name.uppercased())
-                                .font(BrandFont.type(10, bold: true))
+                                .font(BrandFont.type(11, bold: true))
                                 .tracking(1.5)
-                                .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.trailing, 82)
@@ -1360,7 +1372,7 @@ struct RecordPaymentSheet: View {
 
                     Rectangle()
                         .stroke(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.45))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                         .frame(height: 2)
 
                     personSelector(title: "FROM · WHO PAID", people: payers, selection: $fromID,
@@ -1385,7 +1397,7 @@ struct RecordPaymentSheet: View {
 
                     if let parsed, let suggestedAmount, Money.rounded(parsed, exponent: currencyExponent) > suggestedAmount {
                         Text("Maximum outstanding payment: \(Money.currency(suggestedAmount, currencyCode: group.resolvedCurrencyCode)).")
-                            .font(BrandFont.type(10, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.red.opacity(0.8))
                     }
 
@@ -1398,7 +1410,7 @@ struct RecordPaymentSheet: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSave)
-                    .opacity(canSave ? 1 : 0.45)
+                    .opacity(canSave ? 1 : 0.7)
                 }
                 .padding(18)
             }
@@ -1534,18 +1546,18 @@ struct SettlementCelebrationScreen: View {
                 Text(Money.currency(result.amount, currencyCode: result.currencyCode))
                     .font(BrandFont.type(47, bold: true))
                 Text(result.fullySettled ? "invoice fully settled" : "invoice balance updated")
-                    .font(BrandFont.type(10, bold: true))
-                    .opacity(0.6)
+                    .font(BrandFont.type(11, bold: true))
+                    .opacity(0.7)
                 if let reward = result.rewardOutcome {
                     VStack(spacing: 3) {
                         Text("+\(reward.xpAwarded) XP")
                             .font(BrandFont.display(16, weight: .bold))
                         if let pin = reward.unlockedAchievements.first {
                             Text("\(pin.title) unlocked")
-                                .font(BrandFont.type(10, bold: true))
+                                .font(BrandFont.type(11, bold: true))
                         } else if reward.didLevelUp {
                             Text("Level \(reward.currentLevel.rawValue) · \(reward.currentLevel.title)")
-                                .font(BrandFont.type(10, bold: true))
+                                .font(BrandFont.type(11, bold: true))
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1715,7 +1727,7 @@ private struct GroupAddMembersSheet: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isSubmitting || !candidates.contains(where: { $0.id == selectedID }))
-                .opacity(isSubmitting || !candidates.contains(where: { $0.id == selectedID }) ? 0.45 : 1)
+                .opacity(isSubmitting || !candidates.contains(where: { $0.id == selectedID }) ? 0.7 : 1)
                 .accessibilityIdentifier("confirmAddMemberButton")
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
@@ -1873,7 +1885,7 @@ struct SharedExpenseOverviewScreen: View {
                         Text("Paid by \(memberName(expense.paidByMemberID))")
                             .font(BrandFont.type(13)).accessibilityIdentifier("expensePayer")
                         Text("Expense date · \(ExpenseDate.display(expense.createdAt))")
-                            .font(BrandFont.type(10)).opacity(0.7)
+                            .font(BrandFont.type(11)).opacity(0.7)
                     }
                     .foregroundStyle(Color.Brand.creamSoft)
                     receiptSection("ADDED & UPDATED") {
@@ -1887,7 +1899,7 @@ struct SharedExpenseOverviewScreen: View {
                             .accessibilityIdentifier("expenseChangeSummary")
                         if let last = edits.last {
                             Text("Last updated by \(memberName(last.actorMemberID)) · \(timestamp(last.at))")
-                                .font(BrandFont.type(10))
+                                .font(BrandFont.type(11))
                         }
                     }
                     receiptSection("SPLIT BREAKDOWN") {
@@ -1917,14 +1929,14 @@ struct SharedExpenseOverviewScreen: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("\(actionLabel(event.action)) by \(memberName(event.actorMemberID))")
                                         .font(BrandFont.body(13, weight: .bold))
-                                    Text(timestamp(event.at)).font(BrandFont.type(10))
+                                    Text(timestamp(event.at)).font(BrandFont.type(11))
                                     Text(money(event.amount)).font(BrandFont.type(11, bold: true))
                                 }
                                 .padding(.vertical, 4)
                             }
                         }
                         Text("Recorded events are shown here. Older records may have incomplete history.")
-                            .font(BrandFont.body(11)).opacity(0.65)
+                            .font(BrandFont.body(11)).opacity(0.7)
                     }
                     if ledger.isOffline || ledger.lastError != nil || ledger.canonicalSnapshot?.isStale == true {
                         Text("Saved expense · updates could not be checked. Reconnect to refresh.")
@@ -1989,7 +2001,7 @@ struct SharedExpenseOverviewScreen: View {
     }
     private func receiptSection<Content: View>(_ title: String, identifier: String = "", @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(BrandFont.body(10, weight: .extraBold)).tracking(1.2)
+            Text(title).font(BrandFont.body(11, weight: .extraBold)).tracking(1.2)
                 .accessibilityIdentifier(identifier)
             content()
         }

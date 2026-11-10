@@ -353,7 +353,7 @@ struct OnboardingScreen: View {
                     if needsAppleSignIn {
                         if !appleUserIdentifier.isEmpty && !isForcedSignedOutPreview {
                             Text("Reconnect Apple to verify your unique handle.")
-                                .font(BrandFont.type(9.5, bold: true))
+                                .font(BrandFont.type(11, bold: true))
                                 .opacity(0.72)
                         }
                     } else {
@@ -374,7 +374,7 @@ struct OnboardingScreen: View {
                     }
                     if let usernameValidationMessage {
                         Text(usernameValidationMessage)
-                            .font(BrandFont.type(9.5, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.Brand.creamSoft)
                             .accessibilityIdentifier("onboardingUsernameError")
                     }
@@ -715,7 +715,7 @@ struct HomeScreen: View {
                         .frame(width: 31, height: 31)
                     if unreadActivityCount > 0 {
                         Text(unreadActivityCount > 99 ? "99+" : "\(unreadActivityCount)")
-                            .font(BrandFont.type(7.5, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.Brand.cobalt)
                             .frame(minWidth: 16, minHeight: 16)
                             .padding(.horizontal, unreadActivityCount > 9 ? 2 : 0)
@@ -804,7 +804,7 @@ struct HomeScreen: View {
 
             if showsCurrencyCode {
                 Text(summary.net.currencyCode)
-                    .font(BrandFont.type(9, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .opacity(0.9)
             }
 
@@ -864,7 +864,7 @@ struct HomeScreen: View {
                 Button(action: onSeeAllGroups) {
                     Text("see all")
                         .font(BrandFont.body(11, weight: .extraBold))
-                        .opacity(0.65)
+                        .opacity(0.7)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("See all groups")
@@ -951,7 +951,7 @@ struct HomeScreen: View {
                     } else {
                         Text("No activity yet")
                             .font(BrandFont.type(11))
-                            .opacity(0.55)
+                            .opacity(0.7)
                             .padding(.vertical, 8)
                     }
                 }
@@ -961,7 +961,7 @@ struct HomeScreen: View {
                 if sharedGroups.isEmpty && localActivity.isEmpty {
                     Text("No sightings yet")
                         .font(BrandFont.type(11))
-                        .opacity(0.55)
+                        .opacity(0.7)
                         .padding(.vertical, 12)
                 }
             }
@@ -1224,7 +1224,7 @@ struct ProfileScreen: View {
                              (isEditingName ? "press done to save" :
                              (showAvatarPicker ? "choose freely · tap big avatar to save" :
                                 "tap username to edit · tap avatar to change"))))
-                            .font(BrandFont.type(9.5, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
                     }
 
@@ -1307,7 +1307,7 @@ struct ProfileScreen: View {
                         Capsule()
                             .fill(progressEnabled ? Color.Brand.cobalt : Color.Brand.creamSoft)
                         Text(progressEnabled ? "ON" : "OFF")
-                            .font(BrandFont.type(8, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(progressEnabled ? Color.Brand.creamSoft : Color.Brand.cobalt)
                             .offset(x: progressEnabled ? -9 : 9)
                         Circle()
@@ -1373,8 +1373,8 @@ struct ProfileScreen: View {
                     Text("Level \(level.rawValue) · \(level.title)")
                         .font(BrandFont.display(15, weight: .bold))
                     Text(next.map { "\(lifetimeXP) / \($0) XP" } ?? "\(lifetimeXP) XP · top early level")
-                        .font(BrandFont.type(9.5, bold: true))
-                        .opacity(0.62)
+                        .font(BrandFont.type(11, bold: true))
+                        .opacity(0.7)
                 }
                 Spacer()
             }
@@ -1421,7 +1421,7 @@ struct ProfileScreen: View {
             if appleUserIdentifier.isEmpty || !hasUsernameSession {
                 if !appleUserIdentifier.isEmpty {
                     Text("Reconnect Apple to verify your unique handle.")
-                        .font(BrandFont.type(9.5, bold: true))
+                        .font(BrandFont.type(11, bold: true))
                         .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
                 }
                 SignInWithAppleButton(.continue) { request in
@@ -1448,14 +1448,14 @@ struct ProfileScreen: View {
                             .font(BrandFont.body(13.5, weight: .bold))
                         if !applePrivateEmail.isEmpty {
                             Text(applePrivateEmail)
-                                .font(BrandFont.type(9.5))
+                                .font(BrandFont.type(11))
                                 .lineLimit(1)
-                                .opacity(0.58)
+                                .opacity(0.7)
                         }
                     }
                     Spacer()
                     Button("Sign out") { showSignOutConfirmation = true }
-                    .font(BrandFont.type(9.5, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .buttonStyle(.plain)
                 }
                 .foregroundStyle(Color.Brand.cobalt)
@@ -1465,7 +1465,7 @@ struct ProfileScreen: View {
             }
             if let authMessage {
                 Text(authMessage)
-                    .font(BrandFont.type(9.5, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
             }
         }
@@ -1476,7 +1476,7 @@ struct ProfileScreen: View {
             BrandSectionLabel("ACCOUNT")
             VStack(alignment: .leading, spacing: 10) {
                 Text("Permanently remove your account and personal data.")
-                    .font(BrandFont.type(9.5, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
 
                 Button {
@@ -1774,14 +1774,14 @@ private struct StarterPinView: View {
         VStack(spacing: 5) {
             AchievementBadgeView(achievement: achievement, isUnlocked: isUnlocked)
             Text(achievement.title)
-                .font(BrandFont.body(10, weight: .extraBold))
+                .font(BrandFont.body(11, weight: .extraBold))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
             Text(isUnlocked ? "unlocked" : achievement.requirement)
-                .font(BrandFont.type(8, bold: true))
+                .font(BrandFont.type(11, bold: true))
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
-                .opacity(0.62)
+                .opacity(0.7)
         }
         .foregroundStyle(Color.Brand.cobalt)
         .frame(width: 116, height: 142, alignment: .top)
@@ -1827,12 +1827,12 @@ private struct HomeDefaultCurrencyEstimate: View {
                 ForEach(foreign) { currency in
                     if let rate = store.rate(for: currency) {
                         Text(BaseCurrencyEstimateFormatting.rateLine(rate))
-                            .font(BrandFont.type(9.5))
+                            .font(BrandFont.type(11))
                             .opacity(0.78)
                     }
                 }
                 Text("Estimates only. Each balance is settled in its own currency.")
-                    .font(BrandFont.type(9))
+                    .font(BrandFont.type(11))
                     .opacity(0.9)
             }
             .foregroundStyle(Color.Brand.creamSoft)
@@ -1872,7 +1872,7 @@ private struct GroupCard: View {
                 ServerLedgerUnavailableChip(onLight: true, isLoading: balanceIsLoading)
             }
             Text(sourceLabel)
-                .font(BrandFont.type(8.5, bold: true))
+                .font(BrandFont.type(11, bold: true))
                 .opacity(0.9)
         }
         .foregroundStyle(Color.Brand.cobalt)
@@ -1886,25 +1886,33 @@ struct ServerLedgerActivityRow: View {
     let item: ServerLedgerSurfaceActivityItem
     var compact = false
 
+    private var summary: String {
+        guard item.type == "expense", let title = item.description, !title.isEmpty else {
+            return item.displaySummary
+        }
+        let action = item.action == "updated" ? "updated" : item.action == "deleted" ? "deleted" : "added"
+        return "\(title) \(action) in \(item.groupName)"
+    }
+
     var body: some View {
         HStack(spacing: 9) {
             Circle()
                 .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
                 .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.displaySummary)
-                    .font(BrandFont.type(compact ? 10.5 : 12, bold: true))
-                    .lineLimit(compact ? 1 : 2)
+                Text(summary)
+                    .font(BrandFont.type(compact ? 11 : 12, bold: true))
+                    .lineLimit(2)
                 if !compact {
                     Text(item.at.formatted(date: .omitted, time: .shortened))
-                        .font(BrandFont.type(9))
+                        .font(BrandFont.type(11))
                         .opacity(0.9)
                 }
             }
             Spacer(minLength: 4)
             if item.showsAmount {
                 Text(item.amount.absoluteDisplayText)
-                    .font(BrandFont.type(compact ? 9.5 : 10.5, bold: true))
+                    .font(BrandFont.type(compact ? 11 : 11, bold: true))
                     .lineLimit(1)
             }
         }
@@ -1959,7 +1967,7 @@ struct ActivityScreen: View {
                     if sections.isEmpty, !sharedGroups.isEmpty, serverLedger.status.phase != .loading {
                         Text("no activity yet")
                             .font(BrandFont.type(11))
-                            .opacity(0.62)
+                            .opacity(0.7)
                     }
                     ForEach(sections) { section in
                         VStack(alignment: .leading, spacing: 0) {
@@ -2102,7 +2110,7 @@ private struct PaymentActivityDetailScreen: View {
                         .font(BrandFont.display(20, weight: .bold))
                         .multilineTextAlignment(.center)
                     Text(item.at.formatted(.dateTime.weekday(.wide).day().month(.wide).year().hour().minute()))
-                        .font(BrandFont.type(10))
+                        .font(BrandFont.type(11))
                         .opacity(0.7)
                 }
                 .foregroundStyle(Color.Brand.creamSoft)
@@ -2220,11 +2228,11 @@ struct ActivityLedgerRow: View {
                 .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.displaySummary)
-                    .font(BrandFont.type(compact ? 10.5 : 12, bold: item.kind == .settlementRecorded))
-                    .lineLimit(compact ? 1 : 2)
+                    .font(BrandFont.type(compact ? 11 : 12, bold: item.kind == .settlementRecorded))
+                    .lineLimit(2)
                 if !compact {
                     Text(item.timestamp.formatted(date: .omitted, time: .shortened))
-                        .font(BrandFont.type(9))
+                        .font(BrandFont.type(11))
                         .opacity(0.9)
                 }
             }
@@ -2247,7 +2255,7 @@ struct BalancePill: View {
 
     var body: some View {
         Text(text)
-            .font(BrandFont.type(10, bold: true))
+            .font(BrandFont.type(11, bold: true))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)

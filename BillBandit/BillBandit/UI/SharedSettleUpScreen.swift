@@ -106,9 +106,9 @@ struct SharedSettleUpScreen: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: true)
                 Text(group.name.uppercased())
-                    .font(BrandFont.type(10, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .tracking(1.5)
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.trailing, 88)
@@ -123,9 +123,9 @@ struct SharedSettleUpScreen: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 Text(group.name.uppercased())
-                    .font(BrandFont.type(10, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .tracking(1.4)
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(group.members.count == 1 ? "All square" : "Group balance unavailable")
@@ -230,8 +230,8 @@ struct SharedSettleUpScreen: View {
                     Text(snapshot.simplifyDebts
                          ? "Fewer payments between members"
                          : "Payments follow each original balance")
-                        .font(BrandFont.type(10, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.58))
+                        .font(BrandFont.type(11, bold: true))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                 }
                 Spacer()
                 BrandCheckmark(isOn: snapshot.simplifyDebts)
@@ -263,7 +263,7 @@ struct SharedSettleUpScreen: View {
                 if let completedAt = snapshot.settlementCompletedAt {
                     Text(settleFormattedDate(completedAt))
                         .font(BrandFont.type(11))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -317,7 +317,7 @@ struct SharedSettleUpScreen: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(!store.canStartSettlement(transfer))
-                        .opacity(store.canStartSettlement(transfer) ? 1 : 0.48)
+                        .opacity(store.canStartSettlement(transfer) ? 1 : 0.7)
                         .accessibilityIdentifier("settleTransferButton-\(transfer.id)")
                     }
                 }
@@ -364,7 +364,7 @@ struct SharedSettleUpScreen: View {
                     if snapshot.settled.items.isEmpty {
                         Text("No settlements yet.")
                             .font(BrandFont.type(11))
-                            .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+                            .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                     } else {
                         ForEach(snapshot.settled.items) { item in
                             VStack(alignment: .leading, spacing: 4) {
@@ -372,8 +372,8 @@ struct SharedSettleUpScreen: View {
                                     .font(BrandFont.type(12, bold: true))
                                     .foregroundStyle(Color.Brand.cobalt)
                                 Text("\(item.actorName ?? "Unknown member") · \(settleFormattedDate(item.createdAt))")
-                                    .font(BrandFont.type(10))
-                                    .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+                                    .font(BrandFont.type(11))
+                                    .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                                 if item.type == "settlement", store.writesEnabled {
                                     Button("Reverse") {
                                         Task {
@@ -384,7 +384,7 @@ struct SharedSettleUpScreen: View {
                                             }
                                         }
                                     }
-                                    .font(BrandFont.type(10, bold: true))
+                                    .font(BrandFont.type(11, bold: true))
                                     .foregroundStyle(Color.Brand.cobaltDeep)
                                 }
                             }
@@ -417,9 +417,9 @@ struct SharedSettleUpScreen: View {
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: true)
                             Text(group.name.uppercased())
-                                .font(BrandFont.type(10, bold: true))
+                                .font(BrandFont.type(11, bold: true))
                                 .tracking(1.5)
-                                .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -430,7 +430,7 @@ struct SharedSettleUpScreen: View {
                                 .monospacedDigit()
                             Text("Record a full or partial payment. The rest remains owed.")
                                 .font(BrandFont.type(11, bold: true))
-                                .foregroundStyle(Color.Brand.cobalt.opacity(0.62))
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                         }
                         .foregroundStyle(Color.Brand.cobalt)
                         .padding(18)
@@ -450,7 +450,7 @@ struct SharedSettleUpScreen: View {
                             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control))
                         if let amountError = settlementAmountError(for: transfer) {
                             Text(amountError)
-                                .font(BrandFont.type(11, bold: true))
+                                .font(BrandFont.type(12, bold: true))
                                 .foregroundStyle(Color.red)
                         }
                         BrandSectionLabel("NOTE (OPTIONAL)")
@@ -465,7 +465,7 @@ struct SharedSettleUpScreen: View {
                             )
                         if let actionError {
                             Text(actionError)
-                                .font(BrandFont.type(10.5, bold: true))
+                                .font(BrandFont.type(11, bold: true))
                                 .foregroundStyle(Color.red.opacity(0.82))
                         }
                         Button {

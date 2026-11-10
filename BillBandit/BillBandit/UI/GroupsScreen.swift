@@ -158,7 +158,7 @@ struct GroupsScreen: View {
                     Text(group.name)
                         .font(BrandFont.display(13.5))
                     Text(GroupCopy.memberCount(group.members.count))
-                        .font(BrandFont.type(9.5))
+                        .font(BrandFont.type(11))
                         .opacity(0.9)
                 }
                 .foregroundStyle(Color.Brand.creamSoft)

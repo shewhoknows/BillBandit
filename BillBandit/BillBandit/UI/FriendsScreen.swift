@@ -79,7 +79,7 @@ struct ProfileFriendsSection: View {
                         .font(BrandFont.hand(21, weight: .bold))
                     Text("Friends you split with will show up here.")
                         .font(BrandFont.body(11.5, weight: .semibold))
-                        .opacity(0.65)
+                        .opacity(0.7)
                 }
                 .foregroundStyle(Color.Brand.cobalt)
                 .frame(maxWidth: .infinity)
@@ -160,12 +160,12 @@ private struct FriendRemovalButton: View {
                     .tint(onLight ? Color.Brand.cobalt : Color.Brand.creamSoft)
             } else {
                 Text("Remove")
-                    .font(BrandFont.type(9, bold: true))
+                    .font(BrandFont.type(11, bold: true))
                     .underline()
             }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.68) : Color.Brand.creamSoft.opacity(0.72))
+        .foregroundStyle(onLight ? Color.Brand.cobalt.opacity(0.7) : Color.Brand.creamSoft.opacity(0.72))
         .disabled(isRemoving)
         .accessibilityLabel("Remove \(friend.name) from friends")
         .accessibilityIdentifier("removeFriendButton-\(friend.id.uuidString)")
@@ -277,7 +277,7 @@ struct FriendInvitationSheet: View {
 
                     if let message = invitations.message, acceptedFriendName == nil {
                         Text(message)
-                            .font(BrandFont.type(10.5, bold: true))
+                            .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 12)
@@ -328,7 +328,7 @@ struct FriendInvitationSheet: View {
 
                 Text("Scan the code or send the invitation. It expires in 7 days.")
                     .font(BrandFont.body(11.5, weight: .semibold))
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.66))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                     .multilineTextAlignment(.center)
 
                 ShareLink(item: invitations.shareText(for: invite)) {
@@ -372,7 +372,7 @@ struct FriendInvitationSheet: View {
         VStack(spacing: 14) {
             Text("Enter the invitation code your friend sent you.")
                 .font(BrandFont.body(12.5, weight: .semibold))
-                .foregroundStyle(Color.Brand.cobalt.opacity(0.68))
+                .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                 .multilineTextAlignment(.center)
 
             TextField("B4NDT", text: $code)
@@ -412,7 +412,7 @@ struct FriendInvitationSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(!FriendInviteCode.isValid(code) || invitations.isWorking)
-            .opacity(FriendInviteCode.isValid(code) ? 1 : 0.45)
+            .opacity(FriendInviteCode.isValid(code) ? 1 : 0.7)
             .accessibilityIdentifier("acceptFriendInvitationButton")
         }
         .padding(.top, 32)
