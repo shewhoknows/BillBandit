@@ -571,9 +571,6 @@ async function prepareExpense(
     if (existing.isDeleted) {
       throw new LedgerMutationError('NOT_FOUND', 404, 'Expense is already deleted')
     }
-    if (existing.paidById !== request.actorUserId) {
-      throw new LedgerMutationError('FORBIDDEN', 403, 'Only the payer can delete an expense')
-    }
     assertNotFinalized(group)
     return {
       kind: 'expense.delete',
