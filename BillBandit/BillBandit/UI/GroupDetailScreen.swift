@@ -1185,6 +1185,9 @@ private struct DeleteExpenseConfirmationSheet: View {
                     .font(BrandFont.type(18, bold: true))
                     .foregroundStyle(Color.Brand.cobalt)
                     .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 18)
                 if let otherPayerName {
                     Text("\(otherPayerName) paid for this. Everyone in the group will see that you deleted it.")
@@ -2043,6 +2046,12 @@ struct SharedExpenseOverviewScreen: View {
             Task {
                 await ledger.refresh(forceWritesDisabled: true)
                 await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
+                // The expense was deleted from the edit sheet: leave this
+                // overview and go back to the group, as a delete here does.
+                if canonicalGroup != nil, expense?.status != "active" {
+                    await onDeleted()
+                    dismiss()
+                }
             }
         }) { draft in
             AddExpenseSheet(initialGroup: group, canonicalEditingExpense: draft)

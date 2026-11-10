@@ -95,3 +95,11 @@ Verification A: six checks passed and two failed the specified status code: non-
 Verification B: You created a ₹100 expense; Kabir saw the payer warning, deleted it, and saw the group at ₹0 and the correct Activity actor and payer. After switching to You and an extra launch, Activity named Kabir and the deleted overview showed the title, amount, payer, date, split and history, without edit/delete. For a second ₹100 expense with a ₹20 payment, Kabir saw the payment warning, then was owed ₹20; You saw a ₹20 amount owed and the payment retained. No already-running second device was available to prove sync without relaunch. Screenshots and steps are in the evidence directory.
 
 Verification C: `npm run typecheck` and `npm run lint` passed. The Debug build passed with the existing script-phase and App Intents warnings. No new warning was found. The final source-only accessibility identifiers and Activity wrapping were built; the Activity wrapping was viewed on the simulator.
+
+## Independent check (Tester Army, after the work above)
+
+- Revision under test: `0aefe37` plus the follow-up commit that carries this note. Environment: local API on 127.0.0.1:3000, iPhone 18 Pro simulator, signed in as "You".
+- Replay: `npx e2e explore '<goal>'` with the goals recorded at the top of `.scratch/launch-blockers/testerarmy-round5/explore6.log` and `explore7-edit-sheet-delete.log`.
+- Result: 14 of 14 flows passed (friend-paid delete, cancel, activity line, read-only deleted view, another member's deletion, edit-sheet delete, note, totals, persistence). Two defects found and fixed in the follow-up commit: a delete from the edit sheet left the old overview open; a long title was cut off in the delete confirmation. A second run passed both (2 of 2, no findings).
+- Server scenario `apps/api/scripts/any-member-delete-e2e.ts`: 8 of 8 pass. Outsiders and removed members get 404 by design and the expense stays. Output: `.scratch/launch-blockers/evidence/any-member-delete/server-scenario-final.txt`.
+- Not exercised: live update on a second device that is already open, an offline queued delete, TestFlight build 32 against the new server rule.
