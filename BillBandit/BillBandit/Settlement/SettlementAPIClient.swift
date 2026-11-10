@@ -183,26 +183,6 @@ final class APIClient: Sendable {
             "event=settlement.request.start method=\(method) path=\(sanitizedPath) auth=\(SettlementAPILog.bool(hasToken)) body_bytes=\(encodedBody?.count ?? 0)"
         )
 
-        if baseURL.scheme == "mock" {
-            do {
-                let data = try await MockSettlementAPI.shared.requestData(
-                    path: url.path + (url.query.map { "?\($0)" } ?? ""),
-                    method: method,
-                    body: encodedBody,
-                    hasToken: hasToken
-                )
-                SettlementAPILog.api(
-                    "event=settlement.request.finish method=\(method) path=\(sanitizedPath) transport=mock status=200 duration_ms=\(durationMS(since: startedAt)) response_bytes=\(data.count)"
-                )
-                return try decode(Response.self, from: data, method: method, path: sanitizedPath, startedAt: startedAt)
-            } catch {
-                SettlementAPILog.api(
-                    "event=settlement.request.failure method=\(method) path=\(sanitizedPath) transport=mock duration_ms=\(durationMS(since: startedAt)) error=\(SettlementAPILog.sanitizedError(error))"
-                )
-                throw error
-            }
-        }
-
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")

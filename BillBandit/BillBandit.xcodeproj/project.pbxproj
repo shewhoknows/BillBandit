@@ -50,7 +50,6 @@
 		B50000000000000000000004 /* SettlementPusherRealtimeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000014 /* SettlementPusherRealtimeClient.swift */; };
 		B50000000000000000000005 /* SettlementAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000015 /* SettlementAPIClient.swift */; };
 		B50000000000000000000006 /* SettlementAPIConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000016 /* SettlementAPIConfiguration.swift */; };
-		B50000000000000000000007 /* MockSettlementAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000017 /* MockSettlementAPI.swift */; };
 		B50000000000000000000008 /* SharedSettleUpScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000018 /* SharedSettleUpScreen.swift */; };
 		B5000000000000000000000A /* PusherSwift in Frameworks */ = {isa = PBXBuildFile; productRef = B50000000000000000000021 /* PusherSwift */; };
 		D10000000000000000000001 /* CacheModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* CacheModels.swift */; };
@@ -114,7 +113,6 @@
 		B50000000000000000000014 /* SettlementPusherRealtimeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementPusherRealtimeClient.swift; sourceTree = "<group>"; };
 		B50000000000000000000015 /* SettlementAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementAPIClient.swift; sourceTree = "<group>"; };
 		B50000000000000000000016 /* SettlementAPIConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettlementAPIConfiguration.swift; sourceTree = "<group>"; };
-		B50000000000000000000017 /* MockSettlementAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockSettlementAPI.swift; sourceTree = "<group>"; };
 		B50000000000000000000018 /* SharedSettleUpScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSettleUpScreen.swift; sourceTree = "<group>"; };
 		B60000000000000000000001 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		B60000000000000000000002 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
@@ -237,7 +235,6 @@
 			B50000000000000000000014 /* SettlementPusherRealtimeClient.swift */,
 			B50000000000000000000015 /* SettlementAPIClient.swift */,
 			B50000000000000000000016 /* SettlementAPIConfiguration.swift */,
-			B50000000000000000000017 /* MockSettlementAPI.swift */,
 		);
 			path = Settlement;
 			sourceTree = "<group>";
@@ -452,7 +449,6 @@
 				B50000000000000000000004 /* SettlementPusherRealtimeClient.swift in Sources */,
 				B50000000000000000000005 /* SettlementAPIClient.swift in Sources */,
 				B50000000000000000000006 /* SettlementAPIConfiguration.swift in Sources */,
-				B50000000000000000000007 /* MockSettlementAPI.swift in Sources */,
 				AFA9DEAA878B374CD9301DEB /* AddExpenseSheet.swift in Sources */,
 				E10000000000000000000002 /* BaseCurrencyEstimate.swift in Sources */,
 		);

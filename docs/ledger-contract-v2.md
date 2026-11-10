@@ -4,7 +4,7 @@ Status: frozen contract fixture for Phase 1 / Wave 1.
 
 ## Canonical target
 
-The shipping iOS target is the root XcodeGen project named `BillBandit`, generated from the root `project.yml`. Its application target sources are the `BillBanditApp` tree. The older `BillBandit/` tree is not a second ledger target and is not part of this contract's implementation surface.
+The shipping iOS target is `BillBandit` in `BillBandit/BillBandit.xcodeproj`. (Updated 2026-11-10: the old XcodeGen `BillBanditApp` tree and root `project.yml` were removed.)
 
 This decision is about the application target only. It does not change the API authority decision: the production API is the sole authority for shared groups, membership, expenses, splits, balances, settlements, reversals, activity, and history. SwiftData is an account-scoped offline cache and durable mutation queue. CloudKit ledger records are imported once and then become read-only recovery data; there is no permanent dual-write mode.
 

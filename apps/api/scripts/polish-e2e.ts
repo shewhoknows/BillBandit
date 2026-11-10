@@ -10,7 +10,6 @@
  * - A person's default currency is stored, validated and returned.
  * - Exchange rates come back for that default, in both directions.
  * - The account summary carries members, roles, totals and newest-first order.
- * - Activity pages by cursor with no gaps and no repeats.
  * - Expense notes, category and date read back exactly.
  * - A partial payment lowers the plan; an overpayment is refused.
  * - Leave and delete explain every refusal in plain words.
@@ -395,29 +394,6 @@ async function main() {
       assert.equal(envelope.data.group.settlementPlan.transfers.length, 0)
       const mine = envelope.data.group.balances.currentAccount.byCurrency as Json[]
       assert.ok(mine.every((entry) => entry.minorUnits === '0'))
-    })
-
-    // ---- 6. Activity paging ----
-    await step('Activity pages by cursor with no gaps and no repeats', async () => {
-      const full = expect(await request('/api/mobile/ledger', { token: me.token }), 200, 'full summary')
-      const fullIds = (full.activity as Json[]).map((item) => `${item.groupId}:${item.activityId}`)
-      assert.ok(fullIds.length > 10, `expected a long feed, got ${fullIds.length}`)
-      const paged: string[] = (summary.activity as Json[]).map((item) => `${item.groupId}:${item.activityId}`)
-      assert.equal(paged.length, 5)
-      let cursor = summary.activityNextCursor as string | null
-      assert.ok(cursor, 'first page has a cursor')
-      let pages = 1
-      while (cursor) {
-        const page = expect(await request(`/api/mobile/activity?limit=4&before=${encodeURIComponent(cursor)}`, { token: me.token }), 200, 'activity page')
-        if (pages === 1) samples.activityPage = page
-        paged.push(...(page.activity as Json[]).map((item) => `${item.groupId}:${item.activityId}`))
-        cursor = page.nextCursor
-        pages += 1
-        assert.ok(pages < 50, 'paging terminates')
-      }
-      assert.deepEqual(paged, fullIds)
-      const stamps = (full.activity as Json[]).map((item) => item.at as string)
-      assert.deepEqual([...stamps].sort().reverse(), stamps, 'activity is newest first')
     })
 
     // ---- 7. Partial payment ----

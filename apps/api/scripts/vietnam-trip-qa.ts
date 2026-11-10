@@ -500,7 +500,20 @@ async function main() {
     assert.equal(mixedCurrency.status, 400, `mixed currency must be rejected: ${safeDetail(mixedCurrency.body)}`)
     mark(checks, 'Mixed-currency expense rejected')
 
-    const settlementBefore = expectStatus(await request(`/api/groups/${groupID}/settle-up`, { token: bobToken }), 200, 'settlement snapshot before partial')
+    // Read the plan the same way the app does: from the canonical group envelope.
+    const readPlan = async (label: string) => {
+      const envelope = expectStatus(await request(`/api/mobile/ledger/groups/${groupID}`, { token: bobToken }), 200, label)
+      const group = (envelope.data as JsonRecord).group as JsonRecord
+      const transfers = ((group.settlementPlan as JsonRecord).transfers as Array<JsonRecord>).map((entry) => ({
+        planTransferId: entry.planTransferId,
+        payerParticipantId: entry.payerMemberId,
+        recipientParticipantId: entry.recipientMemberId,
+        currencyCode: (entry.amount as JsonRecord).currencyCode,
+        amount: (entry.amount as JsonRecord).minorUnits,
+      }))
+      return { plan: transfers as Array<JsonRecord>, version: group.revision }
+    }
+    const settlementBefore = await readPlan('settlement snapshot before partial')
     const planBefore = settlementBefore.plan as Array<JsonRecord>
     assert.equal(planBefore.length, 1, `expected one net VND transfer, got ${safeDetail(planBefore)}`)
     const transfer = planBefore[0]
@@ -530,7 +543,7 @@ async function main() {
       },
     }), 201, 'partial settlement')
     assert.ok((partialSettlement.result as JsonRecord).recordId)
-    const settlementAfterPartial = expectStatus(await request(`/api/groups/${groupID}/settle-up`, { token: bobToken }), 200, 'settlement snapshot after partial')
+    const settlementAfterPartial = await readPlan('settlement snapshot after partial')
     const partialPlan = settlementAfterPartial.plan as Array<JsonRecord>
     assert.equal(partialPlan.length, 1)
     assert.equal(partialPlan[0].amount, '50024')
@@ -562,7 +575,7 @@ async function main() {
     }), 201, 'lost-response full settlement retry')
     assert.equal((retrySettlement.result as JsonRecord).recordId, fullRecordID)
     assert.equal((retrySettlement.result as JsonRecord).eventType, (fullSettlement.result as JsonRecord).eventType)
-    const settlementAfterFull = expectStatus(await request(`/api/groups/${groupID}/settle-up`, { token: bobToken }), 200, 'settlement snapshot after full')
+    const settlementAfterFull = await readPlan('settlement snapshot after full')
     assert.equal((settlementAfterFull.plan as Array<unknown>).length, 0, 'full settlement must clear the plan')
     const transactionCount = await fixture.db.transaction.count({ where: { groupId: groupID } })
     assert.equal(transactionCount, 2, 'partial plus full retry must create exactly two transactions')

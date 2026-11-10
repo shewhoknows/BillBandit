@@ -1434,8 +1434,7 @@ struct AppRootView: View {
         let args = ProcessInfo.processInfo.arguments
         return args.contains("-skipOnboarding") || args.contains("-tab") ||
             args.contains("-showAdd") || args.contains("-showAddFriend") ||
-            args.contains("-showProfile") || args.contains("-showMotionLab") ||
-            args.contains("-openGroup")
+            args.contains("-showProfile") || args.contains("-openGroup")
     }
 
     private var forceSignedOutOnboarding: Bool {
@@ -1745,8 +1744,7 @@ struct RootTabView: View {
         if let i = args.firstIndex(of: "-tab"), i + 1 < args.count,
            let n = Int(args[i + 1]), let t = Tab(rawValue: n) {
             _tab = State(initialValue: t)
-        } else if args.contains("-showProfile") || args.contains("-showMotionLab") ||
-                    args.contains("-showAddFriend") {
+        } else if args.contains("-showProfile") || args.contains("-showAddFriend") {
             _tab = State(initialValue: .profile)
         }
         if args.contains("-showAdd") { _showAdd = State(initialValue: true) }

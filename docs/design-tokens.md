@@ -54,7 +54,7 @@ Do NOT use handwriting for: dense tables, totals, legal text, buttons, long para
   field 1pt solid navy@26% · stamp 2pt dashed · chip 1pt solid blue@28%.
 - Perforated receipt edge: 12pt notch circles, 22pt gap (punched in brand blue).
 
-## Assets (in `BillBanditApp/Resources/Assets.xcassets`)
+## Assets (in `BillBandit/BillBandit/Assets.xcassets`)
 
 `BillBanditRaccoon`, `MascotWelcome`, `MascotPeek`, `MascotThinking`, `MascotLedger`,
 `MascotBadge`, `MascotFinal`, `StampFinal`, `AppIcon`. The reformed-raccoon mascot

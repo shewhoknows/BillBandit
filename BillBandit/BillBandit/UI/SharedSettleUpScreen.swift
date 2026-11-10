@@ -389,13 +389,6 @@ struct SharedSettleUpScreen: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 4)
                         }
-                        if snapshot.settled.nextCursor != nil {
-                            Button("Load more") {
-                                Task { await store.loadMoreHistory() }
-                            }
-                            .font(BrandFont.type(11, bold: true))
-                            .foregroundStyle(Color.Brand.cobalt)
-                        }
                     }
                 }
             }

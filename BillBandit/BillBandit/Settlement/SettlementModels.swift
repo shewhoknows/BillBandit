@@ -390,27 +390,6 @@ struct SettlementSnapshotDTO: Codable, Equatable {
         case toVersion
         case envelopes
     }
-
-    func mergingPlanAndHistory(from previous: SettlementSnapshotDTO?) -> SettlementSnapshotDTO {
-        guard mode == "no_change", let previous else { return self }
-        return SettlementSnapshotDTO(
-            mode: mode,
-            version: version,
-            lifecycle: lifecycle,
-            simplifyDebts: simplifyDebts,
-            latestSettingAudit: latestSettingAudit,
-            settlementCompletedAt: settlementCompletedAt,
-            permissions: permissions,
-            realtime: realtime,
-            plan: previous.plan,
-            settled: previous.settled,
-            reason: reason,
-            fromVersion: fromVersion,
-            toVersion: toVersion,
-            envelopes: envelopes,
-            readRevision: readRevision
-        )
-    }
 }
 
 // MARK: - Canonical ledger read model

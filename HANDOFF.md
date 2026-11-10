@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-10, cleanup audit (unused code and all unit tests removed; uncommitted). Build 32 is the current TestFlight build; two-phone checks still open.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
 
 ---
 
@@ -50,7 +50,19 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
-### 2026-11-10 — Cleanup audit (uncommitted)
+### 2026-11-10 — Review follow-ups (branch `cleanup/2026-11-10-audit`)
+
+- The cleanup audit is committed on this branch (`5857bac`). Not pushed, not deployed.
+- **Test data tool replaces the seed script.** `prisma/seed.ts` deleted (it wiped every table and its fixture file was gone). The Dockerfile no longer runs a seed on start (`SEED_ON_START` removed). New: `npm run dev:server` (local API on :3000 with a fixed local-only secret, migrates the local `billbandit` DB) and `npm run dev:data` (adds groups, expenses, payments and friends through the real API; refuses any non-local database or API). A backup of the local DB before its first migration: `~/Cowork/BillBandit-db-backups/local-billbandit-before-dev-server-20261110.dump`.
+- **Fake Apple sign-in is off on the live server.** `verifyAppleIdentityToken` skips the real Apple check only when `NODE_ENV !== 'production'` (the Docker image sets production). For testing: Debug simulator builds accept `BILLBANDIT_QA_TOKEN` (see `npm run dev:data -- signin --launch`), and `dev:server` turns on the fake Apple token `dev-apple-identity-token-local-only`, which signs in as the same "You" account.
+- **"Load more" removed.** The payment history always comes complete from the ledger read model, so the button could never appear. Removed with the unused `apply`, `loadMoreHistory` and snapshot merge helpers.
+- **Removed:** Mascot Motion Lab (`-showMotionLab`), the in-app fake payment server (`MockSettlementAPI`), 9 server routes the app never calls (`/api/groups/:id/settle-up`, `.../settle-up/history`, `.../settlement-settings`, `/api/mobile/activity`, `/api/mobile/groups/:id/invitations`, `/api/mobile/invitations/*`), the orphaned `lib/identity/*` and `lib/settlement/commands/setting.ts`, and the old scaffold (`BillBanditApp/`, `project.yml`, root `Config/`, `CloudKit/`, `apps/ios/`, `.scratch/retire-fairshare/`). Kept: `/api/mobile/ledger` and `/api/mobile/capabilities` (the E2E scripts and `dev:data` read them) and `mockups/` (icon pipeline source, roadmap and design log). `design/` and old `.scratch/polish-e2e/` were moved to `~/Cowork/_archives/BillBandit-cleanup-20261110/`, not deleted. `.scratch/` is now gitignored.
+- **5 UI flows updated** to the post-2026-10-22 app: Profile has DEFAULT CURRENCY; amounts keep paise (Arjun owes ₹8.30); new groups and the default currency need a server session, so `testNewGroupAppearsOnHomeImmediately`, `testVNDGroupCurrencyPersistsAfterRelaunch` and `testCurrencyControlsLiveInProfileAndLocalActivityShowsHistory` now sign in to the local server via `.scratch/ui-session.json`.
+- **Bug fixed:** creating a group gave XP but no longer showed the reward pop-up (the outcome was thrown away). `AddGroupSheet` now presents it, like Add expense.
+- UI flows: 18 of 20 pass (`.scratch/e2e-20261110/ui-all.xcresult` + `ui-newgroup.xcresult`, local server on :3000, fresh `ui-session`). The 2 Vietnam offline flows still need the missing proxy on :31300 and `overview-fixture.json`.
+- Server E2E: `polish-e2e.ts` 10/10 (its activity-paging check went with the route), `vietnam-trip-qa.ts` 10/10 (now reads the plan from `/api/mobile/ledger/groups/:id`, like the app). Evidence: `.scratch/e2e-20261110/`.
+
+### 2026-11-10 — Cleanup audit (committed as `5857bac`)
 
 - **No unit tests. Ever (user rule).** The `BillBanditTests` target and `apps/api/test/` are deleted, with the `test:ledger` script. Verify with end-to-end runs only: the `BillBanditUITests` flows and the HTTP scenario scripts in `apps/api/scripts/`.
 - Unused code removed: about 900 lines in the app (old CloudKit policies, unused screens, test-only helpers) and about 1,400 lines in `apps/api/lib`. No behaviour change intended.
@@ -302,7 +314,7 @@ simulator build + screenshots → user sign-off before continuing.
   Each prototype names its recommended placement and flags whether the finished
   result can use today's pose assets or needs layered eye/arm/tail artwork. The
   lab is replayable, honours Reduce Motion with a static preview, and is also
-  available directly through the `-showMotionLab` launch hook. Simulator visuals
+  available directly through the `-showMotionLab` launch hook (lab removed 2026-11-10). Simulator visuals
   were checked and all 22 unit/default tests + 2 XCUITests are green.
   Superseded install: `https://build.sqim.dev/sqim/install/4RQD3j4roO5P`.
 - [x] **Contextual mascot scene motion** ✅ 2026-07-19
@@ -585,15 +597,28 @@ cd "BillBandit"
 xcodebuild -project BillBandit.xcodeproj -scheme BillBandit -configuration Debug \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 
+# local API for the app and the UI flows (port 3000; migrates the local `billbandit` DB; never deletes)
+cd .. && npm run dev:server            # leave running in its own terminal
+npm run dev:data -- ui-session         # fresh empty test account -> .scratch/ui-session.json
+cd BillBandit
+
 # end-to-end UI flows (there are no unit tests; see §2026-11-10). Keeps a result bundle as evidence.
 xcodebuild -project BillBandit.xcodeproj -scheme BillBandit -configuration Debug \
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test \
-  -resultBundlePath ../.scratch/audit-e2e/ios-ui.xcresult
+  -resultBundlePath ../.scratch/ios-ui.xcresult
 
 # server end-to-end scenarios (real HTTP against a local Next server and a throwaway database)
 cd .. && START_POLISH_SERVER=1 node --import tsx apps/api/scripts/polish-e2e.ts
+START_VIETNAM_TRIP_SERVER=1 VIETNAM_TRIP_BASE_URL=http://127.0.0.1:31301 \
+  TEST_DATABASE_URL=postgresql://$USER@localhost:5432/bb_polish_e2e_20261022 \
+  node --import tsx apps/api/scripts/vietnam-trip-qa.ts
 
-# install + launch + screenshot (hooks: `-tab N`, `-showAdd`, `-showAddFriend`, `-showMotionLab`, `-openGroup <name>`,
+# add test data while working (adds only; see the top of apps/api/scripts/dev-data.ts)
+npm run dev:data                       # new group + friends + 3 expenses + 1 payment, as "You"
+npm run dev:data -- expense --group "Goa trip" --amount 1250.50 --payer Aarav
+npm run dev:data -- signin --launch    # open the booted simulator app signed in as "You"
+
+# install + launch + screenshot (hooks: `-tab N`, `-showAdd`, `-showAddFriend`, `-openGroup <name>`,
 # `-onboardingPage N`; `-onboardingDemo` auto-advances all three pages for recording)
 D=<simulator-udid>
 APP=$(find ~/Library/Developer/Xcode/DerivedData/BillBandit-*/Build/Products/Debug-iphonesimulator/BillBandit.app | head -1)

@@ -327,8 +327,9 @@ struct AddGroupSheet: View {
             // A shared group is represented locally only as a routing/index
             // projection after server acknowledgement. Its ledger and
             // activity remain canonical server data.
+            var rewardOutcome: RewardOutcome?
             if let currentUser = members.first(where: \.isCurrentUser) {
-                _ = try? RewardEngine.award(
+                rewardOutcome = try? RewardEngine.award(
                     action: .groupCreated,
                     eventID: localGroup.id,
                     personID: currentUser.id,
@@ -336,6 +337,9 @@ struct AddGroupSheet: View {
                 )
             }
             try context.save()
+            if let rewardOutcome {
+                RewardFeedbackCenter.shared.present(rewardOutcome)
+            }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             isSubmitting = false
             activeOperationID = nil

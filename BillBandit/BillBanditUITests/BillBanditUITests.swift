@@ -9,6 +9,28 @@ final class BillBanditUITests: XCTestCase {
         return app
     }
 
+    /// The app signed in to the API on this computer (`npm run dev:server`), as a
+    /// brand-new empty account. Since 2026-10-22 the server is the only source of
+    /// truth, so flows that create groups or change the default currency need it.
+    /// Prepare with `npm run dev:data -- ui-session`, which writes
+    /// `.scratch/ui-session.json` and never deletes data.
+    private func localServerApp() throws -> XCUIApplication {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let url = root.appendingPathComponent(".scratch/ui-session.json")
+        guard let data = try? Data(contentsOf: url),
+              let config = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let base = config["baseURL"] as? String, let token = config["token"] as? String else {
+            throw NSError(domain: "BillBanditUITests", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                "Missing \(url.path). Run `npm run dev:server`, then `npm run dev:data -- ui-session`."])
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["BILLBANDIT_QA_STORE_ID": "vietnam-test-ui-" + UUID().uuidString.lowercased().prefix(8),
+                                 "BILLBANDIT_QA_BASE_URL": base,
+                                 "BILLBANDIT_QA_TOKEN": token]
+        return app
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -33,7 +55,7 @@ final class BillBanditUITests: XCTestCase {
         let deleteAccountButton = app.buttons["deleteAccountButton"]
         XCTAssertTrue(deleteAccountButton.waitForExistence(timeout: 4))
         XCTAssertEqual(deleteAccountButton.label, "Delete account")
-        XCTAssertFalse(app.staticTexts["DEFAULT CURRENCY"].exists)
+        XCTAssertTrue(app.staticTexts["DEFAULT CURRENCY"].exists)
         XCTAssertFalse(app.staticTexts["REMINDERS"].exists)
         XCTAssertFalse(app.staticTexts["MASCOT MOTION"].exists)
         let progressWindow = app.descendants(matching: .any)["achievementPinShelf"]
@@ -72,7 +94,7 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(settlementAmount.waitForExistence(timeout: 4))
         XCTAssertEqual(settlementAmount.value as? String, "18")
         app.buttons["settlementFrom-Arjun Rao"].tap()
-        XCTAssertEqual(settlementAmount.value as? String, "8")
+        XCTAssertEqual(Decimal(string: settlementAmount.value as? String ?? ""), Decimal(string: "8.30"))
         app.buttons["Close Settle up"].tap()
 
         app.buttons["groupAddExpenseButton"].tap()
@@ -272,11 +294,11 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertEqual(amount.value as? String, "18")
 
         app.buttons["settlementFrom-Arjun Rao"].tap()
-        XCTAssertEqual(amount.value as? String, "8")
+        XCTAssertEqual(Decimal(string: amount.value as? String ?? ""), Decimal(string: "8.30"))
         amount.tap()
-        amount.typeText(XCUIKeyboardKey.delete.rawValue)
-        amount.typeText("9")
-        XCTAssertTrue(app.staticTexts["Maximum outstanding payment: ₹8."].exists)
+        amount.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6))
+        amount.typeText("8.31")
+        XCTAssertTrue(app.staticTexts["Maximum outstanding payment: ₹8.30."].waitForExistence(timeout: 2))
         XCTAssertFalse(app.buttons["Record payment"].isEnabled)
     }
 
@@ -307,8 +329,8 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testNewGroupAppearsOnHomeImmediately() throws {
-        let app = syntheticLocalApp()
-        app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
+        let app = try localServerApp()
+        app.launchArguments = ["-tab", "0", "-skipOnboarding"]
         app.launch()
 
         XCTAssertTrue(app.buttons["New group"].waitForExistence(timeout: 8))
@@ -318,8 +340,9 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["You · you"].exists)
         XCTAssertTrue(app.staticTexts["No friends yet. Invite a friend to share a group."].exists)
         XCTAssertTrue(app.buttons["groupInviteFriendButton"].exists)
+        let groupName = "Instant Crew " + UUID().uuidString.prefix(4)
         name.tap()
-        name.typeText("Instant Crew")
+        name.typeText(groupName)
         let createWithKeyboard = app.buttons["createGroupButton"]
         XCTAssertTrue(createWithKeyboard.isHittable)
         XCTAssertLessThan(createWithKeyboard.frame.maxY, app.keyboards.firstMatch.frame.minY)
@@ -328,9 +351,9 @@ final class BillBanditUITests: XCTestCase {
         attachScreenshot(named: "group-create-footer")
         createWithKeyboard.tap()
 
-        XCTAssertTrue(app.staticTexts["Instant Crew"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts[groupName].waitForExistence(timeout: 4))
         XCTAssertTrue(app.descendants(matching: .any)["rewardToast"].waitForExistence(timeout: 4))
-        app.staticTexts["Instant Crew"].firstMatch.tap()
+        app.staticTexts[groupName].firstMatch.tap()
         let sleepingMascot = app.descendants(matching: .any)["emptyGroupSleepingMascot"]
         XCTAssertTrue(sleepingMascot.waitForExistence(timeout: 4))
         let emptyCopy = app.staticTexts.matching(
@@ -347,13 +370,12 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertFalse(app.buttons["confirmAddMemberButton"].isEnabled)
         XCTAssertTrue(app.buttons["addMemberInviteFriendButton"].exists)
         app.buttons["Close Add members"].tap()
-        let allSquare = app.buttons["All square"]
-        XCTAssertTrue(allSquare.exists)
-        XCTAssertFalse(allSquare.isEnabled)
+        // Server groups always open shared Settle up; the stamp above already says ALL SQUARE.
+        XCTAssertTrue(app.buttons["Settle up"].exists)
         app.terminate()
         app.launchArguments = ["-skipOnboarding", "-tab", "0"]
         app.launch()
-        XCTAssertTrue(app.staticTexts["Instant Crew"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts[groupName].firstMatch.waitForExistence(timeout: 8))
     }
 
     func testServerLinkedGroupKeepsAddExpenseEnabled() throws {
@@ -478,7 +500,7 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testCurrencyControlsLiveInProfileAndLocalActivityShowsHistory() throws {
-        let app = syntheticLocalApp()
+        let app = try localServerApp()
         app.launchArguments = ["-resetDemoData", "-tab", "0", "-skipOnboarding"]
         app.launch()
         XCTAssertTrue(app.buttons["Profile"].waitForExistence(timeout: 8))
@@ -491,8 +513,8 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(currency.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["profileRefreshExchangeRates"].exists)
         currency.tap()
-        app.buttons["VND — Vietnamese dong"].tap()
-        XCTAssertTrue(currency.label.contains("VND"))
+        app.buttons["₫ VND · Vietnamese dong"].tap()
+        XCTAssertTrue(currency.waitForLabel(containing: "VND", timeout: 8))
         attachScreenshot(named: "profile-currency-controls")
         app.terminate()
         app.launchArguments = ["-resetDemoData", "-tab", "3", "-skipOnboarding"]
@@ -501,7 +523,8 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(currency.waitForExistence(timeout: 5))
         XCTAssertTrue(currency.label.contains("VND"), "Display currency must persist")
         currency.tap()
-        app.buttons["INR — Indian rupee"].tap()
+        app.buttons["₹ INR · Indian rupee"].tap()
+        XCTAssertTrue(currency.waitForLabel(containing: "INR", timeout: 8))
         app.buttons["tab-home"].tap()
         let recent = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Groceries")).firstMatch
         XCTAssertTrue(recent.waitForExistence(timeout: 8))
@@ -573,21 +596,22 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testVNDGroupCurrencyPersistsAfterRelaunch() throws {
-        let app = syntheticLocalApp()
-        app.launchArguments = ["-resetDemoData", "-skipOnboarding", "-tab", "0"]
+        let app = try localServerApp()
+        app.launchArguments = ["-skipOnboarding", "-tab", "0"]
         app.launch()
         XCTAssertTrue(app.buttons["New group"].waitForExistence(timeout: 10))
         app.buttons["New group"].tap()
         let name = app.textFields["groupNameField"]
         XCTAssertTrue(name.waitForExistence(timeout: 8))
-        name.tap(); name.typeText("Vietnam Currency QA\n")
-        app.buttons["₫ VND"].tap()
+        let groupName = "Vietnam Currency QA " + UUID().uuidString.prefix(4)
+        name.tap(); name.typeText(groupName + "\n")
+        app.buttons["Vietnamese dong"].tap()
         app.buttons["createGroupButton"].tap()
-        XCTAssertTrue(app.staticTexts["Vietnam Currency QA"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts[groupName].firstMatch.waitForExistence(timeout: 8))
         app.terminate()
         app.launchArguments = ["-skipOnboarding", "-tab", "0"]
         app.launch()
-        let group = app.staticTexts["Vietnam Currency QA"].firstMatch
+        let group = app.staticTexts[groupName].firstMatch
         XCTAssertTrue(group.waitForExistence(timeout: 10))
         group.tap()
         app.buttons["groupAddExpenseButton"].tap()
@@ -772,5 +796,13 @@ extension BillBanditUITests {
         let (data, response) = try await URLSession.shared.data(for: request)
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+}
+
+private extension XCUIElement {
+    /// Waits for a label change that arrives after a server round trip.
+    func waitForLabel(containing text: String, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "label CONTAINS %@", text)
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: self)], timeout: timeout) == .completed
     }
 }

@@ -13,7 +13,8 @@
     "db:migrate": "npm --workspace apps/api run db:migrate",
     "db:generate": "npm --workspace apps/api run db:generate",
     "db:push": "npm --workspace apps/api run db:push",
-    "db:seed": "npm --workspace apps/api run db:seed",
+    "dev:server": "npm --workspace apps/api run dev:server",
+    "dev:data": "npm --workspace apps/api run dev:data --",
     "db:studio": "npm --workspace apps/api run db:studio"
   }
 }

@@ -11,8 +11,11 @@ export async function verifyAppleIdentityToken(
   identityToken: string,
   nonce?: string | null
 ): Promise<AppleIdentity> {
+  // Fake Apple sign-in for local testing only. The live server runs with
+  // NODE_ENV=production, where this path is always off, whatever is configured.
   const mockSubject = process.env.MOBILE_AUTH_MOCK_APPLE_SUBJECT
-  if (mockSubject && identityToken === process.env.MOBILE_AUTH_MOCK_APPLE_TOKEN) {
+  const mockToken = process.env.MOBILE_AUTH_MOCK_APPLE_TOKEN
+  if (process.env.NODE_ENV !== 'production' && mockSubject && mockToken && identityToken === mockToken) {
     return { subject: mockSubject, email: process.env.MOBILE_AUTH_MOCK_APPLE_EMAIL }
   }
 

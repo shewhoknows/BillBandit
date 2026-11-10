@@ -265,7 +265,7 @@ Server behavior:
 2. If `nonce` provided, it must equal the token's `nonce` claim (raw nonce comparison, not hashed — client must pass the same raw value that ended up in the token).
 3. Looks up `Account(provider='apple', providerAccountId=<token sub>)`. If linked → returns that user.
 4. Else: if an email is known (token email ?? body email) and a user exists with that email → links Apple account to it. Otherwise creates a new user with email = token/body email or synthetic `apple-<sha256(sub)[0..24]>@apple.billbandit.local`, a dicebear avatar image, `name`/`preferredName` from body.
-5. Test bypass: if env `MOBILE_AUTH_MOCK_APPLE_SUBJECT`/`MOBILE_AUTH_MOCK_APPLE_TOKEN` are set and identityToken equals the mock token, verification is skipped.
+5. Local test bypass: when `NODE_ENV` is not `production` and env `MOBILE_AUTH_MOCK_APPLE_SUBJECT`/`MOBILE_AUTH_MOCK_APPLE_TOKEN` are set, an identityToken equal to the mock token skips verification. The live server never takes this path.
 
 Responses:
 - 200 `{ "token": string, "user": MobileUser }`

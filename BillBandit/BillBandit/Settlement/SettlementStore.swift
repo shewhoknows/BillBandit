@@ -305,12 +305,6 @@ final class SettlementStore {
         }
     }
 
-    func loadMoreHistory() async {
-        // The canonical ledger read model carries the complete history for
-        // this surface. There is no legacy cursor that may become a second
-        // source of settlement truth.
-    }
-
     func canStartSettlement(_ transfer: SettlementPlanTransferDTO) -> Bool {
         guard isCurrentTransfer(transfer), canSettle(transfer) else { return false }
         return writesEnabled || canQueueSettlement || requiresReconfirmation
@@ -470,41 +464,6 @@ final class SettlementStore {
             callerParticipantId: callerParticipantId,
             currentUserLabel: currentUserLabel
         )
-    }
-
-    private func apply(_ response: SettlementSnapshotDTO) {
-        guard response.version >= appliedVersion else { return }
-        canonicalServerSnapshot = nil
-        canonicalSnapshot = nil
-        isMigrationBlocked = false
-        readRevision = response.readRevision
-
-        if response.mode == "no_change" {
-            appliedVersion = response.version
-            if let current = snapshot {
-                snapshot = response.mergingPlanAndHistory(from: current)
-            } else {
-                snapshot = response
-            }
-            updateCallerParticipantId(from: snapshot)
-            return
-        }
-
-        if response.mode == "incremental", response.reason == nil, let current = snapshot, response.plan.isEmpty {
-            snapshot = current.updatingMetadata(from: response)
-            appliedVersion = response.version
-            updateCallerParticipantId(from: snapshot)
-            return
-        }
-
-        snapshot = response
-        appliedVersion = response.version
-        updateCallerParticipantId(from: snapshot)
-
-        if let pendingRefreshVersion, pendingRefreshVersion > appliedVersion {
-            self.pendingRefreshVersion = nil
-            Task { await refresh(forceWritesDisabled: true) }
-        }
     }
 
     private func applyCanonical(_ serverSnapshot: ServerLedgerSnapshot) throws {
@@ -845,24 +804,3 @@ private final class SettlementServerLedgerTransport: ServerLedgerAPIClient, @unc
     }
 }
 
-private extension SettlementSnapshotDTO {
-    func updatingMetadata(from response: SettlementSnapshotDTO) -> SettlementSnapshotDTO {
-        SettlementSnapshotDTO(
-            mode: response.mode,
-            version: response.version,
-            lifecycle: response.lifecycle,
-            simplifyDebts: response.simplifyDebts,
-            latestSettingAudit: response.latestSettingAudit,
-            settlementCompletedAt: response.settlementCompletedAt,
-            permissions: response.permissions,
-            realtime: response.realtime,
-            plan: plan,
-            settled: settled,
-            reason: response.reason,
-            fromVersion: response.fromVersion,
-            toVersion: response.toVersion,
-            envelopes: response.envelopes,
-            readRevision: response.readRevision
-        )
-    }
-}
