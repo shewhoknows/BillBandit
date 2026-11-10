@@ -580,7 +580,7 @@ struct SharedSettleUpScreen: View {
             return "Enter an amount above zero."
         }
         guard SettlementMoneyFormatting.compare(minor, transfer.minorUnits) != .orderedDescending else {
-            return "Enter an amount no greater than the amount owed."
+            return "Enter no more than the amount owed. The Bandit only takes what's owed now."
         }
         return nil
     }

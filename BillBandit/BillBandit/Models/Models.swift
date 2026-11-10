@@ -136,9 +136,9 @@ enum ProgressLevel: Int, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .lookout: return "Lookout"
-        case .crewScout: return "Crew Scout"
-        case .ledgerKeeper: return "Ledger Keeper"
+        case .lookout: return "Former Lookout"
+        case .crewScout: return "Reformed Scout"
+        case .ledgerKeeper: return "Clean Record"
         }
     }
 

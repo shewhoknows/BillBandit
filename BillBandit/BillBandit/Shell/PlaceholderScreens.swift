@@ -113,9 +113,9 @@ struct OnboardingScreen: View {
     @FocusState private var usernameFocused: Bool
 
     private let pages: [(Mascot, String, String)] = [
-        (.greeting, "split bills, not friendships.", "Keep every shared expense clear without making it awkward."),
-        (.thinking, "the math gets handled.", "Equal, exact, percentage or shares — every rupee lands exactly."),
-        (.celebrating, "settle up. stay friends.", "Record a payment and let the bandit celebrate the clean slate."),
+        (.greeting, "he used to steal. now he settles.", "Meet the Bandit. Reformed, exact, and very serious about who owes what."),
+        (.thinking, "every rupee accounted for. old habits.", "Split equally, exactly, by percentage or by shares. The Bandit checks every amount."),
+        (.celebrating, "clean slate. no getaway needed.", "Record a payment and let the Bandit celebrate a clean slate."),
     ]
 
     private var isDemo: Bool {
@@ -310,7 +310,7 @@ struct OnboardingScreen: View {
                 Text(BrandFont.handText(pages[index].1))
                     .font(BrandFont.hand(28, weight: .bold))
                     .multilineTextAlignment(.center)
-                    .frame(height: index == 2 ? nil : 42)
+                    .frame(height: index == 2 ? nil : 70)
                     .frame(minHeight: index == 2 ? 42 : nil)
                     .accessibilityIdentifier("onboardingTitle-\(index)")
                 Text(pages[index].2)
@@ -318,8 +318,8 @@ struct OnboardingScreen: View {
                     .multilineTextAlignment(.center)
                     .opacity(0.78)
                     .padding(.horizontal, 32)
-                    .frame(height: index == 2 ? nil : 44, alignment: .top)
-                    .frame(minHeight: index == 2 ? 44 : nil, alignment: .top)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 44, alignment: .top)
                     .accessibilityIdentifier("onboardingDescription-\(index)")
             }
             if index == 2 {
@@ -776,7 +776,7 @@ struct HomeScreen: View {
             }
 
             if visibleGroups.isEmpty {
-                Text(BrandFont.handText("no groups yet"))
+                Text(BrandFont.handText("no jobs yet. start a crew."))
                     .font(BrandFont.hand(20, weight: .semibold))
                     .opacity(0.75)
             }
