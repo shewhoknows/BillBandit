@@ -108,7 +108,24 @@ Canon: **"He used to steal. Now he settles."** A reformed bank-robber raccoon wh
 - Item 7: The payer mismatch could not be reproduced while another app was using the requested simulator. The canonical editor maps the payer by server account ID, but that source inspection does not prove the on-screen selection.
 - Item 10: CloudKit is still used. `CloudCollaborationService` creates the named container at launch, syncs public profile cards, and imports legacy records. SwiftData uses `cloudKitDatabase: .none`. The app declares `aps-environment`, the Push capability, and the `remote-notification` background mode. No remote-notification registration or CloudKit subscription was found in the app source. `UNUserNotificationCenter` only removes old local reminders. The iCloud key-value entitlement has no matching `NSUbiquitousKeyValueStore` use in the source. These findings do not prove that removal is safe on upgraded devices.
 - Safe removal requires the owner's approval. First establish that legacy import and CloudKit profile data are no longer needed, and replace or retire those paths. Then remove container initialization and CloudKit calls, remove the unused entitlements and capabilities, review the background mode, and update signing and provisioning. Build a signed candidate and verify fresh install, upgrade, sign-in, friends, profile sync, and legacy migration before release. Keep Sign in with Apple. No entitlement or provisioning change was made here.
+- Simulator verification: another app appeared on the requested simulator during item 2. The remaining app flows were not exercised. Coordinate device use before continuing. The device tool also marked visible group rows as covered and timed out on settle waits; screenshot-guided taps worked for the two screens reached.
+- Item 3: Confirm selection persists when canonical group members arrive after the edit sheet opens. Verify omitted members, a payer outside the split, each split mode, balances, and Activity against the local server.
+- Item 6: Verify deletion, offline queue recovery, revision conflicts, server refusals, Activity, and navigation before release. A queued offline deletion can sync later. The implementation has only build evidence.
+- Items 8–9: Measure contrast and review screenshots at normal and accessibility text sizes. Long names and the longer mascot copy have not been visually checked.
 
 ## Report
 
-(fill in at the end)
+The Debug build passed after each implemented item. The script-phase warning remained; compiling builds also reported the App Intents metadata warning. `npm run typecheck` and `npm run lint` passed. The local server was stopped. Evidence and replay steps: `.scratch/launch-blockers/evidence/billbandit-launch-blockers/20261110T135721Z.i5fjJH/observations.md`.
+
+| Item | Status | Commit | Verification and doubts |
+| --- | --- | --- | --- |
+| 1 | Partly | `07e389b` | Center tap selected one friend and a new group showed two members. The add-member and other audited rows were not exercised. |
+| 2 | Partly | `3025af2` | Reproduced the invalid prefill and saw the corrected ₹100.24 prefill without a hint. Partial, full, and over-amount submission remain unverified. Exponents 0 and 3 were not exercised. |
+| 3 | Partly | `5cf86e4` | Build passed. Participant selection, server acceptance, balances, edit hydration, and count copy were not exercised. |
+| 4 | Not done | None | Stopped because a creation-time tie-break is unavailable for all records in the canonical read model. See Open questions. |
+| 5 | Partly | `e8b9ae1` | Build passed. Create, edit, preserve, clear, and display of notes and category were not exercised. |
+| 6 | Partly | `6e44dc4` | Build passed. Shared deletion and queue, conflict, error, navigation, and Activity behavior were not exercised. |
+| 7 | Not done | None | Could not reproduce the reported payer mismatch on the simulator. Source inspection alone does not settle it. |
+| 8 | Partly | `fb16de1` | Build passed. Contrast ratios, layouts, long names, and tab states were not visually verified. |
+| 9 | Partly | `840a577` | Build passed. The commit body lists each changed string. Onboarding, celebration, and copy layout were not visually verified. |
+| 10 | Partly | `c32dcb3` | Source and entitlement audit recorded above. No signed-device, migration, or provisioning verification was performed; no capability was removed. |
