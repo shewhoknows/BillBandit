@@ -50,6 +50,12 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
+### 2026-11-10 — Launch blockers round 3 (branch `fix/launch-blockers`)
+
+- Fixes F–H are committed separately: `51bc776`, `eff8956`, and `bd92772`. The shared split count includes zero-value equal shares. Receipt metadata uses a short current-year date and truncates the payer when needed. Shared receipt rows open the expense overview, which now has Edit and retains Delete.
+- On the iPhone 18 Pro simulator, a ₹0.01 equal split among three showed `split 3 ways` and `Equal · 3 people`. A single-person split showed the singular forms in the receipt and Activity overview. A group overview showed an edited title after save; deletion returned to a refreshed group. Current-year metadata fit on one line. The two local test expenses were deleted; their activity history remains.
+- Builds passed after each fix with the existing script-phase and App Intents warnings. API typecheck and lint passed. Manual `agent-device` screenshots and replay steps are in `.scratch/launch-blockers/evidence/round3/observations.md`; no recorded TesterArmy e2e run was made in round 3. Long names, prior-year dates, non-equal split methods, note edits, and offline or conflict deletion were not exercised. The local API was left running.
+
 ### 2026-11-10 — Launch blockers round 2 (branch `fix/launch-blockers`)
 
 - Changes A–E are committed separately: `e923e8b`, `621fcb2`, `cc252f9`, `87811c2`, and `c27c7de`. See the Round 2 table in `docs/plans/launch-blockers-20261110.md` for scope and proof.

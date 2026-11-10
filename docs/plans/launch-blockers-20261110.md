@@ -142,3 +142,13 @@ Evidence and replay steps: `.scratch/launch-blockers/evidence/round2/observation
 | C | Verified | `cc252f9` | Reproduced the accidental creation on Round 1. After the fix, selected two friends, then created a three-member group with the Create button. |
 | D | Partly verified | `87811c2` | Created a past-dated expense, retained its date on edit, observed future dates disabled, and changed another date to make the receipt reorder. Equal-date order and overview display of the new past-dated expense were not exercised. |
 | E | Partly verified | `c27c7de` | Audited small fonts and text opacity. Screenshots show the full QA Cobalt Row Selection heading and two-line activity descriptions. Settlement confirmation and validation were not visually checked. |
+
+### Round 3
+
+Builds passed after each item with the two existing warnings. `npm run typecheck` and `npm run lint` passed. The local API remained running. Manual simulator steps, screenshots, and build logs: `.scratch/launch-blockers/evidence/round3/observations.md`. These checks used `agent-device`; they were not a recorded TesterArmy e2e run.
+
+| Item | Status | Commit | Verification and limits |
+| --- | --- | --- | --- |
+| F | Partly verified | `51bc776` | A ₹0.01 equal split among three showed `split 3 ways` and `Equal · 3 people`, with two ₹0.00 shares. A one-person split showed `split 1 way` and `Equal · 1 person` in Activity. Exact, percent, and shares were not exercised. |
+| G | Partly verified | `eff8956` | On iPhone 18 Pro, `10 Nov · paid by dev_you · split 3 ways` fit on one line. Long payer truncation and prior-year dates were not exercised. |
+| H | Verified for sampled flow | `bd92772` | A group receipt opened the overview. Edit saved a changed title and the overview showed it. Delete returned to the group with the row gone and total refreshed. Activity also opened the overview. Note changes and offline or conflict cases were not retested. |
