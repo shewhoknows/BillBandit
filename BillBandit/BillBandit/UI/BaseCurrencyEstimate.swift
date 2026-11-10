@@ -61,7 +61,7 @@ struct ProfileCurrencySettingsSection: View {
             .accessibilityIdentifier("profileBaseCurrencyPicker")
             Text("New groups start in this currency. Amounts in other currencies show an estimate in \(store.selectedBaseCurrency.rawValue). Expenses and payments keep their own currency.")
                 .font(BrandFont.body(12))
-                .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+                .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
             if balances != nil, !sourceCurrencies.isEmpty {
                 if let owed = convertedTotal(owed: true), let owe = convertedTotal(owed: false) {
                     VStack(alignment: .leading, spacing: 5) {

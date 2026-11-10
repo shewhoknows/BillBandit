@@ -585,6 +585,9 @@ struct AddExpenseSheet: View {
         Button(action: action) {
             Text(t)
                 .font(BrandFont.body(11, weight: .extraBold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: 190)
                 .padding(.horizontal, 14)
                 .frame(height: 34)
                 .background(on ? Color.Brand.cobalt : .clear)
@@ -592,6 +595,8 @@ struct AddExpenseSheet: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(t)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private var equalSplitSummary: String {

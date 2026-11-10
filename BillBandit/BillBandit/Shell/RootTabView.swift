@@ -1865,14 +1865,14 @@ struct RootTabView: View {
                         avatar: currentUsers.first?.profileAvatar ?? .sunglasses,
                         size: 23
                     )
-                    .opacity(t == tab ? 1 : 0.48)
+                    .opacity(t == tab ? 1 : 0.9)
                 } else {
                     BrandIconView(icon: t.icon, size: 22)
                 }
                 Text(t.title)
                     .font(BrandFont.body(9.5, weight: .extraBold))
             }
-            .foregroundStyle(Color.Brand.creamSoft.opacity(t == tab ? 1 : 0.4))
+            .foregroundStyle(Color.Brand.creamSoft.opacity(t == tab ? 1 : 0.9))
             .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier(

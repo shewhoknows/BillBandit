@@ -159,7 +159,7 @@ struct GroupsScreen: View {
                         .font(BrandFont.display(13.5))
                     Text(GroupCopy.memberCount(group.members.count))
                         .font(BrandFont.type(9.5))
-                        .opacity(0.65)
+                        .opacity(0.9)
                 }
                 .foregroundStyle(Color.Brand.creamSoft)
                 Spacer()

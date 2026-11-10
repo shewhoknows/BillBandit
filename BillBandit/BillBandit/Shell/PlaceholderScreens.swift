@@ -802,7 +802,7 @@ struct HomeScreen: View {
             if showsCurrencyCode {
                 Text(summary.net.currencyCode)
                     .font(BrandFont.type(9, bold: true))
-                    .opacity(0.68)
+                    .opacity(0.9)
             }
 
             Text(summary.net.absoluteDisplayText)
@@ -1222,7 +1222,7 @@ struct ProfileScreen: View {
                              (showAvatarPicker ? "choose freely · tap big avatar to save" :
                                 "tap username to edit · tap avatar to change"))))
                             .font(BrandFont.type(9.5, bold: true))
-                            .foregroundStyle(Color.Brand.cobalt.opacity(0.58))
+                            .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
                     }
 
                     if showAvatarPicker {
@@ -1419,7 +1419,7 @@ struct ProfileScreen: View {
                 if !appleUserIdentifier.isEmpty {
                     Text("Reconnect Apple to verify your unique handle.")
                         .font(BrandFont.type(9.5, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+                        .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
                 }
                 SignInWithAppleButton(.continue) { request in
                     authMessage = nil
@@ -1463,7 +1463,7 @@ struct ProfileScreen: View {
             if let authMessage {
                 Text(authMessage)
                     .font(BrandFont.type(9.5, bold: true))
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.65))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
             }
         }
     }
@@ -1474,7 +1474,7 @@ struct ProfileScreen: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Permanently remove your account and personal data.")
                     .font(BrandFont.type(9.5, bold: true))
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.64))
+                    .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
 
                 Button {
                     showDeleteAccountConfirmation = true
@@ -1830,7 +1830,7 @@ private struct HomeDefaultCurrencyEstimate: View {
                 }
                 Text("Estimates only. Each balance is settled in its own currency.")
                     .font(BrandFont.type(9))
-                    .opacity(0.62)
+                    .opacity(0.9)
             }
             .foregroundStyle(Color.Brand.creamSoft)
             .multilineTextAlignment(.center)
@@ -1870,7 +1870,7 @@ private struct GroupCard: View {
             }
             Text(sourceLabel)
                 .font(BrandFont.type(8.5, bold: true))
-                .opacity(0.56)
+                .opacity(0.9)
         }
         .foregroundStyle(Color.Brand.cobalt)
         .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
@@ -1895,7 +1895,7 @@ struct ServerLedgerActivityRow: View {
                 if !compact {
                     Text(item.at.formatted(date: .omitted, time: .shortened))
                         .font(BrandFont.type(9))
-                        .opacity(0.55)
+                        .opacity(0.9)
                 }
             }
             Spacer(minLength: 4)
@@ -2224,7 +2224,7 @@ struct ActivityLedgerRow: View {
                 if !compact {
                     Text(item.timestamp.formatted(date: .omitted, time: .shortened))
                         .font(BrandFont.type(9))
-                        .opacity(0.55)
+                        .opacity(0.9)
                 }
             }
             Spacer(minLength: 4)
