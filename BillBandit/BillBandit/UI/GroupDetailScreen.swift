@@ -733,11 +733,12 @@ struct GroupDetailScreen: View {
             if comparison == .orderedDescending {
                 return "OWED TO YOU \(SettlementMoneyFormatting.display(minorUnits: money.minorUnits, currencyCode: money.currencyCode, currencyExponent: money.currencyExponent))"
             }
-            return "ALL SQUARE"
+            return canonicalSettlementStore.canonicalSnapshot?.group.settlementPlan.transfers.isEmpty == false
+                ? "YOU'RE SQUARE" : "ALL SQUARE"
         }
         if myNet < 0 { return "YOU OWE \(Money.currency(-myNet, currencyCode: group.resolvedCurrencyCode))" }
         if myNet > 0 { return "OWED TO YOU \(Money.currency(myNet, currencyCode: group.resolvedCurrencyCode))" }
-        return "ALL SQUARE"
+        return settlementPlan.isEmpty ? "ALL SQUARE" : "YOU'RE SQUARE"
     }
 
     @ViewBuilder

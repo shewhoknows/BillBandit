@@ -853,6 +853,10 @@ final class ServerLedgerSurfaceStore: ObservableObject {
         if group.members.count == 1, group.transfers.isEmpty, group.currentAccount.allSatisfy(\.isZero) {
             return .justYou
         }
+        if !group.currentAccount.isEmpty, group.currentAccount.allSatisfy(\.isZero),
+           group.transfers.contains(where: { !$0.amount.isZero }) {
+            return ServerLedgerSurfaceBalancePresentation(label: "you're square", isPositive: false)
+        }
         let amounts = group.currentAccount.isEmpty && group.members.count == 1 && group.transfers.isEmpty && !group.isStale
             ? group.baseCurrency.map { [$0] } ?? []
             : group.currentAccount
