@@ -1163,6 +1163,84 @@ private struct DeleteExpenseConfirmationSheet: View {
     }
 }
 
+struct SharedExpenseDeleteControl: View {
+    let group: Group
+    let expenseID: String
+    let expenseTitle: String
+    let expectedRevision: Int64
+    let onDeleted: () -> Void
+    @State private var showConfirmation = false
+    @State private var isDeleting = false
+    @State private var operationID: UUID?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Button("Delete expense", role: .destructive) { showConfirmation = true }
+                .font(BrandFont.type(12, bold: true))
+                .accessibilityIdentifier("deleteSharedExpenseButton")
+                .disabled(isDeleting || operationID != nil)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(BrandFont.body(12, weight: .semibold))
+                    .accessibilityIdentifier("deleteSharedExpenseStatus")
+            }
+        }
+        .fullScreenCover(isPresented: $showConfirmation) {
+            DeleteExpenseConfirmationSheet(expenseTitle: expenseTitle, showsSettlementWarning: false) {
+                showConfirmation = false
+            } onDelete: {
+                showConfirmation = false
+                deleteExpense()
+            }
+        }
+    }
+
+    private func deleteExpense() {
+        guard let groupID = group.serverLedgerGroupID, operationID == nil else { return }
+        let id = UUID()
+        operationID = id
+        isDeleting = true
+        errorMessage = nil
+        Task { @MainActor in
+            var queued = false
+            do {
+                let runtime = T15CanonicalLedgerRuntime.shared
+                let user = try await runtime.authenticatedUser()
+                guard group.isVisible(toServerAccountID: user.id) else { throw T15LedgerUIError.unauthenticated }
+                let scope = ServerBackedLedgerScope(accountID: user.id, groupID: groupID)
+                let snapshot = try await runtime.refresh(scope: scope)
+                guard snapshot.revision == expectedRevision else { throw T15LedgerUIError.canonicalConflict }
+                let canonical = try runtime.validatedGroup(from: snapshot, scope: scope)
+                guard canonical.expenses.contains(where: { $0.expenseID == expenseID && $0.status == "active" }) else {
+                    throw T15LedgerUIError.expenseNotInCanonicalSnapshot
+                }
+                let body = try JSONEncoder.serverLedger.encode(["operationId": id.uuidString])
+                try runtime.enqueueExpense(operationID: id, scope: scope, expectedRevision: snapshot.revision,
+                                           kind: "expense.delete", method: "DELETE",
+                                           path: "/api/mobile/expenses/\(expenseID)", body: body)
+                queued = true
+                let updated = try await runtime.reconcile(scope: scope)
+                let updatedGroup = try runtime.validatedGroup(from: updated, scope: scope)
+                guard !updatedGroup.expenses.contains(where: { $0.expenseID == expenseID && $0.status == "active" }) else {
+                    throw T15LedgerUIError.canonicalSnapshotUnavailable
+                }
+                await ServerLedgerSurfaceStore.shared.refresh(groups: [group])
+                isDeleting = false
+                onDeleted()
+            } catch {
+                isDeleting = false
+                if queued && T15LedgerUIError.isOffline(error) {
+                    errorMessage = "Deletion is queued. It will sync when the connection returns."
+                } else {
+                    if !queued || T15LedgerUIError.isConflict(error) { operationID = nil }
+                    errorMessage = T15LedgerUIError.message(for: error, fallback: "Could not delete this expense.")
+                }
+            }
+        }
+    }
+}
+
 private struct SplitBreakdownRow: View {
     let name: String
     let amount: String
@@ -1755,6 +1833,7 @@ struct SharedExpenseOverviewScreen: View {
     @State private var ledger = SettlementStore()
     @ObservedObject private var surface = ServerLedgerSurfaceStore.shared
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
 
     private var canonicalGroup: SettlementCanonicalLedgerGroup? {
         guard let snapshot = ledger.canonicalSnapshot,
@@ -1819,6 +1898,10 @@ struct SharedExpenseOverviewScreen: View {
                                 .font(BrandFont.body(13))
                                 .accessibilityIdentifier("expenseNote")
                         }
+                    }
+                    SharedExpenseDeleteControl(group: group, expenseID: expenseID, expenseTitle: expense.description,
+                                               expectedRevision: Int64(canonicalGroup.revision)) {
+                        dismiss()
                     }
                     receiptSection("CHANGE HISTORY", identifier: "expenseChangeHistory") {
                         if history.isEmpty {

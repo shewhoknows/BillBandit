@@ -47,6 +47,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
     let originalDate: String
     let notes: String?
     let category: String?
+    let revision: Int64
 
     init?(
         expense: SettlementCanonicalLedgerExpense,
@@ -94,6 +95,7 @@ struct CanonicalExpenseEditDraft: Identifiable {
         self.originalDate = expense.createdAt
         self.notes = expense.notes
         self.category = expense.category
+        self.revision = Int64(canonicalGroup.revision)
     }
 }
 
@@ -253,6 +255,13 @@ struct AddExpenseSheet: View {
                     paidByRow
                     participantSection
                     splitSection
+                    if let group, let draft = canonicalEditingExpense {
+                        SharedExpenseDeleteControl(group: group, expenseID: draft.id, expenseTitle: draft.title,
+                                                   expectedRevision: draft.revision) {
+                            dismiss()
+                        }
+                        .foregroundStyle(Color.Brand.cobalt)
+                    }
                     if let errorMessage {
                         Text(errorMessage)
                             .font(BrandFont.type(10, bold: true))
