@@ -111,6 +111,15 @@ final class SettlementStore {
         )
     }
 
+    var canonicalMyPayments: (received: ServerLedgerMoneyDTO, made: ServerLedgerMoneyDTO)? {
+        guard let group = canonicalSnapshot?.group, let memberID = group.currentMemberID else { return nil }
+        let active = group.settlementHistory.filter { $0.type == "settlement" && $0.status == "active" }
+        return (
+            received: sumBaseCurrency(active.filter { $0.recipientMemberID == memberID }.map(\.amount)),
+            made: sumBaseCurrency(active.filter { $0.payerMemberID == memberID }.map(\.amount))
+        )
+    }
+
     var canonicalBalanceMoney: ServerLedgerMoneyDTO? {
         guard let canonical = canonicalSnapshot, !canonical.isStale else { return nil }
         let group = canonical.group

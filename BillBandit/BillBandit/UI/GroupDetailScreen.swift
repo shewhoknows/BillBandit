@@ -132,6 +132,17 @@ struct GroupDetailScreen: View {
         canonicalSettlementStore.canonicalBalanceMoney
     }
 
+    private var canonicalPaymentsString: String? {
+        guard let payments = canonicalSettlementStore.canonicalMyPayments else { return nil }
+        var lines: [String] = []
+        for (label, money) in [("payments received", payments.received), ("payments made", payments.made)] {
+            if SettlementMoneyFormatting.compare(money.minorUnits, "0") != .orderedSame {
+                lines.append("\(label) \(SettlementMoneyFormatting.display(minorUnits: money.minorUnits, currencyCode: money.currencyCode, currencyExponent: money.currencyExponent))")
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " · ")
+    }
+
     private func displayMajorUnits(_ money: ServerLedgerMoneyDTO?) -> Decimal? {
         guard let money else { return nil }
         return Decimal(string: SettlementMoneyFormatting.decimalString(
@@ -472,6 +483,14 @@ struct GroupDetailScreen: View {
                         .opacity(0.7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 5)
+
+                    if usesCanonicalLedger, let payments = canonicalPaymentsString {
+                        Text(payments)
+                            .font(BrandFont.type(11))
+                            .opacity(0.7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("invoicePayments")
+                    }
 
                     balanceStampControl
 

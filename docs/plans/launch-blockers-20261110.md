@@ -152,3 +152,7 @@ Builds passed after each item with the two existing warnings. `npm run typecheck
 | F | Partly verified | `51bc776` | A ₹0.01 equal split among three showed `split 3 ways` and `Equal · 3 people`, with two ₹0.00 shares. A one-person split showed `split 1 way` and `Equal · 1 person` in Activity. Exact, percent, and shares were not exercised. |
 | G | Partly verified | `eff8956` | On iPhone 18 Pro, `10 Nov · paid by dev_you · split 3 ways` fit on one line. Long payer truncation and prior-year dates were not exercised. |
 | H | Verified for sampled flow | `bd92772` | A group receipt opened the overview. Edit saved a changed title and the overview showed it. Delete returned to the group with the row gone and total refreshed. Activity also opened the overview. Note changes and offline or conflict cases were not retested. |
+
+### Round 4
+
+For QA Indigo Two Friends 9473, the canonical API at revision 27 lists four active expenses. You paid ₹12.00 + ₹50.00 = ₹62.00. Your shares are ₹4.00 + ₹0.00 + ₹2.50 + ₹50.00 = ₹56.50. At the reported point, Kabir had paid You ₹2.00 + ₹2.00 = ₹4.00. Thus ₹62.00 − ₹56.50 − ₹4.00 = ₹1.50 owed to You. The later ₹0.50 and ₹1.00 payments reduce this to ₹0.00. The current plan still has Kabir paying Aarav ₹78.50. The reported balance was correct.
