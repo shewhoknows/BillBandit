@@ -480,6 +480,8 @@ struct SettlementCanonicalLedgerExpense: Decodable, Equatable, Sendable {
     let status: String
     let createdAt: String
     let updatedAt: String
+    let notes: String?
+    let category: String?
 
     private enum CodingKeys: String, CodingKey {
         case expenseID = "expenseId"
@@ -492,6 +494,8 @@ struct SettlementCanonicalLedgerExpense: Decodable, Equatable, Sendable {
         case status
         case createdAt
         case updatedAt
+        case notes
+        case category
     }
 }
 

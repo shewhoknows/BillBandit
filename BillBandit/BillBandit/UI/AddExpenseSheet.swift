@@ -45,6 +45,8 @@ struct CanonicalExpenseEditDraft: Identifiable {
     let inputValuesByAccountID: [String: String]
     let participantAccountIDs: Set<String>
     let originalDate: String
+    let notes: String?
+    let category: String?
 
     init?(
         expense: SettlementCanonicalLedgerExpense,
@@ -90,6 +92,8 @@ struct CanonicalExpenseEditDraft: Identifiable {
         self.inputValuesByAccountID = inputValuesByAccountID
         self.participantAccountIDs = Set(expense.splits.compactMap { canonicalGroup.memberByID[$0.memberID]?.accountID })
         self.originalDate = expense.createdAt
+        self.notes = expense.notes
+        self.category = expense.category
     }
 }
 
@@ -106,6 +110,8 @@ struct AddExpenseSheet: View {
     @State private var amountText = ""
     @State private var title = ""
     @State private var category: ExpenseCategory = .food
+    @State private var categoryChanged = false
+    @State private var notes = ""
     @State private var group: Group?
     @State private var showNewGroup = false
     @State private var paidBy: Person?
@@ -211,7 +217,8 @@ struct AddExpenseSheet: View {
                 ?? ""
         )
         _title = State(initialValue: canonicalEditingExpense?.title ?? editingExpense?.title ?? "")
-        _category = State(initialValue: editingExpense?.category ?? .food)
+        _category = State(initialValue: canonicalEditingExpense?.category.flatMap(ExpenseCategory.init(rawValue:)) ?? editingExpense?.category ?? .food)
+        _notes = State(initialValue: canonicalEditingExpense?.notes ?? editingExpense?.notes ?? "")
         _group = State(initialValue: editingExpense?.group ?? initialGroup)
         _paidBy = State(initialValue: editingExpense?.paidBy)
         let initialMode = canonicalEditingExpense?.mode ?? editingExpense?.splits.first?.mode ?? .equal
@@ -236,9 +243,8 @@ struct AddExpenseSheet: View {
                 VStack(spacing: 14) {
                     amountHero
                     titleField
-                    if !isCanonicalEditing {
-                        categorySection
-                    }
+                    categorySection
+                    noteSection
                     if isCanonicalEditing {
                         lockedGroupRow
                     } else {
@@ -374,7 +380,7 @@ struct AddExpenseSheet: View {
             BrandSectionLabel("CATEGORY")
             HStack(spacing: 2) {
                 ForEach(ExpenseCategory.allCases, id: \.self) { cat in
-                    Button { category = cat } label: {
+                    Button { category = cat; categoryChanged = true } label: {
                         BrandIconView(icon: cat.icon, size: 19)
                             .foregroundStyle(category == cat ? Color.Brand.creamSoft : Color.Brand.cobalt)
                             .frame(width: 36, height: 36)
@@ -382,9 +388,28 @@ struct AddExpenseSheet: View {
                             .overlay(Circle().strokeBorder(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(cat.rawValue.capitalized)
+                    .accessibilityIdentifier("expenseCategory-\(cat.rawValue)")
+                    .accessibilityAddTraits(category == cat ? .isSelected : [])
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    private var noteSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            BrandSectionLabel("NOTE")
+            TextField("Add a note", text: $notes, axis: .vertical)
+                .lineLimit(3...6)
+                .font(BrandFont.type(13))
+                .foregroundStyle(Color.Brand.cobalt)
+                .padding(14)
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: controlOutlineWidth))
+                .accessibilityIdentifier("expenseNoteField")
+                .onChange(of: notes) { _, value in
+                    if value.count > 500 { notes = String(value.prefix(500)) }
+                }
         }
     }
 
@@ -716,6 +741,7 @@ struct AddExpenseSheet: View {
             existing.title = title
             existing.amount = roundedAmount
             existing.categoryRaw = category.rawValue
+            existing.notes = notes
             existing.group = group
             existing.paidBy = payer
             existing.splits = splits
@@ -732,6 +758,7 @@ struct AddExpenseSheet: View {
         } else {
             expense = Expense(title: title, amount: roundedAmount,
                               category: category, group: group, paidBy: payer, splits: splits)
+            expense.notes = notes
             context.insert(expense)
             let actorName = you?.name ?? "You"
             context.insert(ActivityItem(kind: .expenseAdded,
@@ -1006,12 +1033,10 @@ struct AddExpenseSheet: View {
             amount: money,
             currency: canonicalGroup.baseCurrency.currencyCode,
             date: canonicalEditingExpense?.originalDate ?? serverDate(editingExpense?.date ?? .now),
-            category: canonicalEditingExpense == nil ? category.rawValue : nil,
+            category: categoryChanged ? category.rawValue : (canonicalEditingExpense?.category ?? category.rawValue),
             splitMethod: mode.serverValue,
             splits: encodedSplits,
-            notes: canonicalEditingExpense == nil && editingExpense?.notes.isEmpty == false
-                ? editingExpense?.notes
-                : nil,
+            notes: notes,
             operationId: operationID.uuidString
         )
         return try JSONEncoder.serverLedger.encode(body)

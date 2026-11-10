@@ -1813,6 +1813,13 @@ struct SharedExpenseOverviewScreen: View {
                                               amount: money(split.amount))
                         }
                     }
+                    if let notes = expense.notes, !notes.isEmpty {
+                        receiptSection("NOTE") {
+                            Text(notes)
+                                .font(BrandFont.body(13))
+                                .accessibilityIdentifier("expenseNote")
+                        }
+                    }
                     receiptSection("CHANGE HISTORY", identifier: "expenseChangeHistory") {
                         if history.isEmpty {
                             Text("No recorded change history is available.").font(BrandFont.body(12))
