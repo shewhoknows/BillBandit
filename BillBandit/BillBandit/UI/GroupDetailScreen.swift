@@ -878,7 +878,7 @@ private struct InvoiceExpenseRow: View {
         VStack(alignment: .leading, spacing: 2) {
             InvoiceLeaderRow(label: expense.title, amount: Money.string(expense.amount),
                              animationValue: expense.amount)
-            Text("paid by \(payerName) · split \(expense.splits.filter { $0.computedAmount > 0 }.count) ways")
+            Text("paid by \(payerName) · \(ExpenseSplitCount.ways(ExpenseSplitCount.count(method: expense.splits.first?.modeRaw ?? "equal", splits: expense.splits) { $0.computedAmount > 0 }))")
                 .font(BrandFont.type(11))
                 .opacity(0.7)
         }
@@ -905,7 +905,7 @@ private struct CanonicalInvoiceExpenseRow: View {
                     currencyExponent: expense.amount.currencyExponent
                 )
             )
-            Text("\(ExpenseDate.display(expense.date)) · paid by \(expense.payerName) · split \(expense.splitCount) ways")
+            Text("\(ExpenseDate.display(expense.date)) · paid by \(expense.payerName) · \(ExpenseSplitCount.ways(expense.splitCount))")
                 .font(BrandFont.type(11))
                 .opacity(0.7)
         }
@@ -1903,7 +1903,7 @@ struct SharedExpenseOverviewScreen: View {
                         }
                     }
                     receiptSection("SPLIT BREAKDOWN") {
-                        Text(expense.splitMethod.capitalized + " · \(expense.splits.filter { SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending }.count) people")
+                        Text(expense.splitMethod.capitalized + " · " + ExpenseSplitCount.people(expense.participantCount))
                             .font(BrandFont.body(12, weight: .semibold))
                         ForEach(expense.splits.sorted { memberName($0.memberID) < memberName($1.memberID) }, id: \.splitID) { split in
                             SplitBreakdownRow(name: canonicalGroup.memberByID[split.memberID]?.displayName ?? "Unknown member",

@@ -685,6 +685,23 @@ struct SettlementLedgerExpense: Equatable, Identifiable, Sendable {
     let date: String
 }
 
+enum ExpenseSplitCount {
+    static func count<T>(method: String, splits: [T], isPositive: (T) -> Bool) -> Int {
+        method.lowercased() == "equal" ? splits.count : splits.filter(isPositive).count
+    }
+
+    static func ways(_ count: Int) -> String { "split \(count) \(count == 1 ? "way" : "ways")" }
+    static func people(_ count: Int) -> String { "\(count) \(count == 1 ? "person" : "people")" }
+}
+
+extension SettlementCanonicalLedgerExpense {
+    var participantCount: Int {
+        ExpenseSplitCount.count(method: splitMethod, splits: splits) {
+            SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending
+        }
+    }
+}
+
 enum ExpenseDate {
     static func parse(_ value: String) -> Date? {
         let fractional = ISO8601DateFormatter()
@@ -734,7 +751,7 @@ extension SettlementCanonicalLedgerGroup {
                     amount: $0.element.amount,
                     payerMemberID: $0.element.paidByMemberID,
                     payerName: memberByID[$0.element.paidByMemberID]?.displayName ?? "Unknown",
-                    splitCount: $0.element.splits.filter { SettlementMoneyFormatting.compare($0.amount.minorUnits, "0") == .orderedDescending }.count,
+                    splitCount: $0.element.participantCount,
                     date: $0.element.createdAt
                 )
             }
