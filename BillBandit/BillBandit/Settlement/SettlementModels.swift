@@ -712,6 +712,14 @@ enum ExpenseDate {
     static func display(_ value: String) -> String {
         parse(value)?.formatted(.dateTime.day().month(.abbreviated).year()) ?? "Unavailable"
     }
+
+    static func receiptDisplay(_ value: String) -> String {
+        guard let date = parse(value) else { return "Unavailable" }
+        if Calendar.current.isDate(date, equalTo: .now, toGranularity: .year) {
+            return date.formatted(.dateTime.day().month(.abbreviated))
+        }
+        return date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
 }
 
 struct SettlementLedgerBalanceLine: Equatable, Identifiable, Sendable {

@@ -905,9 +905,15 @@ private struct CanonicalInvoiceExpenseRow: View {
                     currencyExponent: expense.amount.currencyExponent
                 )
             )
-            Text("\(ExpenseDate.display(expense.date)) · paid by \(expense.payerName) · \(ExpenseSplitCount.ways(expense.splitCount))")
-                .font(BrandFont.type(11))
-                .opacity(0.7)
+            HStack(spacing: 0) {
+                Text("\(ExpenseDate.receiptDisplay(expense.date)) · paid by ").fixedSize()
+                Text(expense.payerName).lineLimit(1).truncationMode(.middle)
+                Text(" · \(ExpenseSplitCount.ways(expense.splitCount))").fixedSize()
+            }
+            .font(BrandFont.type(11))
+            .opacity(0.7)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(ExpenseDate.receiptDisplay(expense.date)) · paid by \(expense.payerName) · \(ExpenseSplitCount.ways(expense.splitCount))")
         }
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
