@@ -129,3 +129,16 @@ The Debug build passed after each implemented item. The script-phase warning rem
 | 8 | Partly | `fb16de1` | Build passed. Contrast ratios, layouts, long names, and tab states were not visually verified. |
 | 9 | Partly | `840a577` | Build passed. The commit body lists each changed string. Onboarding, celebration, and copy layout were not visually verified. |
 | 10 | Partly | `c32dcb3` | Source and entitlement audit recorded above. No signed-device, migration, or provisioning verification was performed; no capability was removed. |
+
+
+### Round 2
+
+Evidence and replay steps: `.scratch/launch-blockers/evidence/round2/observations.md`. The local server remained running. Builds passed after each item with the two existing warnings. API typecheck and lint passed. The simulator checks below used the requested `agent-device` driver; they were not a recorded TesterArmy e2e run.
+
+| Item | Status | Commit | Verification and limits |
+| --- | --- | --- | --- |
+| A | Partly verified | `e923e8b` | Deleting from edit returned to the group with no expense, ₹0 total and ALL SQUARE. Deleting from the Activity overview returned to Activity and showed the deletion event; an already open group detail was not observed for that route. |
+| B | Verified for sampled event | `621fcb2` | Home and Activity both opened QA rounding three 7812 in Goa weekend 11-10 10:21. The originally reported event was not retested. |
+| C | Verified | `cc252f9` | Reproduced the accidental creation on Round 1. After the fix, selected two friends, then created a three-member group with the Create button. |
+| D | Partly verified | `87811c2` | Created a past-dated expense, retained its date on edit, observed future dates disabled, and changed another date to make the receipt reorder. Equal-date order and overview display of the new past-dated expense were not exercised. |
+| E | Partly verified | `c27c7de` | Audited small fonts and text opacity. Screenshots show the full QA Cobalt Row Selection heading and two-line activity descriptions. Settlement confirmation and validation were not visually checked. |

@@ -50,6 +50,13 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
+### 2026-11-10 — Launch blockers round 2 (branch `fix/launch-blockers`)
+
+- Changes A–E are committed separately: `e923e8b`, `621fcb2`, `cc252f9`, `87811c2`, and `c27c7de`. See the Round 2 table in `docs/plans/launch-blockers-20261110.md` for scope and proof.
+- The simulator showed an immediate group refresh after deletion from edit, correct sampled activity destinations, and two selected friends before group creation. A past expense date survived an edit; future dates were disabled and a changed date reordered the receipt. Equal-date ordering was not exercised. The overview delete returned to Activity, so refresh of an already open group detail for that route remains unverified.
+- The final build passed with the existing script-phase and App Intents warnings. `npm run typecheck` and `npm run lint` passed. Manual simulator evidence and replay steps are in `.scratch/launch-blockers/evidence/round2/observations.md`; no recorded TesterArmy e2e run was made in round 2. Settlement legibility still needs visual verification.
+- The local API was left running. No push, deploy, production, ledger math, server validation, auth, or schema change was made.
+
 ### 2026-11-10 — Review follow-ups (branch `cleanup/2026-11-10-audit`)
 
 - **Launch blockers, branch `fix/launch-blockers`: partial.** Commits `07e389b`, `3025af2`, `5cf86e4`, `e8b9ae1`, `6e44dc4`, `fb16de1`, `840a577`, and `c32dcb3` cover friend rows, settlement validation, participant selection, notes, shared deletion, legibility, mascot copy, and a capability audit. The expense-date item was stopped because the canonical read model does not expose a separate creation time for every expense. The payer report was not reproduced. See `docs/plans/launch-blockers-20261110.md` for per-item status and open questions.
