@@ -1,10 +1,6 @@
 import Foundation
 import SwiftData
 
-enum ServerLedgerCacheError: Error, Equatable, Sendable {
-    case invalidSnapshotData
-}
-
 /// One account- and server-group-scoped cache row.
 ///
 /// This model belongs to `AppStore.schema` as a local cache of API-owned
@@ -42,10 +38,6 @@ final class CachedLedgerSnapshot {
     }
 
     var groupID: String { serverGroupID }
-    var snapshotPayload: Data {
-        get { payload }
-        set { payload = newValue }
-    }
 
     var scope: LedgerScope {
         .serverBacked(accountID: accountID, groupID: serverGroupID)
@@ -81,8 +73,3 @@ final class CachedLedgerSnapshot {
         )
     }
 }
-
-// These aliases keep the cache row vocabulary flexible for later store work
-// without introducing additional SwiftData entities.
-typealias ServerLedgerCacheRecord = CachedLedgerSnapshot
-typealias CachedLedger = CachedLedgerSnapshot

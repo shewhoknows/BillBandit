@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 
 import type { PrismaClient } from '@prisma/client'
 
-import { createLedgerTestDatabase } from '../test/integration/ledger-harness'
+import { createLedgerTestDatabase } from './support/e2e-database'
 
 const repositoryRoot = resolve(dirname(new URL(import.meta.url).pathname), '../..', '..')
 const apiRoot = resolve(repositoryRoot, 'apps/api')

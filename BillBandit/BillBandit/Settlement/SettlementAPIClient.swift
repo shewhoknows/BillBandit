@@ -120,21 +120,6 @@ final class APIClient: Sendable {
         try await request(path, method: "GET", body: Optional<SettlementEmptyBody>.none)
     }
 
-    func patch<Body: Encodable, Response: Decodable>(
-        _ path: String,
-        body: Body,
-        idempotencyKey: String? = nil,
-        expectedRevision: Int? = nil
-    ) async throws -> Response {
-        try await request(
-            path,
-            method: "PATCH",
-            body: body,
-            idempotencyKey: idempotencyKey,
-            expectedRevision: expectedRevision
-        )
-    }
-
     func post<Body: Encodable, Response: Decodable>(
         _ path: String,
         body: Body,
@@ -326,8 +311,6 @@ final class APIClient: Sendable {
     }
 }
 
-typealias SettlementAPIClient = APIClient
-
 private protocol SettlementExpectedRevisionProviding {
     var expectedRevision: Int { get }
 }
@@ -352,25 +335,6 @@ private struct SettlementErrorResponse: Decodable {
 }
 
 extension APIClient {
-    func fetchSettleUp(groupId: String, afterVersion: Int?) async throws -> SettlementSnapshotDTO {
-        var path = "/api/groups/\(groupId)/settle-up"
-        if let afterVersion, afterVersion > 0 {
-            path += "?afterVersion=\(afterVersion)"
-        }
-        do {
-            return try await get(path)
-        } catch let SettlementAPIError.structured(code, status, body) where code == "VERSION_AHEAD" && status == 409 {
-            if let body,
-               let conflict = try? JSONDecoder.settlement.decode(SettleUpVersionAheadResponse.self, from: body),
-               let snapshot = conflict.snapshot {
-                return snapshot
-            }
-            throw SettlementClientError.versionConflict
-        } catch let error as SettlementAPIError {
-            throw error
-        }
-    }
-
     func postSettlementMutation(
         path: String,
         body: some Encodable,
@@ -379,25 +343,6 @@ extension APIClient {
         do {
             return try await post(path, body: body, idempotencyKey: idempotencyKey)
         } catch let SettlementAPIError.structured(code, _, body) where code == "SETTLEMENT_VERSION_CONFLICT" || code == "TRANSFER_MISMATCH" || code == "REVISION_CONFLICT" {
-            if let body,
-               let conflict = try? JSONDecoder.settlement.decode(SettlementConflictResponse.self, from: body),
-               let state = conflict.state {
-                throw SettlementMutationConflictError(state: state)
-            }
-            throw SettlementClientError.versionConflict
-        } catch let error as SettlementAPIError {
-            throw error
-        }
-    }
-
-    func patchSettlementMutation(
-        path: String,
-        body: some Encodable,
-        idempotencyKey: String
-    ) async throws -> SettlementMutationResponseDTO {
-        do {
-            return try await patch(path, body: body, idempotencyKey: idempotencyKey)
-        } catch let SettlementAPIError.structured(code, _, body) where code == "SETTLEMENT_VERSION_CONFLICT" || code == "REVISION_CONFLICT" {
             if let body,
                let conflict = try? JSONDecoder.settlement.decode(SettlementConflictResponse.self, from: body),
                let state = conflict.state {

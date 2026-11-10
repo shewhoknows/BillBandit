@@ -6,19 +6,6 @@ import { evaluateLedgerGate, readClientCapabilityHeaders } from './compatibility
 import { LedgerMutationError } from './ledger/mutation'
 import { accountIdForMember } from './mobile-groups'
 
-export function formatCurrency(
-  amount: number,
-  currency = 'INR',
-  locale = 'en-IN'
-): string {
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
-}
-
 export type MutationMetadata = {
   operationId: string
   expectedRevision: number

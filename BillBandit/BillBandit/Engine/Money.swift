@@ -47,10 +47,6 @@ enum AppCurrency: String, CaseIterable, Identifiable {
     var minorUnitExponent: Int {
         self == .vnd ? 0 : 2
     }
-
-    var minorUnitsPerMajorUnit: Int {
-        Int(pow(10.0, Double(minorUnitExponent)))
-    }
 }
 
 /// Money helpers — all amounts are `Decimal`. Amounts keep the minor units of
@@ -65,10 +61,6 @@ enum Money {
     }
 
     static var symbol: String { currentCurrency.symbol }
-
-    static func setCurrentCurrency(_ currency: AppCurrency) {
-        UserDefaults.standard.set(currency.rawValue, forKey: currencyDefaultsKey)
-    }
 
     /// Minor-unit exponent for a raw currency code. Unknown codes use 2.
     static func exponent(for currencyCode: String) -> Int {

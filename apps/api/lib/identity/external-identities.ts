@@ -193,38 +193,6 @@ export async function resolveExternalIdentity(
   return row ? asIdentity(row) : null
 }
 
-export function linkAppleProviderSubject(
-  accountId: string,
-  subject: string,
-  options: Omit<IdentityLinkOptions, 'accountId' | 'provider' | 'subject'> = {}
-) {
-  return linkExternalIdentity({
-    ...options,
-    accountId,
-    provider: EXTERNAL_IDENTITY_PROVIDERS.APPLE,
-    subject,
-  })
-}
-
-export function linkCloudKitRecordName(
-  accountId: string,
-  recordName: string,
-  options: Omit<IdentityLinkOptions, 'accountId' | 'provider' | 'subject'> = {}
-) {
-  return linkExternalIdentity({
-    ...options,
-    accountId,
-    provider: EXTERNAL_IDENTITY_PROVIDERS.CLOUDKIT,
-    subject: recordName,
-  })
-}
-
-export const resolveAppleProviderSubject = (subject: string, db?: IdentityDb) =>
-  resolveExternalIdentity(EXTERNAL_IDENTITY_PROVIDERS.APPLE, subject, db)
-
-export const resolveCloudKitRecordName = (recordName: string, db?: IdentityDb) =>
-  resolveExternalIdentity(EXTERNAL_IDENTITY_PROVIDERS.CLOUDKIT, recordName, db)
-
 /**
  * Apple sign-in already has an explicit `(provider, providerAccountId)` row
  * in the NextAuth Account table. This helper backfills the T-06 external

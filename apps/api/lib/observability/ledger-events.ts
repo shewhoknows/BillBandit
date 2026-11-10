@@ -204,8 +204,6 @@ export function createLedgerEvent(
   }
 }
 
-export const buildLedgerEvent = createLedgerEvent
-
 export function emitLedgerEvent(
   eventType: LedgerEventTypeInput,
   payload: Record<string, unknown> = {},
@@ -216,39 +214,3 @@ export function emitLedgerEvent(
   sink(event)
   return event
 }
-
-function createTypedEvent(
-  eventType: LedgerEventType,
-  payload: Record<string, unknown>,
-  options?: LedgerEventOptions
-): LedgerTelemetryEvent {
-  return createLedgerEvent(eventType, payload, options)
-}
-
-export const createLedgerReadEvent = (payload: LedgerEventPayload, options?: LedgerEventOptions) =>
-  createTypedEvent(LEDGER_EVENT_TYPES.READ, payload, options)
-
-export const createLedgerMutationEvent = (payload: LedgerEventPayload, options?: LedgerEventOptions) =>
-  createTypedEvent(LEDGER_EVENT_TYPES.MUTATION, payload, options)
-
-export const createLedgerReplayEvent = (payload: LedgerEventPayload, options?: LedgerEventOptions) =>
-  createTypedEvent(LEDGER_EVENT_TYPES.REPLAY, payload, options)
-
-export const createLedgerConflictEvent = (payload: LedgerEventPayload, options?: LedgerEventOptions) =>
-  createTypedEvent(LEDGER_EVENT_TYPES.CONFLICT, payload, options)
-
-export const createLedgerQueueDepthEvent = (payload: LedgerEventPayload, options?: LedgerEventOptions) =>
-  createTypedEvent(LEDGER_EVENT_TYPES.QUEUE_DEPTH, payload, options)
-
-export const createLedgerImportEvent = (payload: LedgerEventPayload, options?: LedgerEventOptions) =>
-  createTypedEvent(LEDGER_EVENT_TYPES.IMPORT, payload, options)
-
-export const createLedgerParityMismatchEvent = (
-  payload: LedgerEventPayload,
-  options?: LedgerEventOptions
-) => createTypedEvent(LEDGER_EVENT_TYPES.PARITY_MISMATCH, payload, options)
-
-export const createLedgerGateDecisionEvent = (
-  payload: LedgerEventPayload,
-  options?: LedgerEventOptions
-) => createTypedEvent(LEDGER_EVENT_TYPES.GATE_DECISION, payload, options)

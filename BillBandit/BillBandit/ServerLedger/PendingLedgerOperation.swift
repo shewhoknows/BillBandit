@@ -71,11 +71,6 @@ final class PendingLedgerOperation {
         set { retryState = newValue }
     }
 
-    var stateRaw: String {
-        get { retryStateRaw }
-        set { retryStateRaw = newValue }
-    }
-
     var scope: LedgerScope {
         switch LedgerScopeKind(rawValue: scopeKindRaw) {
         case .serverBacked:
@@ -147,5 +142,3 @@ final class PendingLedgerOperation {
         updatedAt = .now
     }
 }
-
-typealias PendingLedgerRetryState = PendingLedgerOperationState

@@ -368,24 +368,6 @@ struct ServerLedgerSurfaceGroup: Identifiable, Codable, Equatable, Sendable {
         self.isStale = isStale
         self.isReadOnly = isReadOnly
     }
-
-    func assigning(localGroupID: UUID?) -> ServerLedgerSurfaceGroup {
-        ServerLedgerSurfaceGroup(
-            serverGroupID: serverGroupID,
-            accountID: accountID,
-            localGroupID: localGroupID,
-            name: name,
-            readRevision: readRevision,
-            currentMemberID: currentMemberID,
-            currentAccount: currentAccount,
-            baseCurrency: baseCurrency,
-            members: members,
-            transfers: transfers,
-            activity: activity,
-            isStale: isStale,
-            isReadOnly: isReadOnly
-        )
-    }
 }
 
 struct ServerLedgerSurfaceSnapshot: Equatable, Sendable {
@@ -684,10 +666,6 @@ struct ServerLedgerSurfaceStatus: Equatable {
                 ?? ServerLedgerUserFacingCopy.sharedBalancesUnavailable
         }
     }
-
-    var canDisplayCachedBalances: Bool {
-        phase == .ready || phase == .cached || phase == .stale
-    }
 }
 
 private struct ServerLedgerSurfaceReadEnvelope: Decodable {
@@ -822,8 +800,6 @@ final class ServerLedgerSurfaceStore: ObservableObject {
     private let sync: ServerLedgerSync
     @Published private var activeAccountID: String?
     private var refreshGeneration = 0
-
-    var hasSharedGroups: Bool { snapshot?.groups.isEmpty == false }
     var activeAccountIdentifier: String? { activeAccountID }
 
     private init() {
@@ -894,14 +870,6 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             return presentation
         }
         return group.members.count == 1 ? .justYou : nil
-    }
-
-    func accountBalancePresentation() -> ServerLedgerSurfaceBalancePresentation? {
-        guard let snapshot else { return nil }
-        return ServerLedgerSurfaceBalanceFormatter.presentation(
-            amounts: snapshot.balanceByCurrency,
-            audience: .account
-        )
     }
 
     func friendBalancePresentation(for friend: Person) -> ServerLedgerSurfaceBalancePresentation? {

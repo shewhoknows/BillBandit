@@ -1,5 +1,3 @@
-export const CURRENCY_REGISTRY_VERSION = 1
-
 /** Explicit versioned currency-exponent registry. No default exponent. */
 export const CURRENCY_EXPONENTS: Readonly<Record<string, number>> = {
   USD: 2,

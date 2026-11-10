@@ -69,20 +69,6 @@ export type LedgerGateDecision = {
   clientContractVersion: number | null
 }
 
-export type LedgerCapabilities = {
-  contractVersion: number
-  minimumClientBuild: number
-  migrationRequired: boolean
-  readOnly: boolean
-  rolloutCohort: string
-  gate: {
-    outcome: LedgerGateOutcome
-    reasonCode: string
-    allowed: boolean
-    enforcementEnabled: false
-  }
-}
-
 export type ClientCapabilityHeaders = {
   clientBuild: string | null
   clientContractVersion: string | null
@@ -348,8 +334,6 @@ export function evaluateLedgerGate(input: LedgerGateInput = {}): LedgerGateDecis
   return buildDecision('supported', 'supported', config, clientBuild, clientContractVersion)
 }
 
-export const getLedgerGateDecision = evaluateLedgerGate
-
 export function readClientCapabilityHeaders(
   headers: Pick<Headers, 'get'>
 ): ClientCapabilityHeaders {
@@ -374,23 +358,3 @@ export function readClientCapabilityHeaders(
     ]),
   }
 }
-
-export function buildLedgerCapabilities(input: LedgerGateInput = {}): LedgerCapabilities {
-  const decision = evaluateLedgerGate(input)
-  return {
-    contractVersion: decision.contractVersion,
-    minimumClientBuild: decision.minimumClientBuild,
-    migrationRequired: decision.migrationRequired,
-    readOnly: decision.readOnly,
-    rolloutCohort: decision.rolloutCohort,
-    gate: {
-      outcome: decision.outcome,
-      reasonCode: decision.reasonCode,
-      allowed: decision.allowed,
-      enforcementEnabled: LEDGER_ENFORCEMENT_ENABLED,
-    },
-  }
-}
-
-export const isLedgerClientSupported = (input: LedgerGateInput = {}) =>
-  evaluateLedgerGate(input).allowed

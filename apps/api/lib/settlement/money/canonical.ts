@@ -10,14 +10,6 @@ export type MoneyConversionError =
   | { code: 'UNSUPPORTED_CURRENCY'; currencyCode: string }
   | { code: 'NONREPRESENTABLE'; currencyCode: string; floatText: string }
 
-export function amountsEqual(a: CanonicalAmount, b: CanonicalAmount): boolean {
-  return (
-    a.currencyCode === b.currencyCode &&
-    a.currencyExponent === b.currencyExponent &&
-    a.minorUnits === b.minorUnits
-  )
-}
-
 export function formatMinorUnits(amount: CanonicalAmount): string {
   const { minorUnits, currencyExponent } = amount
   const negative = minorUnits < BigInt(0)
@@ -72,18 +64,4 @@ export function parseDecimalToMinorUnits(
   }
 
   return { currencyCode: normalized, currencyExponent: exponent, minorUnits }
-}
-
-export function floatToMinorUnits(
-  value: number,
-  currencyCode: string
-): CanonicalAmount | MoneyConversionError {
-  // Read through database text representation for exact parsing
-  const floatText = value.toFixed(10).replace(/\.?0+$/, '')
-  return parseDecimalToMinorUnits(floatText.includes('.') ? floatText : `${floatText}`, currencyCode)
-}
-
-export function minorUnitsToFloat(amount: CanonicalAmount): number {
-  const factor = 10 ** amount.currencyExponent
-  return Number(amount.minorUnits) / factor
 }

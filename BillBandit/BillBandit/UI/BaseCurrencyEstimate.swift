@@ -412,7 +412,7 @@ enum BaseCurrencyEstimateStoreError: LocalizedError {
 @MainActor
 final class BaseCurrencyEstimateStore: ObservableObject {
     static let shared = BaseCurrencyEstimateStore()
-    static let manualSource = "Manual fixed rate"
+    nonisolated static let manualSource = "Manual fixed rate"
     private var automaticAttempts = Set<String>()
     private var refreshTask: Task<Void, Never>?
 

@@ -5,104 +5,6 @@ import SwiftData
 import SwiftUI
 import UIKit
 
-/// Stable routing helpers retained for invitation compatibility. They no
-/// longer create, publish, or subscribe to ledger shares.
-enum AutomaticGroupShareRouting {
-    static let recordType = "BBGroupInvitation"
-    static let recordPrefix = "BBGroupInvitation-"
-
-    static func recipients(from cloudUsers: [String?], currentUser: String) -> [String] {
-        Array(Set(cloudUsers.compactMap { value in
-            guard let value, !value.isEmpty, value != currentUser else { return nil }
-            return value
-        })).sorted()
-    }
-
-    static func recordName(groupID: UUID, recipientCloudUser: String) -> String {
-        let digest = SHA256.hash(data: Data(recipientCloudUser.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return "\(recordPrefix)\(groupID.uuidString)-\(digest.prefix(24))"
-    }
-
-    static func subscriptionID(for cloudUser: String) -> String {
-        let digest = SHA256.hash(data: Data(cloudUser.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return "BillBandit.AutomaticGroupInvitations.\(digest.prefix(24))"
-    }
-}
-
-enum CloudSyncIssueSource {
-    case automaticInvitation
-    case privateLedger
-    case sharedLedger
-    case localPromotion
-}
-
-struct CloudSyncIssue {
-    let source: CloudSyncIssueSource
-    let error: Error
-}
-
-/// Compatibility policy for existing diagnostics. The production service no
-/// longer produces private/shared-ledger issues; friend/profile failures stay
-/// isolated from API-backed ledger state.
-enum CloudSyncIssuePolicy {
-    private static let attentionCodes: Set<CKError.Code> = [
-        .notAuthenticated,
-        .permissionFailure,
-        .quotaExceeded,
-        .invalidArguments,
-        .serverRejectedRequest,
-    ]
-
-    static func visibleError(from issues: [CloudSyncIssue]) -> Error? {
-        issues.first { $0.source != .automaticInvitation }?.error
-    }
-
-    static func shouldSurfaceBanner(for error: Error) -> Bool {
-        guard let code = CloudUploadFailurePolicy.cloudCode(for: error) else { return false }
-        return attentionCodes.contains(code)
-    }
-}
-
-enum AutomaticInvitationFailurePolicy {
-    static func isTerminal(_ error: Error) -> Bool {
-        switch cloudCode(for: error) {
-        case .unknownItem, .zoneNotFound, .userDeletedZone:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func cloudCode(for error: Error) -> CKError.Code? {
-        let nsError = error as NSError
-        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError,
-           underlying !== nsError {
-            return cloudCode(for: underlying)
-        }
-        if let cloudError = error as? CKError { return cloudError.code }
-        guard nsError.domain == CKError.errorDomain else { return nil }
-        return CKError.Code(rawValue: nsError.code)
-    }
-}
-
-/// Pure merge rules retained for local identity repair and migration tests.
-/// They are not used to reconcile CloudKit ledger records anymore.
-enum CloudRecordMergePolicy {
-    static func localRecordIDsToDelete(local: Set<UUID>,
-                                       remoteManifest: Set<UUID>) -> Set<UUID> {
-        []
-    }
-
-    static func shouldApplyIncomingRecord(_ id: UUID,
-                                          remoteManifest: Set<UUID>?) -> Bool {
-        true
-    }
-}
-
 /// Keeps legacy name-only friends from winning over the same person's
 /// connected non-ledger CloudKit identity.
 enum ConnectedFriendIdentity {
@@ -157,15 +59,6 @@ enum ConnectedFriendIdentity {
         return changed
     }
 
-    @discardableResult
-    static func applyInvitationSnapshot(name: String, avatarRaw: String?, to person: Person,
-                                        isNew: Bool) -> Bool {
-        guard isNew else { return false }
-        person.name = name.capitalizingFirstLetter
-        person.avatarRaw = avatarRaw
-        return true
-    }
-
     static func preferredPerson(for person: Person, among people: [Person]) -> Person {
         guard !person.isCurrentUser else { return person }
         if let accountID = person.serverAccountID, !accountID.isEmpty {
@@ -208,24 +101,6 @@ enum ConnectedFriendIdentity {
 
     static func actualFriends(from people: [Person]) -> [Person] {
         canonicalPeople(from: people).filter(isConnectedFriend)
-    }
-
-    static func groupMemberOptions(from people: [Person]) -> [Person] {
-        let canonical = canonicalPeople(from: people)
-        let current = canonical.first(where: \.isCurrentUser)
-        let friends = actualFriends(from: people)
-        var seen = Set<UUID>()
-        var options = [Person]()
-        if let current, seen.insert(current.id).inserted {
-            options.append(current)
-        }
-        for friend in friends where seen.insert(friend.id).inserted {
-            options.append(friend)
-        }
-        return options.sorted {
-            if $0.isCurrentUser != $1.isCurrentUser { return $0.isCurrentUser }
-            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
     }
 
     private static func canonicalConnectedPerson(for cloudUser: String,
@@ -330,26 +205,6 @@ enum ConnectedFriendIdentity {
     }
 }
 
-enum CollaborationRetryPolicy {
-    static func delay(after attempt: Int) -> TimeInterval {
-        guard attempt > 0 else { return 0 }
-        return min(pow(2, Double(attempt - 1)), 30)
-    }
-
-    static func delay(after attempt: Int, error: Error) -> TimeInterval {
-        let retryAfter = (error as NSError).userInfo[CKErrorRetryAfterKey]
-        if let seconds = retryAfter as? NSNumber {
-            return max(0, seconds.doubleValue)
-        }
-        return delay(after: attempt)
-    }
-}
-
-enum CloudUploadFailureDisposition: Equatable {
-    case retry
-    case needsAttention
-}
-
 enum CloudUploadFailurePolicy {
     private static let terminalCodes: Set<CKError.Code> = [
         .invalidArguments,
@@ -358,10 +213,6 @@ enum CloudUploadFailurePolicy {
         .quotaExceeded,
         .serverRejectedRequest,
     ]
-
-    static func disposition(for error: Error) -> CloudUploadFailureDisposition {
-        cloudCodes(for: error).isDisjoint(with: terminalCodes) ? .retry : .needsAttention
-    }
 
     static func cloudCode(for error: Error) -> CKError.Code? {
         let codes = cloudCodes(for: error)
@@ -395,24 +246,6 @@ enum CloudUploadFailurePolicy {
     }
 }
 
-enum CloudSyncWorkPolicy {
-    static func shouldYieldToPendingUpload(hasPendingUploadReady: Bool) -> Bool {
-        hasPendingUploadReady
-    }
-}
-
-/// Kept as a compatibility value for old diagnostics. No production code
-/// calls it; the retired ledger service creates no CloudKit subscriptions.
-enum CloudSubscriptionPolicy {
-    static func shouldCreateRecordZoneSubscription(scope: CKDatabase.Scope) -> Bool {
-        scope == .private
-    }
-}
-
-enum CloudPersonRecordPolicy {
-    static let writesProfileUpdatedAt = true
-}
-
 /// Public profile cards are the only CloudKit records still synchronized by
 /// the collaboration service during normal app operation.
 enum FriendProfileSync {
@@ -439,21 +272,6 @@ final class CloudCollaborationService: ObservableObject {
         case syncing
         case ready
         case unavailable(String)
-
-        var isReady: Bool {
-            if case .ready = self { return true }
-            return false
-        }
-
-        var isUnavailable: Bool {
-            if case .unavailable = self { return true }
-            return false
-        }
-    }
-
-    enum DatabaseScope: String {
-        case `private`
-        case shared
     }
 
     @Published private(set) var state: State = .idle
@@ -607,7 +425,7 @@ final class CloudCollaborationService: ObservableObject {
     func deleteAccountData() async {
         let cloudUser = currentUserRecordName
         if let cloudUser {
-            try? await container.publicCloudDatabase.deleteRecord(
+            _ = try? await container.publicCloudDatabase.deleteRecord(
                 withID: FriendProfileSync.recordID(for: cloudUser)
             )
         }
@@ -1932,10 +1750,6 @@ enum FriendInviteCode {
 
     static func isValid(_ value: String) -> Bool {
         normalize(value).count == 5
-    }
-
-    static func generate() -> String {
-        String((0..<5).compactMap { _ in alphabet.randomElement() })
     }
 
     static func formatted(_ value: String) -> String {

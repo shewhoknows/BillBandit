@@ -77,8 +77,4 @@ If `Expected-Revision` does not equal the server revision, the server returns a 
 
 ## Fixtures and verification
 
-`apps/api/test/fixtures/ledger-v2/shared-ledger.json` is one complete shared read fixture. It contains all four split methods, INR/JPY/KWD, signed and zero money, mixed-currency balances, active and reversed settlements, plan/history/activity surfaces, canonical identity IDs, migration/cache markers, and a pending retry. It contains no local-only group object.
-
-`apps/api/test/fixtures/ledger-v2/mutation-envelopes.json` covers the required headers, an applied mutation, an idempotent replay, a revision conflict, and an idempotency-key conflict.
-
-The contract types and runtime validators live in `apps/api/lib/ledger-contract/`. The contract test loads the JSON fixtures, validates every money field and cross-reference, performs a stable JSON round trip, and verifies the envelope semantics.
+The JSON fixtures and the contract test under `apps/api/test/` were deleted on 2026-11-10 (no unit tests). The contract types live in `apps/api/lib/ledger-contract/`. The contract is exercised end to end by `apps/api/scripts/polish-e2e.ts` and `apps/api/scripts/vietnam-trip-qa.ts`, which drive the real routes over HTTP and write a report.

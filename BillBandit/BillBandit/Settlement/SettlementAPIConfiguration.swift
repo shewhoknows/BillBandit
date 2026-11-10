@@ -49,10 +49,6 @@ enum SettlementAPIConfiguration {
         return nil
     }
 
-    static func isSharedSettleUpAvailable(for group: Group) -> Bool {
-        hasAuthenticatedSession && serverGroupId(for: group) != nil
-    }
-
     /// Signed-in users should get shared Settle Up even before a server group id is linked.
     static var prefersSharedSettleUp: Bool {
         hasAuthenticatedSession

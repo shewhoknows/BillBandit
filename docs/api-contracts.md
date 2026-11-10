@@ -238,9 +238,8 @@ When the token changes, it reloads the friends and group read models.
 ### Current validation evidence (2026-08-12)
 
 - `npm run typecheck` passes.
-- Two friend-code tests and three PostgreSQL friend-system integration tests pass.
-- The authenticated sync-token integration test passes.
-- `npm run test:ledger` passes 34/34 tests.
+- The unit and integration tests named here in earlier versions were deleted on
+  2026-11-10 (no unit tests). Use the HTTP scenario scripts in `apps/api/scripts/`.
 - A migration rehearsal removed a self-friend edge and a reverse duplicate while
   keeping the accepted normalized friendship.
 

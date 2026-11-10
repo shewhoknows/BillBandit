@@ -16,7 +16,3 @@ export function bootstrapSettlementOutbox(): void {
   setPusherAdapter(createDefaultPusherAdapter())
   startOutboxDispatcher()
 }
-
-export function resetOutboxBootstrapForTests(): void {
-  globalForOutbox.__billbanditOutboxBootstrapped = false
-}

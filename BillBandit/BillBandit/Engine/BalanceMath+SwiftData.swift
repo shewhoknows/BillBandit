@@ -160,16 +160,6 @@ enum BalanceMath {
         )
     }
 
-    /// Net balance per person across everything (all groups + ungrouped facts).
-    static func globalNets(groups: [Group], looseExpenses: [Expense], looseSettlements: [Settlement]) -> [UUID: Decimal] {
-        let expenses = groups.flatMap(\.expenses) + looseExpenses
-        let settlements = groups.flatMap(\.settlements) + looseSettlements
-        return BalanceEngine.nets(
-            expenses: expenses.compactMap(snapshot),
-            settlements: settlements.compactMap(snapshot)
-        )
-    }
-
     /// Pairwise balance between the current user and each other person
     /// (positive = they owe you). Only direct facts count: expenses you paid
     /// (their share), expenses they paid (your share), settlements between you.

@@ -115,18 +115,6 @@ protocol ServerLedgerAPIClient: Sendable {
     func submit(_ request: ServerLedgerMutationRequest) async throws -> ServerLedgerSnapshot
 }
 
-struct UnconfiguredServerLedgerAPIClient: ServerLedgerAPIClient {
-    init() {}
-
-    func fetchSnapshot(for scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
-        throw ServerLedgerAPIClientError.notImplemented
-    }
-
-    func submit(_ request: ServerLedgerMutationRequest) async throws -> ServerLedgerSnapshot {
-        throw ServerLedgerAPIClientError.notImplemented
-    }
-}
-
 /// URLSession implementation used by the mobile target. It speaks the
 /// checked-in ledger-v2 routes and centralizes authentication and contract
 /// headers for reads and writes.
@@ -359,23 +347,6 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
         return .server(status: status, code: Self.errorCode(from: data))
     }
 
-#if DEBUG
-    func decodeHTTPErrorForTesting(
-        status: Int,
-        data: Data,
-        scope: ServerBackedLedgerScope?,
-        expectedRevision: Int64?
-    ) throws -> ServerLedgerAPIClientError {
-        try makeHTTPError(
-            status: status,
-            data: data,
-            scope: scope,
-            expectedRevision: expectedRevision,
-            rejectedBearerToken: nil
-        )
-    }
-#endif
-
     private static func errorCode(from data: Data) -> String? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return object["error"] as? String
@@ -410,9 +381,6 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 }
-
-typealias LiveServerLedgerAPIClient = URLSessionServerLedgerAPIClient
-typealias ServerLedgerHTTPClient = URLSessionServerLedgerAPIClient
 
 private enum ServerLedgerMutationRoute {
     static func defaultPath(for request: ServerLedgerMutationRequest) -> String? {

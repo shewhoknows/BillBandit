@@ -312,15 +312,6 @@ export function buildPlan(input: GroupLedgerInput): PlanTransfer[] {
   return input.simplifyDebts ? buildSimplifiedPlan(input) : buildDirectPlan(input)
 }
 
-export function computeParticipantNets(input: GroupLedgerInput): ParticipantNetBalance[] {
-  const edges = cloneEdges(buildInitialEdges(input))
-  const effective = [...input.settlements]
-    .filter((s) => !s.reversed)
-    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
-  for (const settlement of effective) applySettlement(edges, settlement)
-  return computeNetBalances(edges)
-}
-
 export function allocateSettlementPaths(
   input: GroupLedgerInput,
   payerParticipantId: string,

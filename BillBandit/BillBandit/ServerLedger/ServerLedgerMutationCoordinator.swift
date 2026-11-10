@@ -24,10 +24,6 @@ final class ServerLedgerMutationCoordinator {
         activeAccountID = trimmed
     }
 
-    func setActiveAccount(_ accountID: String) throws {
-        try activate(accountID: accountID)
-    }
-
     func signOut(accountID: String? = nil) throws {
         let account = accountID ?? activeAccountID
         if let account {
@@ -116,28 +112,6 @@ final class ServerLedgerMutationCoordinator {
     }
 
     @discardableResult
-    func enqueueGroupAction(
-        operationID: UUID = UUID(),
-        scope: ServerLedgerMutationScope,
-        expectedRevision: Int64,
-        method: String = "POST",
-        path: String,
-        body: Data,
-        optimisticSnapshot: ServerLedgerSnapshot? = nil
-    ) throws -> PendingLedgerOperation {
-        try enqueueServerMutation(
-            operationID: operationID,
-            scope: scope,
-            expectedRevision: expectedRevision,
-            kind: "group.mutation",
-            method: method,
-            path: path,
-            body: body,
-            optimisticSnapshot: optimisticSnapshot
-        )
-    }
-
-    @discardableResult
     func enqueueExpenseAction(
         operationID: UUID = UUID(),
         scope: ServerLedgerMutationScope,
@@ -158,36 +132,6 @@ final class ServerLedgerMutationCoordinator {
             body: body,
             optimisticSnapshot: optimisticSnapshot
         )
-    }
-
-    @discardableResult
-    func enqueueSettlementAction(
-        operationID: UUID = UUID(),
-        scope: ServerLedgerMutationScope,
-        expectedRevision: Int64,
-        kind: String = "settlement.create",
-        method: String = "POST",
-        path: String,
-        body: Data,
-        optimisticSnapshot: ServerLedgerSnapshot? = nil
-    ) throws -> PendingLedgerOperation {
-        try enqueueServerMutation(
-            operationID: operationID,
-            scope: scope,
-            expectedRevision: expectedRevision,
-            kind: kind,
-            method: method,
-            path: path,
-            body: body,
-            optimisticSnapshot: optimisticSnapshot
-        )
-    }
-
-    func clearActiveAccount() throws {
-        if let activeAccountID {
-            try store.clear(accountID: activeAccountID)
-        }
-        activeAccountID = nil
     }
 
     private func ensureActiveAccount(_ accountID: String) throws {

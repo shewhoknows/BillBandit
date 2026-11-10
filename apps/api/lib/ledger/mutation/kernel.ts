@@ -23,7 +23,6 @@ import type {
   LedgerMutationRequest,
   LedgerMutationResult,
   MembershipMutationInput,
-  MutationKind,
   MutationPayload,
   MutationReadModelHint,
   MutationResult,

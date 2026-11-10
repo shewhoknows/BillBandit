@@ -36,8 +36,6 @@ final class SettlementStore {
     private(set) var readRevision: Int64?
     private(set) var requiresReconfirmation = false
     private(set) var callerParticipantId: String?
-    private(set) var explanation: SettlementExplanationDTO?
-    private(set) var explanationError: String?
     private(set) var canonicalServerSnapshot: ServerLedgerSnapshot?
     private(set) var canonicalSnapshot: SettlementCanonicalLedgerSnapshot?
     private(set) var hasFreshCanonicalRead = false
@@ -313,20 +311,6 @@ final class SettlementStore {
         // source of settlement truth.
     }
 
-    func loadExplanation(for transfer: SettlementPlanTransferDTO) async {
-        _ = transfer
-        explanation = nil
-        explanationError = nil
-        guard canonicalSnapshot != nil else {
-            explanationError = SettlementClientError.explanationUnavailable.errorDescription
-            return
-        }
-        // The v2 read model exposes the exact plan/history, not a separate
-        // legacy explanation endpoint. Keeping this read-only makes the
-        // Details affordance honest until a canonical explanation is added.
-        explanationError = SettlementClientError.explanationUnavailable.errorDescription
-    }
-
     func canStartSettlement(_ transfer: SettlementPlanTransferDTO) -> Bool {
         guard isCurrentTransfer(transfer), canSettle(transfer) else { return false }
         return writesEnabled || canQueueSettlement || requiresReconfirmation
@@ -449,14 +433,6 @@ final class SettlementStore {
         }
     }
 
-    func updateSimplifyDebts(_ enabled: Bool) async throws {
-        _ = enabled
-        // The canonical group read model is authoritative and this ticket
-        // does not expose a server setting mutation. The toggle is therefore
-        // visibly disabled instead of mutating the local Group flag.
-        throw SettlementClientError.writeDisabled
-    }
-
     func applyRealtimeVersion(_ version: Int) {
         guard version > appliedVersion else { return }
         if isInteractionActive || isUpdating || isRefreshInFlight {
@@ -494,16 +470,6 @@ final class SettlementStore {
             callerParticipantId: callerParticipantId,
             currentUserLabel: currentUserLabel
         )
-    }
-
-    // MARK: - Internal test hooks
-
-    func applyForTesting(_ response: SettlementSnapshotDTO) {
-        apply(response)
-    }
-
-    func applyCanonicalForTesting(_ serverSnapshot: ServerLedgerSnapshot) throws {
-        try applyCanonical(serverSnapshot)
     }
 
     private func apply(_ response: SettlementSnapshotDTO) {

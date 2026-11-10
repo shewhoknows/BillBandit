@@ -860,10 +860,6 @@ export function buildAccountLedgerSummary(
   return { summary, groups: groupProjections }
 }
 
-export function authorityMarkers(): AuthorityMarkers {
-  return AUTHORITY
-}
-
 export function readOnlyMigrationState(migrationId: string): MigrationState {
   return {
     status: 'blocked',

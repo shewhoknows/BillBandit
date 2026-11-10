@@ -239,10 +239,6 @@ final class ServerLedgerStore {
         try context.save()
     }
 
-    func clearAccount(accountID: String) throws {
-        try clear(accountID: accountID)
-    }
-
     /// Consecutive offline creates reserve consecutive group revisions.
     /// A peer change still causes a visible server conflict; no edit is rebased.
     func nextQueuedExpenseRevision(scope: ServerLedgerMutationScope,
@@ -260,18 +256,6 @@ final class ServerLedgerStore {
         let next = last.addingReportingOverflow(1)
         guard !next.overflow else { throw ServerLedgerSyncError.conflictRequiresReconfirmation }
         return next.partialValue
-    }
-
-    func clearQueue(accountID: String) throws {
-        try requireAccount(accountID)
-        let queueAccountID = accountID
-        let descriptor = FetchDescriptor<PendingLedgerOperation>(
-            predicate: #Predicate { row in row.accountID == queueAccountID }
-        )
-        for row in try context.fetch(descriptor) {
-            context.delete(row)
-        }
-        try context.save()
     }
 
     func markPending(_ operation: PendingLedgerOperation) throws {

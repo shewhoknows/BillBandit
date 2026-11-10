@@ -411,6 +411,3 @@ export async function claimGroupInvitation({
     created: result.created,
   }
 }
-
-export const createGroupInvite = createGroupInvitation
-export const claimGroupInvite = claimGroupInvitation

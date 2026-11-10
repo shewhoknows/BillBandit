@@ -6,14 +6,12 @@ import { prisma } from '../../prisma'
 import { profileDisplayName } from '../../profile-display-name'
 import {
   buildAccountLedgerSummary,
-  buildGroupLedgerProjection,
   buildGroupLedgerReadEnvelope,
   readOnlyMigrationState,
 } from './projection'
 import {
   LedgerReadModelError,
   type AccountProjectionResult,
-  type GroupLedgerProjection,
   type RawReadModelAllocationPath,
   type RawReadModelExpense,
   type RawReadModelExpenseSplit,
@@ -21,7 +19,6 @@ import {
   type RawReadModelGroup,
   type RawReadModelTransaction,
   type RawReadModelUser,
-  type ReadModelAccountSource,
   type ReadModelBuildOptions,
   type ReadModelExpenseSource,
   type ReadModelFriendSource,
@@ -787,14 +784,4 @@ export async function loadGroupReadModel(
   const source = sources.find((entry) => entry.groupId === groupId)!
   const readOptions = { ...options, observedAt: options.observedAt ?? new Date() }
   return buildGroupLedgerReadEnvelope(source, sources, publicPendingOperations, readOptions)
-}
-
-export async function loadGroupProjection(
-  groupId: string,
-  accountId: string,
-  options: ReadModelBuildOptions = {},
-  db: ReadModelDb = prisma
-): Promise<GroupLedgerProjection> {
-  const result = await loadGroupReadModel(groupId, accountId, options, db)
-  return { model: result.group, readOnly: result.group.migration.status !== 'complete' && result.group.migration.status !== 'not_required' }
 }

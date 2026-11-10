@@ -95,20 +95,6 @@ export function normalizeExternalIdentitySubject(value: unknown): string {
   return subject
 }
 
-export function appleIdentity(subject: unknown): ExternalIdentityRef {
-  return {
-    provider: EXTERNAL_IDENTITY_PROVIDERS.APPLE,
-    subject: normalizeExternalIdentitySubject(subject),
-  }
-}
-
-export function cloudKitIdentity(recordName: unknown): ExternalIdentityRef {
-  return {
-    provider: EXTERNAL_IDENTITY_PROVIDERS.CLOUDKIT,
-    subject: normalizeExternalIdentitySubject(recordName),
-  }
-}
-
 export function externalIdentity(provider: unknown, subject: unknown): ExternalIdentityRef {
   return {
     provider: normalizeExternalIdentityProvider(provider),

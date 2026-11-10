@@ -100,8 +100,3 @@ export async function publishOutboxEvent(
   }
   await active.publish(privateChannelName(groupId), sanitizePusherPayload(payload))
 }
-
-export function resetPusherClientForTests(): void {
-  globalForPusher.__billbanditPusherClient = null
-  globalForPusher.__billbanditPusherAdapter = null
-}

@@ -56,18 +56,6 @@ enum AppStore {
         }
     }()
 
-    static let previewContainer: ModelContainer = {
-        do {
-            let config = ModelConfiguration(
-                "BillBanditPreview", schema: schema, isStoredInMemoryOnly: true,
-                groupContainer: .none, cloudKitDatabase: .none
-            )
-            return try ModelContainer(for: schema, configurations: config)
-        } catch {
-            fatalError("Preview container failed: \(error)")
-        }
-    }()
-
     /// The one production cache/queue store used by every API-ledger surface
     /// and mutation path. Sharing this instance prevents separate SwiftData
     /// containers from presenting different cached revisions.
@@ -609,10 +597,6 @@ enum DemoDataIntegrity {
         }
     }
 
-    static func shouldSync(_ group: Group) -> Bool {
-        kind(of: group) == nil
-    }
-
     private static func personKind(of person: Person) -> PersonKind? {
         if let stable = PersonKind.allCases.first(where: { $0.stableID == person.id }) {
             return stable
@@ -828,47 +812,6 @@ enum ActivityData {
             changed = true
         }
         if changed { try? context.save() }
-    }
-}
-
-struct ActivitySection: Identifiable {
-    enum Kind: Hashable {
-        case date(Date)
-        case earlier
-    }
-
-    let kind: Kind
-    let items: [ActivityItem]
-
-    var id: Kind { kind }
-    var date: Date? {
-        guard case .date(let date) = kind else { return nil }
-        return date
-    }
-}
-
-enum ActivitySectioning {
-    static func sections(from items: [ActivityItem],
-                         maximumDatedSections: Int = 5,
-                         calendar: Calendar = .current) -> [ActivitySection] {
-        let byDay = Dictionary(grouping: items) {
-            calendar.startOfDay(for: $0.timestamp)
-        }
-        let dated = byDay.keys.sorted(by: >).map { day in
-            ActivitySection(
-                kind: .date(day),
-                items: (byDay[day] ?? []).sorted { $0.timestamp > $1.timestamp }
-            )
-        }
-        let limit = max(0, maximumDatedSections)
-        var result = Array(dated.prefix(limit))
-        let earlierItems = dated.dropFirst(limit)
-            .flatMap(\.items)
-            .sorted { $0.timestamp > $1.timestamp }
-        if !earlierItems.isEmpty {
-            result.append(ActivitySection(kind: .earlier, items: earlierItems))
-        }
-        return result
     }
 }
 

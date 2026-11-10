@@ -13,7 +13,6 @@ struct LocalOnlyPolicy: Equatable, Sendable {
     }
 
     var isLocalOnly: Bool { scope.isLocalOnly }
-    var canProduceServerMutation: Bool { scope.serverMutationScope != nil }
     var canEnterSharedSettlement: Bool { scope.canEnterSharedSettlement }
 
     func serverMutationScope() throws -> ServerLedgerMutationScope {
@@ -21,16 +20,6 @@ struct LocalOnlyPolicy: Equatable, Sendable {
             throw LocalOnlyPolicyError.serverMutationNotPermitted
         }
         return mutationScope
-    }
-
-    func validateSharedSettlementAccess() throws {
-        guard canEnterSharedSettlement else {
-            throw LocalOnlyPolicyError.sharedSettlementNotPermitted
-        }
-    }
-
-    static func canProduceServerMutation(for scope: LedgerScope) -> Bool {
-        scope.serverMutationScope != nil
     }
 
     static func canEnterSharedSettlement(_ scope: LedgerScope) -> Bool {

@@ -8,5 +8,3 @@ export const appleSignInSchema = z.object({
   authorizationCode: z.string().optional(),
   email: z.string().email().optional(),
 })
-
-export type AppleSignInInput = z.infer<typeof appleSignInSchema>

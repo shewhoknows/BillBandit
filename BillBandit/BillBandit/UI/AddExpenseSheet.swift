@@ -663,7 +663,7 @@ struct AddExpenseSheet: View {
                                         refID: existing.id, actorID: you?.id,
                                         groupID: group?.id, groupName: group?.name))
             if let currentUser = you {
-                try? AchievementEngine.unlock(.highOnDetails, personID: currentUser.id,
+                _ = try? AchievementEngine.unlock(.highOnDetails, personID: currentUser.id,
                                               context: context)
             }
         } else {
@@ -801,7 +801,7 @@ struct AddExpenseSheet: View {
 
                 var rewardOutcome: RewardOutcome?
                 if isEdit, let currentUser = you {
-                    try? AchievementEngine.unlock(
+                    _ = try? AchievementEngine.unlock(
                         .highOnDetails,
                         personID: currentUser.id,
                         context: context

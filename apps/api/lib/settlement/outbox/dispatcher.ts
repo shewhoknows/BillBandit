@@ -105,13 +105,3 @@ export function startOutboxDispatcher(): void {
   }, DRAIN_INTERVAL_MS)
   intervalHandle.unref?.()
 }
-
-export function stopOutboxDispatcher(): void {
-  if (intervalHandle) clearInterval(intervalHandle)
-  intervalHandle = null
-  dispatcherStarted = false
-}
-
-export function isOutboxDispatcherRunning(): boolean {
-  return dispatcherStarted
-}

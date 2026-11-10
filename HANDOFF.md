@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-10-01, feature parity source audit and competitor research complete; physical two-account verification pending.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-10, cleanup audit (unused code and all unit tests removed; uncommitted). Build 32 is the current TestFlight build; two-phone checks still open.**
 
 ---
 
@@ -49,6 +49,16 @@ directly; regenerate them from sources (see §5).
 - **Palette:** cobalt and cream only for app chrome. Red stays for error text and the Delete account button (user decision 2026-10-22). The app accent colour is cobalt (`AccentColor` asset), so alerts, menus and pickers no longer show system blue.
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
+
+### 2026-11-10 — Cleanup audit (uncommitted)
+
+- **No unit tests. Ever (user rule).** The `BillBanditTests` target and `apps/api/test/` are deleted, with the `test:ledger` script. Verify with end-to-end runs only: the `BillBanditUITests` flows and the HTTP scenario scripts in `apps/api/scripts/`.
+- Unused code removed: about 900 lines in the app (old CloudKit policies, unused screens, test-only helpers) and about 1,400 lines in `apps/api/lib`. No behaviour change intended.
+- The test database helper moved to `apps/api/scripts/support/e2e-database.ts`.
+- Build warnings fixed (6). App build, API typecheck and lint are clean.
+- Evidence: `.scratch/audit-e2e/` (UI test result bundle and the two server scenario reports). Server: `polish-e2e.ts` 11/11 and `vietnam-trip-qa.ts` 10/10 pass; `next build` passes.
+- UI flows: 13 pass. 5 fail the same way on commit `9662800` before this cleanup, because they still expect the app from before the 2026-10-22 polish pass: `testCoreMoneyFlowSmoke`, `testCurrencyControlsLiveInProfileAndLocalActivityShowsHistory`, `testNewGroupAppearsOnHomeImmediately`, `testSettlementPaymentIsBoundedByOutstandingDebt`, `testVNDGroupCurrencyPersistsAfterRelaunch`. 2 cannot run from the repo: `testVietnamSharedExpenseOfflineRelaunchAndReconnect` needs an offline-switch proxy on port 31300 (`PUT /__qa/network`) and `testSharedActivityOpensReadOnlyOverviewAndWorksOffline` needs `.scratch/vietnam-trip/overview-fixture.json`. Neither tool is in the repo.
+- Not done: no commit, push, deploy or TestFlight upload.
 
 ### 2026-10-23 — Build 32 release
 
@@ -571,13 +581,17 @@ simulator build + screenshots → user sign-off before continuing.
 
 ```bash
 cd "BillBandit"
-# build (uses default DerivedData on purpose — see §6 iCloud note)
+# build
 xcodebuild -project BillBandit.xcodeproj -scheme BillBandit -configuration Debug \
-  -destination 'platform=iOS Simulator,name=iPhone 17' build
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 
-# test (34 engine/design-default tests + 6 UI flows = 40 total)
+# end-to-end UI flows (there are no unit tests; see §2026-11-10). Keeps a result bundle as evidence.
 xcodebuild -project BillBandit.xcodeproj -scheme BillBandit -configuration Debug \
-  -destination 'platform=iOS Simulator,name=iPhone 17' test
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro' test \
+  -resultBundlePath ../.scratch/audit-e2e/ios-ui.xcresult
+
+# server end-to-end scenarios (real HTTP against a local Next server and a throwaway database)
+cd .. && START_POLISH_SERVER=1 node --import tsx apps/api/scripts/polish-e2e.ts
 
 # install + launch + screenshot (hooks: `-tab N`, `-showAdd`, `-showAddFriend`, `-showMotionLab`, `-openGroup <name>`,
 # `-onboardingPage N`; `-onboardingDemo` auto-advances all three pages for recording)
@@ -589,7 +603,7 @@ xcrun simctl io $D screenshot /tmp/shot.png
 ```
 
 - Bundle ID `com.billbandit.app` · team `4JRB53LG5C` · scheme `BillBandit`
-  (shared; unit + UI test targets run via the same scheme's Test action).
+  (shared; the UI test target runs via the scheme's Test action).
 - The project file was **hand-generated** (no XcodeGen/Tuist installed). If you add
   files, add them to `BillBandit.xcodeproj/project.pbxproj` (deterministic
   md5-based UUIDs — follow the existing pattern) or install a generator.
@@ -632,8 +646,9 @@ swift Tools/generate_app_icon.swift \
 
 - **FinderInfo vs codesign:** the built `.app`/`.xctest` dirs get a
   `com.apple.FinderInfo` xattr → codesign fails with "resource fork… not allowed".
-  Root cause: **the project lives in iCloud-synced `~/Documents`** — the file
-  provider decorates new bundles. Mitigations in place: `Strip FinderInfo before
+  Root cause at the time: the project lived in iCloud-synced `~/Documents` and the
+  file provider decorated new bundles. The repo is now in `~/Cowork` (not synced),
+  so this may no longer happen. Mitigations still in place: `Strip FinderInfo before
   codesign` script phases on BOTH targets (keep them;
   `ENABLE_USER_SCRIPT_SANDBOXING = NO`). And **build with default DerivedData**
   (`~/Library/Developer/...`, not synced) — do NOT pass `-derivedDataPath` inside
@@ -661,34 +676,28 @@ swift Tools/generate_app_icon.swift \
 ```
 BillBandit/BillBandit/
 ├── BillBanditApp.swift        @main, light scheme, UINavigationBarAppearance (Fredoka cream titles)
-├── Info.plist                 UIAppFonts, light status bar, portrait, CloudKit sharing
+├── Info.plist                 UIAppFonts, light status bar, portrait, CloudKit sharing keys (legacy)
 ├── PrivacyInfo.xcprivacy      App-only UserDefaults required-reason declaration
-├── Assets.xcassets/           AppIcon + mascot-* (6) + avatar-* (8) + icon-* (19) imagesets
+├── Assets.xcassets/           AppIcon + AccentColor + mascot-* + avatar-* + icon-* imagesets
 ├── Fonts/                     13 bundled TTFs
-├── DesignSystem/
-│   ├── BrandColors.swift      Color.Brand.{cobalt,cobaltDeep,cream,creamSoft,mascotInk,mascotCream}
-│   ├── BrandFonts.swift       BrandFont.{display,hand,type,body}(size,weight)
-│   └── BrandAssets.swift      Mascots/icons + shared RewardFeedbackCenter
-├── Models/
-│   └── Models.swift           ledger models + actor/group-aware ActivityItem + avatar/progression models
-├── Engine/                    pure money cores + SwiftData adapters — unit-tested
-│   ├── Money.swift            Decimal facts + whole-unit normalization + selectable formatting + input parsing
-│   ├── SplitEngine.swift      equal/exact/%/shares → exact-sum splits, deterministic remainders
-│   ├── BalanceEngine.swift    nets from snapshots, greedy min-transaction simplify
-│   └── BalanceMath+SwiftData.swift  ledger adapters + idempotent RewardEngine
+├── DesignSystem/              BrandColors, BrandFonts, BrandAssets (mascots, icons, reward feedback)
+├── Models/Models.swift        SwiftData ledger models, ActivityItem, avatar/progression models
+├── Engine/                    pure money cores + SwiftData adapters
+│   ├── Money.swift            minor-unit money facts, formatting, input parsing
+│   ├── SplitEngine.swift      equal/exact/%/shares → exact-sum splits
+│   ├── BalanceEngine.swift    nets from snapshots, greedy simplify
+│   └── BalanceMath+SwiftData.swift  ledger adapters + RewardEngine
+├── ServerLedger/              server-authoritative ledger: API client, DTOs, cache, pending-operation queue, sync
+├── Settlement/                shared settle-up: API client, models, store, Pusher realtime, mock API
 ├── Store/
-│   ├── AppStore.swift         local ModelContainer + seed/reset + activity enrichment/unread helpers
-│   └── CloudCollaboration.swift automatic connected-friend shared-zone sync, invites, push, identity mapping
+│   ├── AppStore.swift         local ModelContainer + seed/reset + activity helpers
+│   ├── CloudCollaboration.swift  app lifecycle hub + server friend sync (name is historical; CloudKit is legacy)
+│   └── UsernameIdentity.swift username + Apple sign-in session
 ├── Shell/
-│   ├── RootTabView.swift      first-run gate + cobalt tabs/FAB + haptics; screenshot args; .task seeds
-│   └── PlaceholderScreens.swift  onboarding + live Home + Activity ledger + shared chips/rows
-├── UI/
-│   ├── FriendsScreen.swift    Profile friends ledger, add/delete friend, NetChip(style:)
-│   ├── GroupsScreen.swift     groups list + nav (launch arg -openGroup), AddGroupSheet
-│   ├── GroupDetailScreen.swift  paper invoice + expense detail/edit/delete + settle celebration
-│   └── AddExpenseSheet.swift  B4 layout: amount/title/category/group/paidBy + 4 split modes
-├── BillBanditTests/           engine/model/design-default coverage (34 tests)
-└── BillBanditUITests/         money-flow + group + avatar + Activity + settlement XCUITests (6 flows)
+│   ├── RootTabView.swift      first-run gate, tabs/FAB, launch args; also holds the server ledger surface store
+│   └── PlaceholderScreens.swift  onboarding, Home, Profile, Activity, Motion Lab (name is historical)
+└── UI/                        Groups, GroupDetail, AddExpense, AddGroup, Friends pieces, SharedSettleUp, currency estimates
+BillBandit/BillBanditUITests/  end-to-end XCUITest flows (the only automated app tests)
 ```
 
 Conventions: Swift 5 mode · 4-space indent · no emoji in code/assets · money is

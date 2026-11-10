@@ -100,9 +100,6 @@ struct ServerLedgerMoneyDTO: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-typealias LedgerMoneyDTO = ServerLedgerMoneyDTO
-typealias ExactMoneyDTO = ServerLedgerMoneyDTO
-
 enum ServerLedgerScopeKindDTO: String, Codable, Sendable {
     case shared
 }
@@ -195,26 +192,6 @@ struct ServerLedgerAuthorityDTO: Codable, Equatable, Sendable {
     let settlementHistory: String
     let identity: String
     let cacheRole: String
-}
-
-struct ServerLedgerPendingOperationDTO: Codable, Equatable, Sendable {
-    let operationID: String
-    let idempotencyKey: String
-    let kind: String
-    let expectedRevision: Int64
-    let status: String
-    let createdAt: String
-    let requestHash: String
-
-    private enum CodingKeys: String, CodingKey {
-        case operationID = "operationId"
-        case idempotencyKey
-        case kind
-        case expectedRevision
-        case status
-        case createdAt
-        case requestHash
-    }
 }
 
 /// A lossless-enough JSON value used for the opaque portion of a server

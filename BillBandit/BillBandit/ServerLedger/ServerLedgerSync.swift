@@ -102,10 +102,6 @@ final class ServerLedgerSync {
         state = .idle
     }
 
-    func setActiveAccount(_ accountID: String) throws {
-        try activate(accountID: accountID)
-    }
-
     /// Clears the signed-out account and invalidates any in-flight result so a
     /// late response cannot repopulate the old account's cache.
     func signOut(accountID: String? = nil) throws {
@@ -124,11 +120,6 @@ final class ServerLedgerSync {
             lastError = nil
             state = .idle
         }
-    }
-
-    func markOffline() {
-        state = .offline
-        lastError = ServerLedgerAPIClientError.offline.localizedDescription
     }
 
     /// Pauses queue submission after a server 401 without deleting the

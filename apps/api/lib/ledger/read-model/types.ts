@@ -6,14 +6,12 @@ import type {
   GroupLedgerReadModel,
   LedgerActivityItem,
   LedgerExpense,
-  LedgerExpenseSplit,
   LedgerMemberIdentity,
   LedgerReadData,
   LedgerReadEnvelope,
   MigrationState,
   Money,
   PendingOperation,
-  SettlementHistoryItem,
   StaleState,
 } from '../../ledger-contract'
 

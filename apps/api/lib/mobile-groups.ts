@@ -38,17 +38,6 @@ export function memberForAccount(model: GroupLedgerReadModel, accountId: string)
   return model.members.find((member) => member.accountId === accountId) ?? null
 }
 
-function userForMember(model: GroupLedgerReadModel, memberId: string) {
-  const member = memberMap(model).get(memberId)
-  if (!member) return null
-  return {
-    id: member.accountId,
-    name: member.displayName,
-    email: member.email,
-    image: null,
-  }
-}
-
 function mobileCanonicalExpense(model: GroupLedgerReadModel, expenseId: string) {
   const expense = model.expenses.find((entry) => entry.expenseId === expenseId)
   if (!expense) return null

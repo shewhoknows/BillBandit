@@ -30,7 +30,7 @@ import { dirname, resolve } from 'node:path'
 
 import { Prisma } from '@prisma/client'
 
-import { createLedgerTestDatabase } from '../test/integration/ledger-harness'
+import { createLedgerTestDatabase } from './support/e2e-database'
 import { frankfurterFetcher, refreshExchangeRates, supportedRateCurrencies } from '../lib/rates/exchange-rates'
 
 const repositoryRoot = resolve(dirname(new URL(import.meta.url).pathname), '../..', '..')

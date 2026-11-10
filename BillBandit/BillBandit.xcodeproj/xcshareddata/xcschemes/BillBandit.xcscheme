@@ -12,9 +12,6 @@
    </BuildAction>
    <TestAction buildConfiguration = "Debug" selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
-         <TestableReference skipped = "NO" parallelizable = "YES">
-            <BuildableReference BuildableIdentifier = "primary" BlueprintIdentifier = "C96E2EE35D7A1580464BB84C" BuildableName = "BillBanditTests.xctest" BlueprintName = "BillBanditTests" ReferencedContainer = "container:BillBandit.xcodeproj"/>
-         </TestableReference>
          <TestableReference skipped = "NO" parallelizable = "NO">
             <BuildableReference BuildableIdentifier = "primary" BlueprintIdentifier = "A10000000000000000000005" BuildableName = "BillBanditUITests.xctest" BlueprintName = "BillBanditUITests" ReferencedContainer = "container:BillBandit.xcodeproj"/>
          </TestableReference>

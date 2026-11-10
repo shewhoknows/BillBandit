@@ -186,11 +186,4 @@ export function invitationBelongsToAccount(
   return payload.targetAccountId === accountId
 }
 
-export function invitationIdentity(payload: InvitationTokenPayload): ExternalIdentityRef {
-  return externalIdentity(payload.provider, payload.subject)
-}
-
-export const issueGroupInvitationToken = createInvitationToken
-export const verifyGroupInvitationToken = verifyInvitationToken
-
 export { DEFAULT_TTL_SECONDS as DEFAULT_INVITATION_TTL_SECONDS }

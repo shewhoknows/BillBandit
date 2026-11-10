@@ -132,33 +132,6 @@ struct ServerBackedLedgerScope: Codable, Equatable, Hashable, Sendable {
         }
         self.init(accountID: accountID, groupID: groupID)
     }
-
-    var ledgerScope: LedgerScope {
-        .serverBacked(accountID: accountID, groupID: groupID)
-    }
-}
-
-/// A locally-created group that is intended for the server but has not been
-/// assigned a canonical server group ID yet.
-struct PendingServerLedgerScope: Codable, Equatable, Hashable, Sendable {
-    let accountID: String
-    let localGroupID: UUID
-
-    init(accountID: String, localGroupID: UUID) {
-        self.accountID = accountID
-        self.localGroupID = localGroupID
-    }
-
-    init(_ scope: LedgerScope) throws {
-        guard case let .pendingServer(accountID, localGroupID) = scope else {
-            throw LedgerScopeError.requiresPendingServerScope
-        }
-        self.init(accountID: accountID, localGroupID: localGroupID)
-    }
-
-    var ledgerScope: LedgerScope {
-        .pendingServer(accountID: accountID, localGroupID: localGroupID)
-    }
 }
 
 /// The scope allowed on a queued server operation. A local-only scope cannot
@@ -182,15 +155,6 @@ enum ServerLedgerMutationScope: Codable, Equatable, Hashable, Sendable {
     var localGroupID: UUID? {
         guard case let .pendingServer(_, localGroupID) = self else { return nil }
         return localGroupID
-    }
-
-    var ledgerScope: LedgerScope {
-        switch self {
-        case let .serverBacked(accountID, groupID):
-            return .serverBacked(accountID: accountID, groupID: groupID)
-        case let .pendingServer(accountID, localGroupID):
-            return .pendingServer(accountID: accountID, localGroupID: localGroupID)
-        }
     }
 
     init(_ scope: LedgerScope) throws {

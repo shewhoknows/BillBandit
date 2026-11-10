@@ -72,9 +72,6 @@ export function parseMoney(value: unknown): Money {
   return { minorUnits, currencyCode, currencyExponent }
 }
 
-export const assertMoney = parseMoney
-export const assertExactMoney = parseMoney
-
 /** Construct money without accepting a floating-point major-unit value. */
 export function createMoney(
   minorUnits: string | bigint,
@@ -131,57 +128,7 @@ export function addMoney(a: Money, b: Money): Money {
   return createMoney(moneyToBigInt(left) + moneyToBigInt(right), left.currencyCode, left.currencyExponent)
 }
 
-export function subtractMoney(a: Money, b: Money): Money {
-  const [left, right] = assertSameCurrency(a, b)
-  return createMoney(moneyToBigInt(left) - moneyToBigInt(right), left.currencyCode, left.currencyExponent)
-}
-
 export function negateMoney(value: Money): Money {
   const money = parseMoney(value)
   return createMoney(-moneyToBigInt(money), money.currencyCode, money.currencyExponent)
-}
-
-export function compareMoney(a: Money, b: Money): -1 | 0 | 1 {
-  const [left, right] = assertSameCurrency(a, b)
-  const leftMinorUnits = moneyToBigInt(left)
-  const rightMinorUnits = moneyToBigInt(right)
-  if (leftMinorUnits < rightMinorUnits) return -1
-  if (leftMinorUnits > rightMinorUnits) return 1
-  return 0
-}
-
-export function isZeroMoney(value: Money): boolean {
-  return moneyToBigInt(parseMoney(value)) === 0n
-}
-
-/**
- * Aggregate only within a currency. The sorted result makes balance output
- * deterministic and deliberately prevents accidental mixed-currency netting.
- */
-export function aggregateMoneyByCurrency(values: readonly Money[]): Money[] {
-  const totals = new Map<string, Money>()
-  for (const value of values) {
-    const money = parseMoney(value)
-    const key = `${money.currencyCode}:${money.currencyExponent}`
-    const existing = totals.get(key)
-    totals.set(key, existing ? addMoney(existing, money) : money)
-  }
-  return Array.from(totals.values()).sort(
-    (a, b) =>
-      a.currencyCode.localeCompare(b.currencyCode) || a.currencyExponent - b.currencyExponent
-  )
-}
-
-export function formatExactMoney(value: Money): string {
-  const money = parseMoney(value)
-  const minorUnits = moneyToBigInt(money)
-  const negative = minorUnits < 0n
-  const absolute = negative ? -minorUnits : minorUnits
-  if (money.currencyExponent === 0) {
-    return `${money.currencyCode} ${negative ? '-' : ''}${absolute.toString()}`
-  }
-  const factor = 10n ** BigInt(money.currencyExponent)
-  const whole = absolute / factor
-  const fraction = (absolute % factor).toString().padStart(money.currencyExponent, '0')
-  return `${money.currencyCode} ${negative ? '-' : ''}${whole.toString()}.${fraction}`
 }

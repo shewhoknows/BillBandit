@@ -63,23 +63,3 @@ final class SettlementPollingRealtimeClient: SettlementRealtimeClient {
         onVersion = nil
     }
 }
-
-/// Test double that emits version events without network I/O.
-@MainActor
-final class FakeSettlementRealtimeClient: SettlementRealtimeClient {
-    var onVersion: ((SettlementRealtimeEvent) -> Void)?
-    private(set) var subscribedGroupId: String?
-
-    func subscribe(groupId: String, apiClient: APIClient) async {
-        subscribedGroupId = groupId
-    }
-
-    func unsubscribe() async {
-        subscribedGroupId = nil
-        onVersion = nil
-    }
-
-    func emit(_ event: SettlementRealtimeEvent) {
-        onVersion?(event)
-    }
-}

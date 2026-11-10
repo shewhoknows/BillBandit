@@ -1,4 +1,3 @@
-export const LEDGER_CONTRACT_NAME = 'ledger-contract'
 export const LEDGER_CONTRACT_VERSION = 2 as const
 export const LEDGER_CLIENT_CONTRACT = 'ledger-v2' as const
 
@@ -272,13 +271,6 @@ export type LedgerReadEnvelope<T> = {
   authority: AuthorityMarkers
   data: T
 }
-
-export const LEDGER_HEADERS = {
-  idempotencyKey: 'Idempotency-Key',
-  expectedRevision: 'Expected-Revision',
-  clientContract: 'Client-Contract',
-  compatibility: 'Client-Compatibility',
-} as const
 
 export type LedgerMutationHeaders = {
   'Idempotency-Key': string

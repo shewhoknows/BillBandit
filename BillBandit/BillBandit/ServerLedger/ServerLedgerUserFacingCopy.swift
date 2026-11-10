@@ -35,7 +35,7 @@ enum ServerLedgerUserFacingCopy {
     }
 
     static func friendlyMessage(_ raw: String?) -> String? {
-        guard var rawMessage = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let rawMessage = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               rawMessage.isEmpty == false else {
             return nil
         }

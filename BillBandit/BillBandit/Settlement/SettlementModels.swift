@@ -690,7 +690,6 @@ struct SettlementCanonicalLedgerSnapshot: Equatable, Sendable {
     var revision: Int64 { envelope.revision }
     var readRevision: Int64 { envelope.readRevision }
     var isStale: Bool { envelope.stale.isStale || group.stale.isStale }
-    var migrationStatus: String { envelope.migration.status }
 }
 
 struct SettlementLedgerExpense: Equatable, Identifiable, Sendable {
@@ -721,17 +720,6 @@ extension SettlementCanonicalLedgerGroup {
 
     var isMigrationReady: Bool {
         migration.status == "complete" || migration.status == "not_required"
-    }
-
-    func baseCurrencyMoney(from values: [ServerLedgerMoneyDTO]) -> ServerLedgerMoneyDTO {
-        values.first(where: {
-            $0.currencyCode == baseCurrency.currencyCode
-                && $0.currencyExponent == baseCurrency.currencyExponent
-        }) ?? ServerLedgerMoneyDTO(
-            minorUnits: "0",
-            currencyCode: baseCurrency.currencyCode,
-            currencyExponent: baseCurrency.currencyExponent
-        )
     }
 
     func invoiceExpenses() -> [SettlementLedgerExpense] {
@@ -901,133 +889,10 @@ struct SettlementMutationResultDTO: Codable {
     let eventType: String
 }
 
-struct SettleUpVersionAheadResponse: Decodable {
-    let error: String
-    let snapshot: SettlementSnapshotDTO?
-}
-
 struct SettlementConflictResponse: Codable {
     let error: String
     let requiresReconfirmation: Bool?
     let state: SettlementSnapshotDTO?
-}
-
-struct SettlementExplanationDTO: Decodable, Equatable {
-    let mode: String
-    let planTransferId: String
-    let version: Int
-    let directExpenses: [SettlementExplanationExpenseDTO]?
-    let simplifiedPaths: [SettlementExplanationPathDTO]?
-    let adjustments: [SettlementExplanationAdjustmentDTO]?
-}
-
-struct SettlementExplanationExpenseDTO: Decodable, Equatable, Identifiable {
-    var id: String { expenseId }
-    let expenseId: String
-    let description: String
-    let amount: String
-    let minorUnits: String?
-
-    init(expenseId: String, description: String, amount: String, minorUnits: String? = nil) {
-        self.expenseId = expenseId
-        self.description = description
-        self.amount = amount
-        self.minorUnits = minorUnits
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.expenseId = try container.decode(String.self, forKey: .expenseId)
-        self.description = try container.decode(String.self, forKey: .description)
-        if let exact = try? container.decode(ServerLedgerMoneyDTO.self, forKey: .amount) {
-            self.amount = SettlementMoneyFormatting.decimalString(
-                fromMinorUnits: exact.minorUnits,
-                exponent: exact.currencyExponent
-            )
-            self.minorUnits = exact.minorUnits
-        } else {
-            self.amount = try container.decode(String.self, forKey: .amount)
-            self.minorUnits = nil
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case expenseId
-        case description
-        case amount
-    }
-}
-
-struct SettlementExplanationPathDTO: Decodable, Equatable, Identifiable {
-    var id: String { path }
-    let path: String
-    let amount: String
-    let minorUnits: String?
-
-    init(path: String, amount: String, minorUnits: String? = nil) {
-        self.path = path
-        self.amount = amount
-        self.minorUnits = minorUnits
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.path = try container.decode(String.self, forKey: .path)
-        if let exact = try? container.decode(ServerLedgerMoneyDTO.self, forKey: .amount) {
-            self.amount = SettlementMoneyFormatting.decimalString(
-                fromMinorUnits: exact.minorUnits,
-                exponent: exact.currencyExponent
-            )
-            self.minorUnits = exact.minorUnits
-        } else {
-            self.amount = try container.decode(String.self, forKey: .amount)
-            self.minorUnits = nil
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case path
-        case amount
-    }
-}
-
-struct SettlementExplanationAdjustmentDTO: Decodable, Equatable, Identifiable {
-    var id: String { label }
-    let label: String
-    let amount: String
-    let minorUnits: String?
-
-    init(label: String, amount: String, minorUnits: String? = nil) {
-        self.label = label
-        self.amount = amount
-        self.minorUnits = minorUnits
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.label = try container.decode(String.self, forKey: .label)
-        if let exact = try? container.decode(ServerLedgerMoneyDTO.self, forKey: .amount) {
-            self.amount = SettlementMoneyFormatting.decimalString(
-                fromMinorUnits: exact.minorUnits,
-                exponent: exact.currencyExponent
-            )
-            self.minorUnits = exact.minorUnits
-        } else {
-            self.amount = try container.decode(String.self, forKey: .amount)
-            self.minorUnits = nil
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case label
-        case amount
-    }
-}
-
-struct SettlementTransferConfirmation: Equatable, Identifiable {
-    let id: String
-    let transfer: SettlementPlanTransferDTO
-    let expectedVersion: Int
 }
 
 enum SettlementClientError: LocalizedError, Equatable {
@@ -1037,7 +902,6 @@ enum SettlementClientError: LocalizedError, Equatable {
     case requiresReconfirmation
     case staleResponse
     case writeDisabled
-    case explanationUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -1047,7 +911,6 @@ enum SettlementClientError: LocalizedError, Equatable {
         case .requiresReconfirmation: "Settlement changed. Confirm again."
         case .staleResponse: "Stale response ignored"
         case .writeDisabled: "Writes disabled while updating"
-        case .explanationUnavailable: "Could not load transfer details"
         }
     }
 }
@@ -1124,10 +987,6 @@ enum SettlementMoneyFormatting {
             return magnitude > 0 ? .orderedAscending : .orderedDescending
         }
         return magnitude > 0 ? .orderedDescending : .orderedAscending
-    }
-
-    static func isNegative(_ value: String) -> Bool {
-        normalizedSigned(value).negative
     }
 
     static func isZero(_ value: String) -> Bool {
@@ -1308,14 +1167,6 @@ enum SharedSettleUpProjection {
         }
         return nameMatchesCurrentUser(transfer.payerName, currentUserLabel)
             || nameMatchesCurrentUser(transfer.recipientName, currentUserLabel)
-    }
-
-    static func canReverse(
-        historyItem: SettlementHistoryItemDTO,
-        permissions: SettlementPermissionsDTO
-    ) -> Bool {
-        guard permissions.canSettleOrReverse, historyItem.type == "settlement" else { return false }
-        return historyItem.settlementId == nil
     }
 
     private static func nameMatchesCurrentUser(_ name: String, _ currentUserLabel: String) -> Bool {

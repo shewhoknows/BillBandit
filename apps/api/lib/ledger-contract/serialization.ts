@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto'
-
 function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortJson)
   if (value !== null && typeof value === 'object') {
@@ -18,12 +16,4 @@ export function stableStringify(value: unknown, space?: number): string {
   const serialized = JSON.stringify(sortJson(value), null, space)
   if (serialized === undefined) throw new TypeError('Value is not JSON serializable')
   return serialized
-}
-
-export function roundTripJson<T>(value: T): T {
-  return JSON.parse(stableStringify(value)) as T
-}
-
-export function hashLedgerRequest(value: unknown): string {
-  return createHash('sha256').update(stableStringify(value)).digest('hex')
 }
