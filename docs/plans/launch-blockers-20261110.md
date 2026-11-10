@@ -104,7 +104,10 @@ Canon: **"He used to steal. Now he settles."** A reformed bank-robber raccoon wh
 
 ## Open questions
 
-(fill in during the work)
+- Item 4: The canonical ledger maps the expense date to `createdAt`. It does not expose a separate creation time for every expense. Some older records also lack creation activity. A server read-model change appears necessary to guarantee the requested date-then-creation-time order. The item was stopped pending direction; no server change was made.
+- Item 7: The payer mismatch could not be reproduced while another app was using the requested simulator. The canonical editor maps the payer by server account ID, but that source inspection does not prove the on-screen selection.
+- Item 10: CloudKit is still used. `CloudCollaborationService` creates the named container at launch, syncs public profile cards, and imports legacy records. SwiftData uses `cloudKitDatabase: .none`. The app declares `aps-environment`, the Push capability, and the `remote-notification` background mode. No remote-notification registration or CloudKit subscription was found in the app source. `UNUserNotificationCenter` only removes old local reminders. The iCloud key-value entitlement has no matching `NSUbiquitousKeyValueStore` use in the source. These findings do not prove that removal is safe on upgraded devices.
+- Safe removal requires the owner's approval. First establish that legacy import and CloudKit profile data are no longer needed, and replace or retire those paths. Then remove container initialization and CloudKit calls, remove the unused entitlements and capabilities, review the background mode, and update signing and provisioning. Build a signed candidate and verify fresh install, upgrade, sign-in, friends, profile sync, and legacy migration before release. Keep Sign in with Apple. No entitlement or provisioning change was made here.
 
 ## Report
 
