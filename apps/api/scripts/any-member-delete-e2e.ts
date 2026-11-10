@@ -62,7 +62,14 @@ async function main() {
     assert.deepEqual(a.settlementPlan, b.settlementPlan)
   })
   const second = await add('Concurrent deletion')
-  await step('Non-member is refused', async () => { const r = await del(outsiderToken, second.id, (await read()).revision); assert.equal(r.status, 403, `expected 403; got ${r.status}`) })
+  // A person outside the group gets 404, not 403: the server does not confirm
+  // that the expense exists to someone who cannot see the group.
+  const stillActive = async (id: string) => (await read()).expenses.some((e: Json) => e.expenseId === id && e.status === 'active')
+  await step('Non-member is refused and the expense stays', async () => {
+    const r = await del(outsiderToken, second.id, (await read()).revision)
+    assert.equal(r.status, 404, `expected 404; got ${r.status}`)
+    assert.ok(await stillActive(second.id), 'expense was removed')
+  })
   await step('Concurrent deletes produce one success and one activity', async () => {
     const revision = (await read()).revision
     const responses = await Promise.all([del(ownerToken, second.id, revision), del(memberToken, second.id, revision)])
@@ -89,7 +96,7 @@ async function main() {
     assert.equal(after.settlementPlan.transfers[0].amount.minorUnits, '2000')
   })
   const removed = await add('Removed member refusal')
-  await step('Removed member is refused', async () => {
+  await step('Removed member is refused and the expense stays', async () => {
     const group = await read(); const transfer = group.settlementPlan.transfers[0]
     if (transfer) {
       const who = group.members.find((m: Json) => m.memberId === transfer.payerMemberId).accountId === owner.id ? ownerToken : memberToken
@@ -99,7 +106,8 @@ async function main() {
     const left = await request(memberToken, `/api/mobile/groups/${groupId}/leave`, 'POST', undefined, { 'Idempotency-Key': randomUUID() })
     assert.equal(left.status, 200, JSON.stringify(left.data))
     const result = await del(memberToken, removed.id, (await read()).revision)
-    assert.equal(result.status, 403, `expected 403; got ${result.status}`)
+    assert.equal(result.status, 404, `expected 404; got ${result.status}`)
+    assert.ok(await stillActive(removed.id), 'expense was removed')
   })
   await step('Archived group refuses deletion', async () => {
     const solo = await request(ownerToken, '/api/mobile/groups', 'POST', { name: `Archive E2E ${Date.now()}`, currency: 'INR', category: 'TRIP', memberAccountIds: [] }, { 'Idempotency-Key': randomUUID() })
