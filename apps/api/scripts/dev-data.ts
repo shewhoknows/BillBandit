@@ -243,8 +243,8 @@ async function addPayment(you: Person, group: Json, input: { from?: string; amou
 // ---------- simulator sign-in ----------
 
 function printSignIn(you: Person) {
-  const storeId = 'vietnam-test-dev-you'
-  console.log('\nSign in to the simulator app (Debug build) as "You":')
+  const storeId = `vietnam-test-${you.id}`
+  console.log(`\nSign in to the simulator app (Debug build) as "${you.name}":`)
   console.log(`  SIMCTL_CHILD_BILLBANDIT_QA_STORE_ID=${storeId} \\`)
   console.log(`  SIMCTL_CHILD_BILLBANDIT_QA_BASE_URL=${devApiBase} \\`)
   console.log(`  SIMCTL_CHILD_BILLBANDIT_QA_TOKEN=${you.token} \\`)
@@ -261,7 +261,7 @@ function printSignIn(you: Person) {
       },
       stdio: 'inherit',
     })
-    console.log('Opened BillBandit on the booted simulator, signed in as You.')
+    console.log(`Opened BillBandit on the booted simulator, signed in as ${you.name}.`)
   }
 }
 
@@ -327,9 +327,20 @@ async function main() {
       console.log(`+ UI test account ${user.id}; wrote ${file}`)
       break
     }
-    case 'signin':
-      printSignIn(you)
+    case 'signin': {
+      const username = flag('as')
+      if (!username || username === YOU.username) {
+        printSignIn(you)
+        break
+      }
+      if (!/^dev_[a-z0-9_]+$/.test(username)) throw new Error('Use a local dev username such as dev_kabir.')
+      const user = await db.user.findUnique({ where: { username } })
+      if (!user || !user.id.startsWith('dev-') || !user.email.endsWith('@dev.billbandit.local')) {
+        throw new Error(`Local dev member "${username}" was not found.`)
+      }
+      printSignIn({ id: user.id, email: user.email, name: user.name ?? username, token: await tokenFor(user) })
       break
+    }
     case 'list': {
       const summary = await api('/api/mobile/ledger?activityLimit=1', you.token)
       const groups = (summary.groups ?? []) as Json[]
