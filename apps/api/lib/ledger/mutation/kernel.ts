@@ -562,6 +562,7 @@ async function prepareExpense(
         amountMinorUnits: true,
         currencyExponent: true,
         currency: true,
+        date: true,
         isDeleted: true,
       },
     })
@@ -586,6 +587,7 @@ async function prepareExpense(
           expenseId: existing.id,
           description: existing.description,
           paidByAccountId: existing.paidById,
+          date: existing.date.toISOString(),
           amount: {
             minorUnits: existing.amountMinorUnits?.toString() ?? '0',
             currencyCode: existing.currency,
