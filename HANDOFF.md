@@ -50,6 +50,13 @@ directly; regenerate them from sources (see §5).
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
 
+### 2026-11-10 — Launch blockers round 4 (branch `fix/launch-blockers`)
+
+- Commits `1e18677`, `ef6daea`, and `457a201` cover terminal client refusals and payer-only deletion, receipt payment totals, and personal square labels. The server, ledger math, auth, and schema were not changed.
+- The reported ₹1.50 balance was correct: ₹62.00 paid − ₹56.50 share − ₹4.00 received = ₹1.50. Later payments of ₹1.50 brought You to zero while Kabir still owed Aarav ₹78.50. The receipt showed ₹5.50 received and YOU'RE SQUARE; Home and Groups showed you're square. A friend-paid expense showed the payer-only line in overview and edit.
+- One payer-owned test expense was deleted with one successful DELETE in the local server log. A fresh 403 and the terminal retry behavior were not exercised. A previous revision-conflict row remains visible in the pending panel. Payments made, reversed payments, and the ALL SQUARE receipt state were not checked. The simulator checks used the requested agent-device driver, not a recorded TesterArmy e2e run.
+- The build passed after each item with the two existing warnings. API typecheck and lint passed. Evidence and replay steps are in `.scratch/launch-blockers/evidence/round4/observations.md`. The local API remains running.
+
 ### 2026-11-10 — Launch blockers round 3 (branch `fix/launch-blockers`)
 
 - Fixes F–H are committed separately: `51bc776`, `eff8956`, and `bd92772`. The shared split count includes zero-value equal shares. Receipt metadata uses a short current-year date and truncates the payer when needed. Shared receipt rows open the expense overview, which now has Edit and retains Delete.

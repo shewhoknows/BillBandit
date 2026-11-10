@@ -156,3 +156,11 @@ Builds passed after each item with the two existing warnings. `npm run typecheck
 ### Round 4
 
 For QA Indigo Two Friends 9473, the canonical API at revision 27 lists four active expenses. You paid ₹12.00 + ₹50.00 = ₹62.00. Your shares are ₹4.00 + ₹0.00 + ₹2.50 + ₹50.00 = ₹56.50. At the reported point, Kabir had paid You ₹2.00 + ₹2.00 = ₹4.00. Thus ₹62.00 − ₹56.50 − ₹4.00 = ₹1.50 owed to You. The later ₹0.50 and ₹1.00 payments reduce this to ₹0.00. The current plan still has Kabir paying Aarav ₹78.50. The reported balance was correct.
+
+Builds passed after I, J, and K with the existing script-phase and App Intents warnings. API typecheck and lint passed. Manual simulator checks used the requested `agent-device` driver, not a recorded TesterArmy e2e run. Evidence and replay steps: `.scratch/launch-blockers/evidence/round4/observations.md`.
+
+| Item | Status | Commit | Verification and limits |
+| --- | --- | --- | --- |
+| I | Partly verified | `1e18677` | Friend-paid expense overview and edit showed the payer-only line. A payer-owned test expense was deleted; one confirmation produced one successful DELETE in the server log. A new 403, its message, terminal retry behavior, and other 4xx responses were not exercised. The old failed revision-conflict row remained visible on the receipt. |
+| J | Partly verified | `ef6daea` | The local API arithmetic above matches the reported and current balances. The receipt showed payments received ₹5.50. Payments made and reversed payments were not exercised. |
+| K | Verified for sampled groups | `457a201` | The receipt showed YOU'RE SQUARE while Kabir owed Aarav ₹78.50. Home and Groups showed you're square for that group and settled up for an empty group. The ALL SQUARE receipt state was not retested. |
