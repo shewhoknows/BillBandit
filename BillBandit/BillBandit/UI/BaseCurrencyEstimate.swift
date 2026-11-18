@@ -9,28 +9,14 @@ struct ProfileCurrencySettingsSection: View {
     let sourceCodes: [String]
     let balances: [ServerLedgerSurfaceAccountBalanceSummary]?
     @ObservedObject private var store = BaseCurrencyEstimateStore.shared
-    @State private var settingsCurrency: AppCurrency?
 
     private var sourceCurrencies: [AppCurrency] {
         sourceCodes.compactMap(AppCurrency.init(rawValue:))
             .filter { $0 != store.selectedBaseCurrency }
     }
 
-    private func convertedTotal(owed: Bool) -> Decimal? {
-        guard let balances else { return nil }
-        var total = Decimal.zero
-        for balance in balances {
-            let money = owed ? balance.owed : balance.owe
-            guard let amount = money.majorUnits,
-                  let converted = store.estimate(amount: amount, sourceCurrency: money.currencyCode) else { return nil }
-            total += converted
-        }
-        return total
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            BrandSectionLabel("DEFAULT CURRENCY")
             Menu {
                 ForEach(AppCurrency.allCases) { currency in
                     Button {
@@ -59,69 +45,13 @@ struct ProfileCurrencySettingsSection: View {
                 .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
             }
             .accessibilityIdentifier("profileBaseCurrencyPicker")
-            Text("New groups start in this currency. Amounts in other currencies show an estimate in \(store.selectedBaseCurrency.rawValue). Expenses and payments keep their own currency.")
-                .font(BrandFont.body(12))
-                .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
-            if balances != nil, !sourceCurrencies.isEmpty {
-                if let owed = convertedTotal(owed: true), let owe = convertedTotal(owed: false) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Estimated totals in \(store.selectedBaseCurrency.rawValue)")
-                            .font(BrandFont.body(12, weight: .bold))
-                        Text("You are owed ≈ \(BaseCurrencyEstimateFormatting.amount(owed, currency: store.selectedBaseCurrency))")
-                        Text("You owe ≈ \(BaseCurrencyEstimateFormatting.amount(owe, currency: store.selectedBaseCurrency))")
-                    }
-                    .font(BrandFont.type(11))
-                } else {
-                    Text("Waiting for exchange rates to estimate totals.").font(BrandFont.body(11))
-                }
-            }
-            if !sourceCurrencies.isEmpty {
-                BrandSectionLabel("EXCHANGE RATES")
-            }
-            ForEach(sourceCurrencies) { currency in
-                HStack(alignment: .firstTextBaseline) {
-                    if let rate = store.rate(for: currency) {
-                        Text(BaseCurrencyEstimateFormatting.rateLine(rate))
-                            .font(BrandFont.type(11, bold: true))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    } else {
-                        Text("\(currency.rawValue) to \(store.selectedBaseCurrency.rawValue) · no rate yet")
-                            .font(BrandFont.type(11))
-                    }
-                    Spacer(minLength: 8)
-                    Button("Fix rate") { settingsCurrency = currency }
-                        .font(BrandFont.body(11, weight: .bold))
-                        .fixedSize()
-                        .accessibilityLabel("Set a fixed \(currency.rawValue) rate")
-                }
-            }
-            if !sourceCurrencies.isEmpty {
-                Button {
-                    Task { await store.refreshAll() }
-                } label: {
-                    HStack {
-                        if store.isRefreshing { ProgressView().tint(Color.Brand.cobalt) }
-                        else { Image(systemName: "arrow.clockwise") }
-                        Text(store.isRefreshing ? "Refreshing exchange rates…" : "Refresh exchange rates")
-                    }
-                    .font(BrandFont.body(13, weight: .bold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 1.5))
-                }
-                .accessibilityIdentifier("profileRefreshExchangeRates")
-                .disabled(store.isRefreshing)
-            }
-            if let error = store.lastError {
-                Text(error).font(BrandFont.body(11))
+            if let saveError = store.saveError {
+                Text(saveError).font(BrandFont.body(11))
             }
         }
         .foregroundStyle(Color.Brand.cobalt)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 12)
-        .sheet(item: $settingsCurrency) { currency in
-            BaseCurrencyEstimateSettingsView(store: store, sourceCurrency: currency)
-        }
         .task(id: sourceCodes.joined(separator: ",") + store.selectedBaseCurrency.rawValue) {
             for currency in sourceCurrencies { await store.ensureRate(sourceCurrency: currency) }
         }
@@ -427,6 +357,8 @@ final class BaseCurrencyEstimateStore: ObservableObject {
 
     @Published private(set) var ratesByPair: [String: BaseCurrencyRate]
     @Published private(set) var lastError: String?
+    /// Only a failed currency save shows on Profile; refresh errors stay silent there.
+    @Published private(set) var saveError: String?
     @Published private(set) var isRefreshing = false
     /// True once the server has a default currency for this person.
     @Published private(set) var isDefaultConfirmed: Bool {
@@ -470,10 +402,12 @@ final class BaseCurrencyEstimateStore: ObservableObject {
             let saved = user.defaultCurrency.flatMap(AppCurrency.init(rawValue:)) ?? currency
             applyServerDefault(saved)
             lastError = nil
+            saveError = nil
             await refreshAll()
             return true
         } catch {
             lastError = "Your currency was not saved. Check your connection and try again."
+            saveError = lastError
             return false
         }
     }

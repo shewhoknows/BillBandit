@@ -703,10 +703,18 @@ extension SettlementCanonicalLedgerExpense {
 }
 
 enum ExpenseDate {
+    /// Made once and reused. Creating an ISO8601DateFormatter is slow; making
+    /// two for every date (inside sorts and SwiftUI bodies) froze the main
+    /// thread for seconds on big groups. ISO8601DateFormatter is thread safe.
+    private static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let plainFormatter = ISO8601DateFormatter()
+
     static func parse(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        fractionalFormatter.date(from: value) ?? plainFormatter.date(from: value)
     }
 
     static func display(_ value: String) -> String {
@@ -744,25 +752,31 @@ extension SettlementCanonicalLedgerGroup {
 
     func invoiceExpenses() -> [SettlementLedgerExpense] {
         let memberByID = memberByID
-        return expenses
-            .filter { $0.status == "active" }
-            .enumerated()
-            .sorted { left, right in
-                let leftDate = ExpenseDate.parse(left.element.createdAt).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast
-                let rightDate = ExpenseDate.parse(right.element.createdAt).map { Calendar.current.startOfDay(for: $0) } ?? .distantPast
-                return leftDate == rightDate ? left.offset < right.offset : leftDate > rightDate
-            }
-            .map {
-                SettlementLedgerExpense(
-                    id: $0.element.expenseID,
-                    title: $0.element.description,
-                    amount: $0.element.amount,
-                    payerMemberID: $0.element.paidByMemberID,
-                    payerName: memberByID[$0.element.paidByMemberID]?.displayName ?? "Unknown",
-                    splitCount: $0.element.participantCount,
-                    date: $0.element.createdAt
-                )
-            }
+        let calendar = Calendar.current
+        // Read each date once (not twice per comparison), then sort:
+        // newest day first; same day keeps the server order.
+        let active = expenses.filter { $0.status == "active" }
+        var keyed: [(offset: Int, day: Date, expense: SettlementCanonicalLedgerExpense)] = []
+        keyed.reserveCapacity(active.count)
+        for (offset, expense) in active.enumerated() {
+            let day = ExpenseDate.parse(expense.createdAt).map { calendar.startOfDay(for: $0) } ?? Date.distantPast
+            keyed.append((offset: offset, day: day, expense: expense))
+        }
+        keyed.sort { left, right in
+            left.day == right.day ? left.offset < right.offset : left.day > right.day
+        }
+        return keyed.map { item in
+            let expense = item.expense
+            return SettlementLedgerExpense(
+                id: expense.expenseID,
+                title: expense.description,
+                amount: expense.amount,
+                payerMemberID: expense.paidByMemberID,
+                payerName: memberByID[expense.paidByMemberID]?.displayName ?? "Unknown",
+                splitCount: expense.participantCount,
+                date: expense.createdAt
+            )
+        }
     }
 
     func uiPlan() -> [SettlementPlanTransferDTO] {

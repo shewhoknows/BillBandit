@@ -77,6 +77,55 @@ struct UsernameHandle: Equatable, Sendable {
     }
 }
 
+/// Makes a valid handle for a new account, so Apple sign-in can go straight
+/// to Home. The person can change it later in Profile.
+///
+/// Ways this can fail, and what we do:
+/// - No name from Apple (Apple sends it only on the first sign-in, and the
+///   person can hide it) → use "bandit" plus digits.
+/// - Name has accents or non-Latin letters → fold accents; if fewer than 3
+///   usable letters stay, use "bandit".
+/// - Name starts with a digit or is a reserved word → use "bandit".
+/// - Handle is already taken → try the same base with random digits, up to
+///   six candidates in total, then show the server error.
+/// - Long names → cut the base to 14 characters, so base + 4 digits ≤ 20.
+enum UsernameAutoHandle {
+    static let fallbackBase = "bandit"
+    private static let maxBaseLength = 14
+    private static let candidateCount = 6
+
+    static func base(from preferredName: String?) -> String {
+        let folded = (preferredName ?? "")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive],
+                     locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        let firstWord = folded
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .first.map(String.init) ?? ""
+        let ascii = String(firstWord.unicodeScalars.filter {
+            (97...122).contains($0.value) || (48...57).contains($0.value)
+        })
+        // After the filter only a–z and 0–9 stay; a handle must start with a letter.
+        let trimmed = String(ascii.drop(while: { $0.isNumber }).prefix(maxBaseLength))
+        guard trimmed.count >= 3, (try? UsernameHandle(trimmed)) != nil else {
+            return fallbackBase
+        }
+        return trimmed
+    }
+
+    static func candidates(from preferredName: String?,
+                           randomSuffix: () -> Int = { Int.random(in: 10...9999) })
+        -> [UsernameHandle] {
+        let base = base(from: preferredName)
+        // "bandit" alone is too generic; always add digits to it.
+        var values: [String] = base == fallbackBase ? [] : [base]
+        while values.count < candidateCount {
+            values.append("\(base)\(randomSuffix())")
+        }
+        return values.compactMap { try? UsernameHandle($0) }
+    }
+}
+
 enum UsernameAccountReconciliationDecision: Equatable {
     case verified(String)
     case requiresClaim
@@ -159,6 +208,7 @@ enum UsernameIdentityService {
     enum ServiceError: LocalizedError {
         case invalidAppleCredential
         case missingSession
+        case usernameTaken
         case response(String)
 
         var errorDescription: String? {
@@ -167,6 +217,8 @@ enum UsernameIdentityService {
                 return "Apple did not provide a usable identity credential. Try again."
             case .missingSession:
                 return "Reconnect your Apple account before saving your username."
+            case .usernameTaken:
+                return "That username is already taken."
             case .response(let message):
                 return message
             }
@@ -235,6 +287,19 @@ enum UsernameIdentityService {
 
     static func claim(_ handle: UsernameHandle) async throws -> String {
         try await save(handle, method: "POST")
+    }
+
+    /// Claims an automatic handle for a new account. Tries the next
+    /// candidate when one is taken; any other error stops at once.
+    static func claimAutomaticHandle(preferredName: String?) async throws -> String {
+        for handle in UsernameAutoHandle.candidates(from: preferredName) {
+            do {
+                return try await claim(handle)
+            } catch ServiceError.usernameTaken {
+                continue
+            }
+        }
+        throw ServiceError.usernameTaken
     }
 
     static func rename(_ handle: UsernameHandle) async throws -> String {
@@ -437,6 +502,9 @@ enum UsernameIdentityService {
             }
             let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data)
             let fallback: String
+            if http.statusCode == 409 && path == "/api/mobile/auth/username" {
+                throw ServiceError.usernameTaken
+            }
             if http.statusCode == 409 {
                 fallback = "That username is already taken."
             } else if path == "/api/mobile/auth/apple" {

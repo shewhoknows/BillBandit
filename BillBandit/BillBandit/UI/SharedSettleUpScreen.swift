@@ -655,9 +655,7 @@ struct SharedSettleUpScreen: View {
 }
 
 private func settleFormattedDate(_ iso: String) -> String {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = formatter.date(from: iso) ?? ISO8601DateFormatter().date(from: iso) {
+    if let date = ExpenseDate.parse(iso) {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
     return iso

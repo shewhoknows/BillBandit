@@ -90,32 +90,30 @@ struct OnboardingScreen: View {
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
     @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
     @State private var page = 0
-    @State private var name = ""
     @State private var mascotRaised = false
     @State private var authMessage: String?
-    @State private var usernameValidationMessage: String?
     @State private var isCompleting = false
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
-    @State private var hasAdvancedPastFirstPage = false
-    @State private var swipeHintMovesLeft = false
     @State private var currentAppleNonce: String?
     @State private var isAuthorizingWithApple = false
     @State private var appleAuthorizationAttemptID = UUID()
     /// A returning Apple account already has a server-owned handle. Keep that
-    /// value through onboarding so we do not POST a second claim for it.
+    /// value so we do not POST a second claim for it.
     @State private var authenticatedRemoteUsername: String?
-    @FocusState private var usernameFocused: Bool
 
+    private static let lastPage = 2
+
+    /// Every headline is two lines, so the headline and body sit at the same
+    /// height on all three pages and nothing jumps when the user swipes.
     private let pages: [(Mascot, String, String)] = [
-        (.greeting, "he used to steal. now he settles.", "Meet the Bandit. Reformed, exact, and very serious about who owes what."),
-        (.thinking, "every rupee accounted for. old habits.", "Split equally, exactly, by percentage or by shares. The Bandit checks every amount."),
-        (.celebrating, "clean slate. no getaway needed.", "Record a payment and let the Bandit celebrate a clean slate."),
+        (.greeting, "he used to steal.\nnow he settles.", "Meet the Bandit. Reformed, exact, and very serious about who owes what."),
+        (.thinking, "every last coin accounted for.\nold habits.", "Split equally, exactly, by percentage or by shares. The Bandit checks every amount."),
+        (.celebrating, "clean slate.\nno getaway needed.", "Record a payment and the Bandit closes the case."),
     ]
 
     private var isDemo: Bool {
@@ -135,8 +133,11 @@ struct OnboardingScreen: View {
          isForcedSignedOutPreview) && !isForcedConnectedIncompletePreview
     }
 
-    private var hasOnboardingMessage: Bool {
-        usernameValidationMessage != nil || authMessage != nil
+    /// The name we start a new handle from: Apple's name on first sign-in,
+    /// otherwise the name already saved on this device.
+    private var savedPreferredName: String? {
+        guard let name = currentUsers.first?.name, name != "You" else { return nil }
+        return name
     }
 
     init(startAtSignIn: Bool = false, onComplete: @escaping () -> Void) {
@@ -149,258 +150,178 @@ struct OnboardingScreen: View {
             _authMessage = State(initialValue: "Apple sign-in could not be completed. Try again.")
         }
         if let index = args.firstIndex(of: "-onboardingPage"), index + 1 < args.count,
-           let requested = Int(args[index + 1]), (0...2).contains(requested) {
+           let requested = Int(args[index + 1]), (0...Self.lastPage).contains(requested) {
             _page = State(initialValue: requested)
         } else if startAtSignIn {
-            _page = State(initialValue: 2)
+            _page = State(initialValue: Self.lastPage)
         }
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let isCompact = page == 2 &&
-                (geometry.size.height < 760 ||
-                 (dynamicTypeSize.isAccessibilitySize && geometry.size.height < 950))
+        ZStack {
+            Color.Brand.cobalt
+                .ignoresSafeArea()
 
-            ZStack(alignment: .bottom) {
-                Color.Brand.cobalt
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { dismissUsernameKeyboard() }
-
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("0\(page + 1) / 03")
-                            .font(BrandFont.display(15, weight: .semibold))
-                        Spacer()
-                        if page < 2 {
-                            Button("Skip") {
-                                usernameFocused = false
-                                withAnimation(onboardingTransition) { page = 2 }
-                            }
-                            .font(BrandFont.body(12, weight: .extraBold))
-                        }
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.top, isCompact ? 4 : 10)
-
-                    HStack {
-                        Text("BillBandit")
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .font(BrandFont.display(isCompact ? 32 : 44, weight: .bold))
-                        Spacer()
-                    }
-                    .padding(.horizontal, 22)
-                    .padding(.top, isCompact ? 2 : 10)
-
-                    TabView(selection: $page) {
-                        ForEach(0..<3, id: \.self) { index in
-                            onboardingPage(index, compact: isCompact && index == 2)
-                                .tag(index)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .overlay(alignment: .bottom) {
-                        if page == 0 && !hasAdvancedPastFirstPage {
-                            onboardingSwipeHint
-                                .padding(.bottom, 16)
-                                .transition(.opacity)
-                                .allowsHitTesting(false)
-                        }
-                    }
-
-                    if !isCompact {
-                        HStack(spacing: 7) {
-                            ForEach(0..<3, id: \.self) { index in
-                                Capsule()
-                                    .fill(Color.Brand.creamSoft.opacity(index == page ? 1 : 0.35))
-                                    .frame(width: index == page ? 24 : 7, height: 7)
-                                    .animation(reduceMotion ? nil : .spring(response: 0.35), value: page)
-                            }
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Page \(page + 1) of 3")
-                        .accessibilityHint(page < 2
-                            ? "Swipe left to continue to the next page."
-                            : "Swipe right to review an earlier page.")
-                        .accessibilityIdentifier("onboardingPageIndicator")
-                        .padding(.bottom, 8)
-                    }
-                }
-                .foregroundStyle(Color.Brand.creamSoft)
-            }
-            .onAppear {
-                hasUsernameSession = UsernameIdentityService.hasStoredSession
-                hasAdvancedPastFirstPage = page != 0
-                name = if isForcedConnectedIncompletePreview {
-                    ""
-                } else if isDemo {
-                    "Esha"
-                } else {
-                    currentUsers.first?.name == "You" ? "" : (currentUsers.first?.name ?? "")
-                }
-                startMascotMotion()
-                startSwipeHintMotion()
-            }
-            .onChange(of: page) {
-                if page != 0 { hasAdvancedPastFirstPage = true }
-                if page != 2 { usernameFocused = false }
-            }
-            .onChange(of: reduceMotion) {
-                startMascotMotion()
-                startSwipeHintMotion()
-            }
-            .task(id: appleAuthorizationAttemptID) {
-                guard isAuthorizingWithApple else { return }
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled, isAuthorizingWithApple else { return }
-                let error = NSError(domain: "BillBandit.AppleSignIn", code: 2)
-                let reference = AppleSignInSupport.logFailure(error, stage: "callback-timeout")
-                isAuthorizingWithApple = false
-                currentAppleNonce = nil
-                authMessage = "Apple sign-in didn't finish. Please try again. Reference \(reference)."
-            }
-            .task {
-                guard isDemo else { return }
-                for target in 1...2 {
-                    try? await Task.sleep(nanoseconds: 2_800_000_000)
-                    withAnimation(onboardingTransition) {
-                        page = target
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func onboardingPage(_ index: Int, compact: Bool) -> some View {
-        if index == 2 {
-            GeometryReader { pageGeometry in
-                // The page controller retains its child while the keyboard changes
-                // the available height. Keep the field in one stable ScrollView so
-                // adapting the artwork does not destroy its focus mid-keystroke.
-                let pageCompact = compact || pageGeometry.size.height < 570
-                ScrollView(.vertical, showsIndicators: false) {
-                    onboardingPageContent(index, compact: pageCompact,
-                                          showIntroCopy: pageGeometry.size.height >= 570)
-                        .padding(.top, pageCompact && !dynamicTypeSize.isAccessibilitySize &&
-                                               !hasOnboardingMessage ? 16 : 0)
-                        .frame(minHeight: pageGeometry.size.height)
-                }
-            }
-        } else {
-            onboardingPageContent(index, compact: false)
-        }
-    }
-
-    private func onboardingPageContent(_ index: Int, compact: Bool,
-                                       showIntroCopy: Bool = true) -> some View {
-        VStack(spacing: compact ? 4 : 8) {
-            Spacer(minLength: compact ? 0 : 4)
-            MascotView(mascot: pages[index].0,
-                       size: compact ? (hasOnboardingMessage ? 124 : 136) : 178,
-                       idle: false)
-                .offset(y: compact || reduceMotion ? 0 : (mascotRaised ? -7 : 7))
-                .frame(height: compact
-                    ? (hasOnboardingMessage ? 124 : (dynamicTypeSize.isAccessibilitySize ? 132 : 148))
-                    : 194)
-                .accessibilityIdentifier("onboardingMascot-\(index)")
-            if showIntroCopy {
-                Text(BrandFont.handText(pages[index].1))
-                    .font(BrandFont.hand(28, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    // Page 2's line is wider than the screen. Let it wrap and shrink a little
-                    // inside the same fixed box, so the pages stay aligned and nothing is cut.
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .padding(.horizontal, 20)
-                    .frame(height: index == 2 ? nil : 80)
-                    .frame(minHeight: index == 2 ? 42 : nil)
-                    .accessibilityIdentifier("onboardingTitle-\(index)")
-                Text(pages[index].2)
-                    .font(BrandFont.body(14, weight: .semibold))
-                    .multilineTextAlignment(.center)
-                    .opacity(0.78)
-                    .padding(.horizontal, 32)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 44, alignment: .top)
-                    .accessibilityIdentifier("onboardingDescription-\(index)")
-            }
-            if index == 2 {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(authenticatedRemoteUsername == nil
-                         ? "Choose your unique handle"
-                         : "Your unique handle")
+            VStack(spacing: 0) {
+                HStack {
+                    Text("0\(page + 1) / 03")
                         .font(BrandFont.display(15, weight: .semibold))
-                    TextField("@username", text: $name)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .focused($usernameFocused)
-                        .onSubmit { usernameFocused = false }
-                        .onChange(of: name) {
-                            usernameValidationMessage = nil
+                    Spacer()
+                    if page < Self.lastPage {
+                        Button("Skip") {
+                            withAnimation(onboardingTransition) { page = Self.lastPage }
                         }
-                        .disabled(authenticatedRemoteUsername != nil)
-                        .accessibilityIdentifier("onboardingUsernameField")
-                        .font(BrandFont.body(17, weight: .bold))
-                        .foregroundStyle(Color.Brand.cobalt)
-                        .padding(.horizontal, 16)
-                        .frame(height: 48)
-                        .background(Color.Brand.creamSoft, in: Capsule())
-
-                    Text("Sign in before entering your ledger")
-                        .font(BrandFont.display(13.5, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 3)
-
-                    if needsAppleSignIn {
-                        if !appleUserIdentifier.isEmpty && !isForcedSignedOutPreview {
-                            Text("Reconnect Apple to verify your unique handle.")
-                                .font(BrandFont.type(11, bold: true))
-                                .opacity(0.72)
-                        }
-                    } else {
-                        HStack(spacing: 10) {
-                            Text("")
-                                .font(.system(size: 20, weight: .semibold))
-                            Text("Apple account connected")
-                                .font(BrandFont.body(13.5, weight: .bold))
-                            Spacer()
-                            Text("✓")
-                                .font(BrandFont.display(17, weight: .bold))
-                        }
-                        .foregroundStyle(Color.Brand.cobalt)
-                        .padding(.horizontal, 16)
-                        .frame(height: 48)
-                        .background(Color.Brand.creamSoft, in: Capsule())
-                        .accessibilityIdentifier("onboardingAppleConnected")
-                    }
-                    if let usernameValidationMessage {
-                        Text(usernameValidationMessage)
-                            .font(BrandFont.type(11, bold: true))
-                            .foregroundStyle(Color.Brand.creamSoft)
-                            .accessibilityIdentifier("onboardingUsernameError")
-                    }
-
-                    onboardingPrimaryAction
-                    if let authMessage {
-                        Text(authMessage)
-                            .font(BrandFont.body(12, weight: .semibold))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .foregroundStyle(Color.Brand.creamSoft)
-                            .accessibilityIdentifier("onboardingAppleSignInMessage")
+                        .font(BrandFont.body(12, weight: .extraBold))
                     }
                 }
                 .padding(.horizontal, 22)
-                .frame(minHeight: compact ? 0 : 246, alignment: .top)
-            } else {
-                Color.clear
-                    .frame(height: compact ? 0 : 246)
+                .padding(.top, 10)
+
+                HStack {
+                    Text("BillBandit")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .font(BrandFont.display(44, weight: .bold))
+                    Spacer()
+                }
+                .padding(.horizontal, 22)
+                .padding(.top, 10)
+
+                TabView(selection: $page) {
+                    ForEach(0...Self.lastPage, id: \.self) { index in
+                        onboardingPage(index)
+                            .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+
+                // One fixed control area for all pages: "Next" on pages 1–2,
+                // Apple sign-in on page 3. The pages above never change size.
+                bottomControls
+
+                pageIndicator
             }
-            Spacer(minLength: compact ? 0 : 4)
+            .foregroundStyle(Color.Brand.creamSoft)
         }
+        .onAppear {
+            hasUsernameSession = UsernameIdentityService.hasStoredSession
+            startMascotMotion()
+        }
+        .onChange(of: reduceMotion) {
+            startMascotMotion()
+        }
+        .task(id: appleAuthorizationAttemptID) {
+            guard isAuthorizingWithApple else { return }
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled, isAuthorizingWithApple else { return }
+            let error = NSError(domain: "BillBandit.AppleSignIn", code: 2)
+            let reference = AppleSignInSupport.logFailure(error, stage: "callback-timeout")
+            isAuthorizingWithApple = false
+            currentAppleNonce = nil
+            authMessage = "Apple sign-in didn't finish. Please try again. Reference \(reference)."
+        }
+        .task {
+            guard isDemo else { return }
+            for target in 1...Self.lastPage {
+                try? await Task.sleep(nanoseconds: 2_800_000_000)
+                withAnimation(onboardingTransition) {
+                    page = target
+                }
+            }
+        }
+    }
+
+    private func onboardingPage(_ index: Int) -> some View {
+        GeometryReader { geometry in
+            // Small phones (and very large text) get a smaller raccoon so the
+            // copy always fits. The same size is used on all three pages.
+            let roomy = geometry.size.height >= 420
+            VStack(spacing: 10) {
+                Spacer(minLength: 0)
+                MascotView(mascot: pages[index].0, size: roomy ? 178 : 128, idle: false)
+                    .offset(y: reduceMotion ? 0 : (mascotRaised ? -7 : 7))
+                    .frame(height: roomy ? 194 : 142)
+                    .accessibilityIdentifier("onboardingMascot-\(index)")
+                Text(BrandFont.handText(pages[index].1))
+                    .font(BrandFont.hand(28, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 88)
+                    .accessibilityIdentifier("onboardingTitle-\(index)")
+                Text(pages[index].2)
+                    .font(BrandFont.body(15, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 32)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 66, alignment: .top)
+                    .accessibilityIdentifier("onboardingDescription-\(index)")
+                Spacer(minLength: 0)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+
+    private var bottomControls: some View {
+        VStack(spacing: 10) {
+            if page == Self.lastPage, let authMessage {
+                Text(authMessage)
+                    .font(BrandFont.body(12.5, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("onboardingAppleSignInMessage")
+            }
+            if page < Self.lastPage {
+                nextButton
+            } else {
+                onboardingPrimaryAction
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
+    }
+
+    private var nextButton: some View {
+        Button {
+            withAnimation(onboardingTransition) {
+                page = min(page + 1, Self.lastPage)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Next")
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 14, weight: .bold))
+            }
+            .font(BrandFont.display(15.5, weight: .bold))
+            .foregroundStyle(Color.Brand.cobalt)
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(Color.Brand.creamSoft, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Next")
+        .accessibilityIdentifier("onboardingNextButton")
+    }
+
+    private var pageIndicator: some View {
+        HStack(spacing: 7) {
+            ForEach(0...Self.lastPage, id: \.self) { index in
+                Capsule()
+                    .fill(Color.Brand.creamSoft.opacity(index == page ? 1 : 0.35))
+                    .frame(width: index == page ? 24 : 7, height: 7)
+                    .animation(reduceMotion ? nil : .spring(response: 0.35), value: page)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Page \(page + 1) of 3")
+        .accessibilityIdentifier("onboardingPageIndicator")
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder
@@ -410,7 +331,6 @@ struct OnboardingScreen: View {
                 authMessage = "Connecting to Apple…"
                 isAuthorizingWithApple = true
                 appleAuthorizationAttemptID = UUID()
-                usernameFocused = false
                 currentAppleNonce = AppleSignInSupport.prepare(request)
             } onCompletion: { result in
                 handleAppleSignIn(result)
@@ -421,11 +341,12 @@ struct OnboardingScreen: View {
             .accessibilityIdentifier("onboardingSignInWithAppleButton")
             .allowsHitTesting(!isCompleting && !isAuthorizingWithApple)
         } else {
+            // Apple is connected but setup did not finish (for example, the
+            // network dropped). This button finishes it and opens Home.
             Button {
-                usernameFocused = false
-                Task { await completeOnboardingIfReady() }
+                Task { await completeOnboarding(preferredName: savedPreferredName) }
             } label: {
-                Text(isCompleting ? "Checking handle…" : "Enter BillBandit")
+                Text(isCompleting ? "Setting up…" : "Enter BillBandit")
                     .font(BrandFont.display(15.5, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
                     .frame(maxWidth: .infinity)
@@ -438,52 +359,17 @@ struct OnboardingScreen: View {
         }
     }
 
-    private var onboardingSwipeHint: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.left")
-                .font(.system(size: 15, weight: .bold))
-            Text("Swipe left to continue")
-                .font(BrandFont.body(12.5, weight: .extraBold))
-        }
-        .foregroundStyle(Color.Brand.creamSoft.opacity(0.72))
-        .padding(.horizontal, 16)
-        .frame(minHeight: 40)
-        .background(Color.Brand.creamSoft.opacity(0.08), in: Capsule())
-        .overlay(Capsule().stroke(Color.Brand.creamSoft.opacity(0.16), lineWidth: 1))
-        .offset(x: reduceMotion ? 0 : (swipeHintMovesLeft ? -9 : 9))
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("onboardingSwipeHint")
-    }
-
-    private func dismissUsernameKeyboard() {
-        usernameFocused = false
-        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-            scene.keyWindow?.endEditing(true)
-        }
-    }
-
     private var onboardingTransition: Animation {
         reduceMotion ? .easeOut(duration: 0.16) : .easeInOut(duration: 0.46)
     }
 
+    /// Finishes setup and opens Home. A returning account keeps its handle.
+    /// A new account gets an automatic handle (from its name, or "bandit"
+    /// plus digits); the person can change it later in Profile.
     @MainActor
-    private func completeOnboardingIfReady() async {
-        usernameFocused = false
-        guard !isCompleting else { return }
-        guard !appleUserIdentifier.isEmpty else {
+    private func completeOnboarding(preferredName: String?) async {
+        guard !appleUserIdentifier.isEmpty || isForcedConnectedIncompletePreview else {
             authMessage = "Connect your Apple account before entering BillBandit."
-            return
-        }
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            usernameValidationMessage = "Username is required to complete onboarding."
-            return
-        }
-
-        let handle: UsernameHandle
-        do {
-            handle = try UsernameHandle(name)
-        } catch {
-            usernameValidationMessage = error.localizedDescription
             return
         }
         guard hasUsernameSession || isForcedConnectedIncompletePreview else {
@@ -491,23 +377,23 @@ struct OnboardingScreen: View {
             return
         }
 
-        usernameValidationMessage = nil
         isCompleting = true
         defer { isCompleting = false }
+        authMessage = "Setting up your ledger…"
         do {
             let confirmedHandle: String
             if let existingHandle = UsernameOnboardingHandlePolicy.existingHandle(
                 remoteUsername: authenticatedRemoteUsername,
                 isForcedPreview: isForcedConnectedIncompletePreview
             ) {
-                // The Apple authentication response is authoritative for an
-                // existing account. The handle can be changed later from
-                // Profile, but onboarding must not attempt to claim it again.
                 confirmedHandle = existingHandle
+            } else if isForcedConnectedIncompletePreview {
+                confirmedHandle = UsernameAutoHandle.candidates(from: preferredName).first?.value
+                    ?? UsernameAutoHandle.fallbackBase
             } else {
-                confirmedHandle = isForcedConnectedIncompletePreview
-                    ? handle.value
-                    : try await UsernameIdentityService.claim(handle)
+                confirmedHandle = try await UsernameIdentityService.claimAutomaticHandle(
+                    preferredName: preferredName
+                )
             }
             let current = AccountProfileIntegrity.canonicalize(
                 appleUserIdentifier: appleUserIdentifier,
@@ -521,11 +407,12 @@ struct OnboardingScreen: View {
             }
             try context.save()
             usernameHandleVerified = true
+            authMessage = nil
             Task { await CloudCollaborationService.shared.accountDidChange() }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onComplete()
         } catch {
-            usernameValidationMessage = error.localizedDescription
+            authMessage = error.localizedDescription
         }
     }
 
@@ -556,7 +443,6 @@ struct OnboardingScreen: View {
             }
             isCompleting = true
             authMessage = "Checking your Apple account…"
-            defer { isCompleting = false }
             do {
                 AppleSignInSupport.logBackendExchangeStarted()
                 let remoteUser = try await UsernameIdentityService.authenticateWithApple(
@@ -577,17 +463,16 @@ struct OnboardingScreen: View {
                 ) {
                 case .verified(let username):
                     authenticatedRemoteUsername = username
-                    name = username
                 case .requiresClaim:
                     authenticatedRemoteUsername = nil
-                    if let fullName,
-                       name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        name = fullName
-                    }
                 }
-                usernameValidationMessage = nil
-                authMessage = nil
+                isCompleting = false
+                // Go straight to Home. No username step.
+                await completeOnboarding(
+                    preferredName: fullName ?? remoteUser.preferredName ?? remoteUser.name ?? savedPreferredName
+                )
             } catch {
+                isCompleting = false
                 hasUsernameSession = false
                 let reference = AppleSignInSupport.logFailure(error, stage: "backend")
                 authMessage = "\(error.localizedDescription) Reference \(reference)."
@@ -610,17 +495,6 @@ struct OnboardingScreen: View {
         mascotRaised = false
         withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
             mascotRaised = true
-        }
-    }
-
-    private func startSwipeHintMotion() {
-        guard !reduceMotion else {
-            swipeHintMovesLeft = false
-            return
-        }
-        swipeHintMovesLeft = false
-        withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
-            swipeHintMovesLeft = true
         }
     }
 }
@@ -1157,7 +1031,8 @@ struct ProfileScreen: View {
         return Array(Set(visible.map(\.resolvedCurrencyCode) + ["INR", "VND"])).sorted()
     }
 
-    private var progressEnabled: Bool { currentProgress?.isEnabled ?? true }
+    /// The on/off switch was removed from Profile, so the level and pins always show.
+    private var progressEnabled: Bool { true }
     private var lifetimeXP: Int { currentProgress?.lifetimeXP ?? 0 }
 
     var body: some View {
@@ -1224,13 +1099,11 @@ struct ProfileScreen: View {
                             .accessibilityIdentifier("profileNameButton")
                         }
 
-                        Text(isSavingAvatar ? "saving your avatar…" :
-                             (isSavingUsername ? "reserving your handle…" :
-                             (isEditingName ? "press done to save" :
-                             (showAvatarPicker ? "choose freely · tap big avatar to save" :
-                                "tap username to edit · tap avatar to change"))))
-                            .font(BrandFont.type(11, bold: true))
-                            .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
+                        if let profileStatusText {
+                            Text(profileStatusText)
+                                .font(BrandFont.type(11, bold: true))
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
+                        }
                     }
 
                     if showAvatarPicker {
@@ -1276,6 +1149,15 @@ struct ProfileScreen: View {
         }
     }
 
+    /// Shows only while something is happening. The idle hint was removed.
+    private var profileStatusText: String? {
+        if isSavingAvatar { return "saving your avatar…" }
+        if isSavingUsername { return "reserving your handle…" }
+        if isEditingName { return "press done to save" }
+        if showAvatarPicker { return "choose freely · tap big avatar to save" }
+        return nil
+    }
+
     private var avatarPickerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             BrandSectionLabel("CHOOSE YOUR AVATAR")
@@ -1304,31 +1186,7 @@ struct ProfileScreen: View {
 
     private var gamificationSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                BrandSectionLabel("LEVEL & ACHIEVEMENTS")
-                Spacer()
-                Button(action: toggleProgress) {
-                    ZStack {
-                        Capsule()
-                            .fill(progressEnabled ? Color.Brand.cobalt : Color.Brand.creamSoft)
-                        Text(progressEnabled ? "ON" : "OFF")
-                            .font(BrandFont.type(11, bold: true))
-                            .foregroundStyle(progressEnabled ? Color.Brand.creamSoft : Color.Brand.cobalt)
-                            .offset(x: progressEnabled ? -9 : 9)
-                        Circle()
-                            .fill(progressEnabled ? Color.Brand.creamSoft : Color.Brand.cobalt)
-                            .frame(width: 20, height: 20)
-                            .offset(x: progressEnabled ? 13 : -13)
-                    }
-                    .frame(width: 54, height: 28)
-                    .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
-                    .animation(reduceMotion ? nil : BrandMotion.progressReveal,
-                               value: progressEnabled)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(progressEnabled ? "Turn progress rewards off" : "Turn progress rewards on")
-                .accessibilityIdentifier("progressRewardsToggle")
-            }
+            BrandSectionLabel("LEVEL & ACHIEVEMENTS")
 
             VerticalCollapseLayout(progress: progressEnabled ? 1 : 0) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -1407,22 +1265,8 @@ struct ProfileScreen: View {
         }
     }
 
-    private func toggleProgress() {
-        UISelectionFeedbackGenerator().selectionChanged()
-        guard let currentPersonID else { return }
-        withAnimation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.progressReveal) {
-            if let currentProgress {
-                currentProgress.isEnabled.toggle()
-            } else {
-                context.insert(UserProgress(personID: currentPersonID, isEnabled: false))
-            }
-        }
-        try? context.save()
-    }
-
     private var appleAccountSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            BrandSectionLabel("APPLE ACCOUNT")
             if appleUserIdentifier.isEmpty || !hasUsernameSession {
                 if !appleUserIdentifier.isEmpty {
                     Text("Reconnect Apple to verify your unique handle.")
@@ -1478,12 +1322,7 @@ struct ProfileScreen: View {
 
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 9) {
-            BrandSectionLabel("ACCOUNT")
             VStack(alignment: .leading, spacing: 10) {
-                Text("Permanently remove your account and personal data.")
-                    .font(BrandFont.type(11, bold: true))
-                    .foregroundStyle(Color.Brand.cobalt.opacity(0.9))
-
                 Button {
                     showDeleteAccountConfirmation = true
                 } label: {
@@ -1513,8 +1352,8 @@ struct ProfileScreen: View {
 
     private var legalSection: some View {
         VStack(alignment: .leading, spacing: 9) {
-            BrandSectionLabel("LEGAL & SUPPORT")
-            VStack(spacing: 8) {
+            // Two pills on one line, to save screen space.
+            HStack(spacing: 10) {
                 Link(destination: BillBanditLegalLinks.privacyPolicy) {
                     legalRow(title: "Privacy Policy")
                 }
@@ -1531,23 +1370,20 @@ struct ProfileScreen: View {
     }
 
     private func legalRow(title: String) -> some View {
-        HStack(spacing: 12) {
-            Text("↗")
-                .font(BrandFont.display(18, weight: .bold))
-                .frame(width: 38, height: 38)
-                .background(Color.Brand.cobalt)
-                .foregroundStyle(Color.Brand.creamSoft)
-                .clipShape(Circle())
+        HStack(spacing: 6) {
             Text(title)
                 .font(BrandFont.body(14, weight: .bold))
-            Spacer()
-            Text("→")
-                .font(BrandFont.body(17, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Image(systemName: "arrow.up.right")
+                .font(.footnote.weight(.bold))
+                .accessibilityHidden(true)
         }
         .foregroundStyle(Color.Brand.cobalt)
-        .padding(.horizontal, 14)
-        .frame(minHeight: 58)
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
+        .contentShape(Capsule())
     }
 
     private func beginNameEdit() {
@@ -1782,11 +1618,14 @@ private struct StarterPinView: View {
                 .font(BrandFont.body(11, weight: .extraBold))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-            Text(isUnlocked ? "unlocked" : achievement.requirement)
-                .font(BrandFont.type(11, bold: true))
-                .lineLimit(3)
-                .multilineTextAlignment(.center)
-                .opacity(0.7)
+            // The colored badge already shows "unlocked"; only locked pins need a hint.
+            if !isUnlocked {
+                Text(achievement.requirement)
+                    .font(BrandFont.type(11, bold: true))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.center)
+                    .opacity(0.7)
+            }
         }
         .foregroundStyle(Color.Brand.cobalt)
         .frame(width: 116, height: 142, alignment: .top)
@@ -1952,31 +1791,34 @@ struct ActivityScreen: View {
     }
 
     /// Long histories draw in pages so the tab opens fast.
+    private var visibleItems: [UnifiedActivity] {
+        Array(allItems.prefix(visibleCount))
+    }
+
+    /// Today, Yesterday, weekday, Last week, then months.
     private var sections: [RecencySection<UnifiedActivity>] {
-        RecencySectioning.sections(Array(allItems.prefix(visibleCount))) { $0.date }
+        RecencySectioning.sections(visibleItems) { $0.date }
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    Text(BrandFont.handText("recent activity"))
-                        .font(BrandFont.hand(21, weight: .bold))
-                        .padding(.bottom, 2)
-                    if sections.isEmpty, !sharedGroups.isEmpty, serverLedger.status.phase != .loading {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if visibleItems.isEmpty, !sharedGroups.isEmpty, serverLedger.status.phase != .loading {
                         Text("no activity yet")
                             .font(BrandFont.type(11))
                             .opacity(0.7)
                     }
+                    // Newest first, under day headers. No dots or icons:
+                    // what happened, then group and time, your amount on the right.
                     ForEach(sections) { section in
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(section.title)
-                                .font(BrandFont.display(13, weight: .bold))
-                                .padding(.bottom, 7)
-                                .accessibilityAddTraits(.isHeader)
-                            ForEach(section.items) { item in
-                                UnifiedActivityRow(item: item, groups: visibleGroups)
-                            }
+                        Text(section.title)
+                            .font(BrandFont.type(15, bold: true))
+                            .padding(.top, 18)
+                            .padding(.bottom, 4)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(section.items) { item in
+                            UnifiedActivityRow(item: item, groups: visibleGroups)
                         }
                     }
                     if allItems.count > visibleCount {
@@ -1989,6 +1831,7 @@ struct ActivityScreen: View {
                                 .overlay(Capsule().stroke(Color.Brand.creamSoft, lineWidth: 2))
                         }
                         .buttonStyle(.plain)
+                        .padding(.top, 12)
                         .accessibilityIdentifier("activityShowOlder")
                     }
                     if sharedGroups.isEmpty && localItems.isEmpty {
@@ -2055,11 +1898,24 @@ struct UnifiedActivityRow: View {
         switch item {
         case .shared(let shared):
             ExpenseActivityNavigation(item: shared, groups: groups) {
-                ServerLedgerActivityRow(item: shared, compact: compact)
+                if compact {
+                    ServerLedgerActivityRow(item: shared, compact: true)
+                } else {
+                    ActivityLineRow(line: shared.lineText,
+                                    groupName: ["expense", "settlement", "reversal"].contains(shared.type) ? shared.groupName : nil,
+                                    date: shared.at, amount: shared.lineAmount,
+                                    isDeleted: shared.isDeletedExpense)
+                }
             }
         case .local(let local):
             LocalExpenseActivityNavigation(item: local, groups: groups) {
-                ActivityLedgerRow(item: local, compact: compact)
+                if compact {
+                    ActivityLedgerRow(item: local, compact: true)
+                } else {
+                    ActivityLineRow(line: local.lineText, groupName: nil,
+                                    date: local.timestamp, amount: nil,
+                                    isDeleted: local.kind == .expenseDeleted)
+                }
             }
         }
     }
@@ -2280,5 +2136,298 @@ private struct Squiggle: Shape {
             )
         }
         return path
+    }
+}
+
+// MARK: - Activity feed rows
+
+/// Activity tab row, laid out like Splitwise: an icon tile, a sentence that
+/// says who did what, the effect on your balance, then the full date.
+/// Uses only the brand cobalt and cream: "you get back" is a filled cream
+/// pill, "you owe" is an outlined pill, and deleted items are struck through.
+struct ActivityFeedRow: View {
+    let icon: String
+    let sentence: AttributedString
+    let impact: ActivityFeedImpact?
+    let date: Date
+    var isDeleted = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.Brand.creamSoft)
+                .frame(width: 48, height: 48)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Color.Brand.cobalt)
+                }
+                .opacity(isDeleted ? 0.6 : 1)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(sentence)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let impact {
+                    ActivityFeedImpactView(impact: impact, isDeleted: isDeleted)
+                }
+                Text(date, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                    .font(BrandFont.type(11))
+                    .opacity(0.75)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 14)
+        .foregroundStyle(Color.Brand.creamSoft)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+enum ActivityFeedImpact {
+    case filled(String)
+    case outlined(String)
+    case neutral(String)
+}
+
+private struct ActivityFeedImpactView: View {
+    let impact: ActivityFeedImpact
+    let isDeleted: Bool
+
+    var body: some View {
+        switch impact {
+        case .filled(let text):
+            label(text)
+                .foregroundStyle(Color.Brand.cobalt)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Color.Brand.creamSoft, in: Capsule())
+        case .outlined(let text):
+            label(text)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .overlay(Capsule().stroke(Color.Brand.creamSoft, lineWidth: 1.5))
+        case .neutral(let text):
+            label(text).opacity(0.85)
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(BrandFont.type(12, bold: true))
+            .strikethrough(isDeleted)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .opacity(isDeleted ? 0.7 : 1)
+    }
+}
+
+/// Builds the sentence with bold names, like "**Esha** added **“Goa hotel”** in **Trip**."
+struct ActivitySentence {
+    private var text = AttributedString()
+
+    mutating func plain(_ value: String) {
+        var run = AttributedString(value)
+        run.font = BrandFont.body(15)
+        text += run
+    }
+
+    mutating func bold(_ value: String) {
+        var run = AttributedString(value)
+        run.font = BrandFont.body(15, weight: .extraBold)
+        text += run
+    }
+
+    var value: AttributedString { text }
+}
+
+extension ServerLedgerSurfaceActivityItem {
+    var feedIcon: String {
+        switch type {
+        case "expense": return "list.bullet.rectangle.portrait"
+        case "settlement": return "banknote"
+        case "reversal": return "arrow.uturn.backward"
+        case "group": return "person.3"
+        case "membership": return action == "removed" ? "person.badge.minus" : "person.badge.plus"
+        default: return "sparkles"
+        }
+    }
+
+    var isDeletedExpense: Bool { type == "expense" && action == "deleted" }
+
+    var feedSentence: AttributedString {
+        var s = ActivitySentence()
+        let actor = (actorName?.isEmpty == false ? actorName : nil) ?? "Someone"
+        switch type {
+        case "expense":
+            let title = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let subject = title.flatMap { $0.isEmpty ? nil : $0 } ?? "an expense"
+            let verb = action == "updated" ? "updated" : action == "deleted" ? "deleted" : "added"
+            s.bold(actor); s.plain(" \(verb) "); s.bold("“\(subject)”")
+            s.plain(" in "); s.bold("“\(groupName)”"); s.plain(".")
+        case "settlement":
+            s.bold(actor); s.plain(" recorded a payment in "); s.bold("“\(groupName)”"); s.plain(".")
+        case "reversal":
+            s.bold(actor); s.plain(" undid a payment in "); s.bold("“\(groupName)”"); s.plain(".")
+        default:
+            s.plain(displaySummary + ".")
+        }
+        return s.value
+    }
+
+    var feedImpact: ActivityFeedImpact? {
+        let money = amount.absoluteDisplayText
+        switch type {
+        case "expense":
+            guard let viewerNet else { return .neutral("Total \(money)") }
+            if viewerNet.isZero { return .neutral("You do not owe anything") }
+            return viewerNet.isPositive
+                ? .filled("You get back \(viewerNet.absoluteDisplayText)")
+                : .outlined("You owe \(viewerNet.absoluteDisplayText)")
+        case "settlement":
+            if payerName == "You" { return .filled("You paid \(money)") }
+            if recipientName == "You" { return .outlined("You received \(money)") }
+            if let payerName, let recipientName {
+                return .neutral("\(payerName) paid \(recipientName) \(money)")
+            }
+            return .neutral(money)
+        case "reversal":
+            return .neutral("\(money) payment undone")
+        default:
+            return nil
+        }
+    }
+}
+
+extension ActivityItem {
+    var feedIcon: String {
+        switch kind {
+        case .expenseAdded, .expenseEdited, .expenseDeleted: return "list.bullet.rectangle.portrait"
+        case .settlementRecorded: return "banknote"
+        case .groupCreated: return "person.3"
+        case .memberAdded, .friendAdded: return "person.badge.plus"
+        }
+    }
+
+    var feedSentence: AttributedString {
+        var s = ActivitySentence()
+        s.plain(displaySummary.hasSuffix(".") ? displaySummary : displaySummary + ".")
+        return s.value
+    }
+}
+
+
+// MARK: - Activity list rows (calm style)
+
+/// One Activity row: "Arjun added *Scooter rental*" on the first line,
+/// "*Goa trip* · 09:18" below, and your amount (+ you get, − you owe) on the right.
+struct ActivityLineRow: View {
+    let line: AttributedString
+    let groupName: String?
+    let date: Date
+    let amount: String?
+    var isDeleted = false
+
+    private var timeText: String {
+        let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: date),
+                                                   to: Calendar.current.startOfDay(for: .now)).day ?? 0
+        return days <= 6
+            ? date.formatted(.dateTime.hour().minute())
+            : date.formatted(.dateTime.day().month(.abbreviated))
+    }
+
+    private var contextText: Text {
+        let time = Text(timeText).font(BrandFont.type(13))
+        guard let groupName, !groupName.isEmpty else { return time }
+        return Text(BrandFont.handText(groupName)).font(BrandFont.hand(15)) + Text(" · ").font(BrandFont.type(13)) + time
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(line)
+                    .fixedSize(horizontal: false, vertical: true)
+                contextText
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .opacity(0.8)
+            }
+            Spacer(minLength: 8)
+            if let amount {
+                Text(amount)
+                    .font(BrandFont.type(15, bold: true))
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 10)
+        .opacity(isDeleted ? 0.6 : 1)
+        .foregroundStyle(Color.Brand.creamSoft)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private enum ActivityLine {
+    static func plain(_ value: String) -> AttributedString {
+        var run = AttributedString(value)
+        run.font = BrandFont.body(16)
+        return run
+    }
+
+    /// Names the user typed (expenses) use the handwriting font.
+    static func hand(_ value: String, struck: Bool = false) -> AttributedString {
+        var run = AttributedString(BrandFont.handText(value))
+        run.font = BrandFont.hand(19)
+        if struck { run.strikethroughStyle = .single }
+        return run
+    }
+}
+
+extension ServerLedgerSurfaceActivityItem {
+    private var actorLabel: String {
+        (actorName?.isEmpty == false ? actorName : nil) ?? "Someone"
+    }
+
+    var lineText: AttributedString {
+        switch type {
+        case "expense":
+            let title = description?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let subject = title.flatMap { $0.isEmpty ? nil : $0 } ?? "an expense"
+            let verb = action == "updated" ? "changed" : action == "deleted" ? "deleted" : "added"
+            return ActivityLine.plain("\(actorLabel) \(verb) ")
+                + ActivityLine.hand(subject, struck: action == "deleted")
+        case "settlement":
+            if let payerName, let recipientName {
+                let to = recipientName == "You" ? "you" : recipientName
+                return ActivityLine.plain("\(payerName) paid \(to)")
+            }
+            return ActivityLine.plain("\(actorLabel) recorded a payment")
+        case "reversal":
+            return ActivityLine.plain("\(actorLabel) undid a payment")
+        default:
+            return ActivityLine.plain(displaySummary)
+        }
+    }
+
+    /// Your effect as one signed number: + you get money, − you owe.
+    var lineAmount: String? {
+        switch type {
+        case "expense":
+            guard !isDeletedExpense, let viewerNet, !viewerNet.isZero else { return nil }
+            return (viewerNet.isPositive ? "+" : "−") + viewerNet.absoluteDisplayText
+        case "settlement":
+            if recipientName == "You" { return "+" + amount.absoluteDisplayText }
+            if payerName == "You" { return "−" + amount.absoluteDisplayText }
+            return nil
+        default:
+            return nil
+        }
+    }
+}
+
+extension ActivityItem {
+    var lineText: AttributedString {
+        let summary = displaySummary.hasSuffix(".") ? String(displaySummary.dropLast()) : displaySummary
+        return ActivityLine.plain(summary)
     }
 }

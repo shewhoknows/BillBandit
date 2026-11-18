@@ -1500,9 +1500,7 @@ enum ServerGroupCatalogProjection {
 
     private static func date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return ExpenseDate.parse(value)
     }
 }
 
@@ -1987,9 +1985,7 @@ final class FriendInvitationService: ObservableObject {
     }
 
     private static func date(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        ExpenseDate.parse(value)
     }
 }
 

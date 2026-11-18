@@ -159,7 +159,6 @@ final class ServerLedgerAccountLifecycle {
     private let store: ServerLedgerStore
     private let sync: ServerLedgerSync
     private(set) var activeAccountID: String?
-    private(set) var cachedCanonicalSnapshots: [ServerLedgerSnapshot] = []
     private(set) var lastError: String?
     private var lifecycleGeneration = 0
     private var isReconciling = false
@@ -189,7 +188,6 @@ final class ServerLedgerAccountLifecycle {
         }
         activeAccountID = accountID
         UserDefaults.standard.set(accountID, forKey: Self.persistedAccountIDKey)
-        cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
         lastError = nil
         if accountChanged { lifecycleGeneration &+= 1 }
     }
@@ -210,7 +208,6 @@ final class ServerLedgerAccountLifecycle {
             try? store.clear(accountID: accountID)
         }
         activeAccountID = nil
-        cachedCanonicalSnapshots = []
         lastError = nil
         lifecycleGeneration &+= 1
         UserDefaults.standard.removeObject(forKey: Self.persistedAccountIDKey)
@@ -244,7 +241,6 @@ final class ServerLedgerAccountLifecycle {
             }
         }
         let generation = lifecycleGeneration
-        cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
         if trigger == .reconnect || trigger == .foreground {
             sync.markReconnected()
         }
@@ -265,7 +261,6 @@ final class ServerLedgerAccountLifecycle {
                 _ = try await sync.refresh(scope: scope)
             }
             guard generation == lifecycleGeneration, activeAccountID == accountID else { return }
-            cachedCanonicalSnapshots = (try? store.cachedSnapshots(for: accountID)) ?? []
             lastError = nil
         } catch let error as ServerLedgerSyncError where error == .accountChanged {
             return

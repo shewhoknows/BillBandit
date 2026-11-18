@@ -221,6 +221,10 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
     let targetName: String?
     let amount: ServerLedgerSurfaceMoney
     let at: Date
+    /// For expenses: what this expense does to your balance. Positive means
+    /// you get money back; negative means you owe; zero means you are not in it.
+    /// Nil when the expense is not in the read (older cache).
+    var viewerNet: ServerLedgerSurfaceMoney? = nil
 
     init(
         id: String,
@@ -235,7 +239,8 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
         recipientName: String? = nil,
         targetName: String? = nil,
         amount: ServerLedgerSurfaceMoney,
-        at: Date
+        at: Date,
+        viewerNet: ServerLedgerSurfaceMoney? = nil
     ) {
         self.id = id
         self.type = type
@@ -250,6 +255,7 @@ struct ServerLedgerSurfaceActivityItem: Identifiable, Codable, Equatable, Hashab
         self.targetName = targetName
         self.amount = amount
         self.at = at
+        self.viewerNet = viewerNet
     }
 
     var displaySummary: String {
@@ -1142,7 +1148,11 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             let memberByID = Dictionary(uniqueKeysWithValues: members.map {
                 ($0.memberID, $0.accountID == snapshot.accountID ? "You" : $0.displayName)
             })
-            let expensePayer = $0.expenseID.flatMap { id in group.expenses.first { $0.expenseID == id }?.paidByMemberID }
+            let expense = $0.expenseID.flatMap { id in group.expenses.first { $0.expenseID == id } }
+            let expensePayer = expense?.paidByMemberID
+            let viewerNet = expense.flatMap {
+                Self.viewerNet(of: $0, currentMemberID: group.balances.currentAccount.memberID)
+            }
             return ServerLedgerSurfaceActivityItem(
                 id: $0.activityID,
                 type: $0.type,
@@ -1156,7 +1166,8 @@ final class ServerLedgerSurfaceStore: ObservableObject {
                 recipientName: $0.recipientMemberID.flatMap { memberByID[$0] },
                 targetName: $0.targetMemberID.flatMap { memberByID[$0] },
                 amount: amount,
-                at: at
+                at: at,
+                viewerNet: viewerNet
             )
         }
 
@@ -1176,6 +1187,28 @@ final class ServerLedgerSurfaceStore: ObservableObject {
             activity: activity,
             isStale: group.stale.isStale || envelope.stale.isStale,
             isReadOnly: migrationReadOnly || group.stale.isStale || envelope.stale.isStale
+        )
+    }
+
+    /// Paid by you: you get back the total minus your own share.
+    /// Paid by someone else: you owe your share.
+    private static func viewerNet(
+        of expense: SettlementCanonicalLedgerExpense,
+        currentMemberID: String
+    ) -> ServerLedgerSurfaceMoney? {
+        let zero = "0"
+        let share = expense.splits
+            .filter { $0.memberID == currentMemberID }
+            .reduce(zero) { ServerLedgerMinorUnits.add($0, $1.amount.minorUnits) }
+        let negativeShare = share == zero ? zero
+            : (share.first == "-" ? String(share.dropFirst()) : "-" + share)
+        let net = expense.paidByMemberID == currentMemberID
+            ? ServerLedgerMinorUnits.add(expense.amount.minorUnits, negativeShare)
+            : negativeShare
+        return ServerLedgerSurfaceMoney(
+            minorUnits: net,
+            currencyCode: expense.amount.currencyCode,
+            currencyExponent: expense.amount.currencyExponent
         )
     }
 
@@ -1201,12 +1234,7 @@ final class ServerLedgerSurfaceStore: ObservableObject {
     }
 
     private func parseISO8601Date(_ rawValue: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: rawValue) ?? {
-            formatter.formatOptions = [.withInternetDateTime]
-            return formatter.date(from: rawValue)
-        }()
+        ExpenseDate.parse(rawValue)
     }
 }
 

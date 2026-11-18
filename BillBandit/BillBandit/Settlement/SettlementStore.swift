@@ -37,7 +37,12 @@ final class SettlementStore {
     private(set) var requiresReconfirmation = false
     private(set) var callerParticipantId: String?
     private(set) var canonicalServerSnapshot: ServerLedgerSnapshot?
-    private(set) var canonicalSnapshot: SettlementCanonicalLedgerSnapshot?
+    private(set) var canonicalSnapshot: SettlementCanonicalLedgerSnapshot? {
+        // Built once per ledger change, not on every SwiftUI body pass.
+        didSet { canonicalExpenses = canonicalSnapshot?.group.invoiceExpenses() ?? [] }
+    }
+    /// Active expenses, newest day first, for the invoice.
+    private(set) var canonicalExpenses: [SettlementLedgerExpense] = []
     private(set) var hasFreshCanonicalRead = false
     private(set) var isMigrationBlocked = false
 
@@ -81,10 +86,6 @@ final class SettlementStore {
     }
 
     var hasCanonicalReadModel: Bool { canonicalSnapshot != nil }
-
-    var canonicalExpenses: [SettlementLedgerExpense] {
-        canonicalSnapshot?.group.invoiceExpenses() ?? []
-    }
 
     var canonicalTotalMoney: ServerLedgerMoneyDTO? {
         guard let group = canonicalSnapshot?.group else { return nil }

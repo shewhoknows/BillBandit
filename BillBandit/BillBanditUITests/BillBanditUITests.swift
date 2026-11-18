@@ -181,7 +181,7 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertLessThan(abs(button.frame.midY - initialY), 48)
     }
 
-    func testConnectedAppleAccountRequiresUsernameBeforeCompletingOnboarding() throws {
+    func testConnectedAppleAccountEntersHomeWithAutomaticHandle() throws {
         let app = syntheticLocalApp()
         app.launchArguments = [
             "-onboardingConnectedIncomplete",
@@ -189,25 +189,11 @@ final class BillBanditUITests: XCTestCase {
         ]
         app.launch()
 
-        XCTAssertTrue(app.descendants(matching: .any)["onboardingAppleConnected"].waitForExistence(timeout: 8))
+        // No username step: one tap finishes setup and opens Home.
+        XCTAssertFalse(app.textFields["onboardingUsernameField"].exists)
         let enter = app.buttons["onboardingEnterBillBanditButton"]
-        XCTAssertTrue(enter.waitForExistence(timeout: 4))
-        enter.tap()
-
-        let error = app.staticTexts["onboardingUsernameError"]
-        XCTAssertTrue(error.waitForExistence(timeout: 4))
-        XCTAssertEqual(error.label, "Username is required to complete onboarding.")
-        attachScreenshot(named: "onboarding-username-required")
-
-        let field = app.textFields["onboardingUsernameField"]
-        field.tap()
-        field.typeText("Bubby")
-        XCTAssertFalse(error.exists)
-        field.typeText("\n")
-        let enterHittable = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "hittable == YES"), object: enter
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [enterHittable], timeout: 4), .completed)
+        XCTAssertTrue(enter.waitForExistence(timeout: 8))
+        attachScreenshot(named: "onboarding-connected-enter")
         enter.tap()
         XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 6))
     }
@@ -219,35 +205,48 @@ final class BillBanditUITests: XCTestCase {
 
         let firstMascot = app.descendants(matching: .any)["onboardingMascot-0"]
         let firstTitle = app.staticTexts["onboardingTitle-0"]
-        let swipeHint = app.descendants(matching: .any)["onboardingSwipeHint"]
+        let firstBody = app.staticTexts["onboardingDescription-0"]
+        let next = app.buttons["onboardingNextButton"]
         let pageIndicator = app.descendants(matching: .any)["onboardingPageIndicator"]
         XCTAssertTrue(firstMascot.waitForExistence(timeout: 8))
         XCTAssertTrue(firstTitle.exists)
-        XCTAssertTrue(swipeHint.waitForExistence(timeout: 4))
+        XCTAssertTrue(next.waitForExistence(timeout: 4))
         XCTAssertTrue(pageIndicator.waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["Next"].exists)
         let indicatorBottomGap = app.windows.firstMatch.frame.maxY - pageIndicator.frame.maxY
         XCTAssertGreaterThan(indicatorBottomGap, 0)
         XCTAssertLessThan(indicatorBottomGap, 80)
         let mascotMidY = firstMascot.frame.midY
-        let titleMidY = firstTitle.frame.midY
+        let titleMinY = firstTitle.frame.minY
+        let bodyMinY = firstBody.frame.minY
+        let buttonMidY = next.frame.midY
+        attachScreenshot(named: "onboarding-page-1")
 
-        app.swipeLeft()
+        // Page 2 by the Next button.
+        next.tap()
         let secondMascot = app.descendants(matching: .any)["onboardingMascot-1"]
-        let secondTitle = app.staticTexts["onboardingTitle-1"]
         XCTAssertTrue(secondMascot.waitForExistence(timeout: 4))
-        XCTAssertFalse(swipeHint.exists)
-        XCTAssertFalse(app.buttons["Next"].exists)
+        sleep(1)
+        XCTAssertTrue(next.exists)
         XCTAssertLessThan(abs(secondMascot.frame.midY - mascotMidY), 3)
-        XCTAssertLessThan(abs(secondTitle.frame.midY - titleMidY), 3)
+        XCTAssertLessThan(abs(app.staticTexts["onboardingTitle-1"].frame.minY - titleMinY), 3)
+        XCTAssertLessThan(abs(app.staticTexts["onboardingDescription-1"].frame.minY - bodyMinY), 3)
+        XCTAssertLessThan(abs(next.frame.midY - buttonMidY), 3)
+        attachScreenshot(named: "onboarding-page-2")
 
+        // Page 3 by swipe; the Apple button takes the Next button's place.
         app.swipeLeft()
         let thirdMascot = app.descendants(matching: .any)["onboardingMascot-2"]
-        let thirdTitle = app.staticTexts["onboardingTitle-2"]
         XCTAssertTrue(thirdMascot.waitForExistence(timeout: 4))
+        sleep(1)
         XCTAssertLessThan(abs(thirdMascot.frame.midY - mascotMidY), 3)
-        XCTAssertLessThan(abs(thirdTitle.frame.midY - titleMidY), 3)
-        XCTAssertTrue(app.buttons["onboardingSignInWithAppleButton"].exists)
+        XCTAssertLessThan(abs(app.staticTexts["onboardingTitle-2"].frame.minY - titleMinY), 3)
+        XCTAssertLessThan(abs(app.staticTexts["onboardingDescription-2"].frame.minY - bodyMinY), 3)
+        let apple = app.buttons["onboardingSignInWithAppleButton"]
+        XCTAssertTrue(apple.exists)
+        XCTAssertFalse(next.exists)
+        XCTAssertFalse(app.textFields["onboardingUsernameField"].exists)
+        XCTAssertLessThan(abs(apple.frame.midY - buttonMidY), 3)
+        attachScreenshot(named: "onboarding-page-3")
     }
 
     func testInviteFriendShowsShareableCodeAndJoinPath() throws {
@@ -605,7 +604,8 @@ final class BillBanditUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 8))
         let groupName = "Vietnam Currency QA " + UUID().uuidString.prefix(4)
         name.tap(); name.typeText(groupName + "\n")
-        app.buttons["Vietnamese dong"].tap()
+        app.buttons["groupCurrencyPicker"].tap()
+        app.buttons["₫ VND · Vietnamese dong"].tap()
         app.buttons["createGroupButton"].tap()
         XCTAssertTrue(app.staticTexts[groupName].firstMatch.waitForExistence(timeout: 8))
         app.terminate()

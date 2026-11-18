@@ -16,7 +16,8 @@ struct AddGroupSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var icon: GroupIcon = .house
+    /// The icon picker was removed; every new group uses the people icon.
+    private let icon: GroupIcon = .users
     @State private var currency: AppCurrency = Money.currentCurrency
     @State private var selected = Set<UUID>()
     @State private var simplify = true
@@ -59,48 +60,38 @@ struct AddGroupSheet: View {
                         .frame(height: 52)
                         .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
 
-                    BrandSectionLabel("ICON")
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4)) {
-                        ForEach(GroupIcon.allCases, id: \.self) { gi in
-                            Button { icon = gi } label: {
-                                BrandIconView(icon: gi.icon, size: 22)
-                                    .foregroundStyle(icon == gi ? Color.Brand.creamSoft : Color.Brand.cobalt)
-                                    .frame(width: 44, height: 44)
-                                    .background(icon == gi ? Color.Brand.cobalt : .clear)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color.Brand.cobalt, lineWidth: 2))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(Self.spokenName(gi))
-                            .accessibilityAddTraits(icon == gi ? .isSelected : [])
-                            .accessibilityIdentifier("groupIcon-\(gi.rawValue)")
-                        }
-                    }
-
-                    BrandSectionLabel("CURRENCY")
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                    // Currency is one dropdown (same look as Profile), not a grid of pills.
+                    Menu {
                         ForEach(AppCurrency.allCases) { option in
                             Button { currency = option } label: {
-                                Text("\(option.symbol) \(option.rawValue)")
-                                    .font(BrandFont.type(12, bold: true))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.8)
-                                    .foregroundStyle(currency == option ? Color.Brand.creamSoft : Color.Brand.cobalt)
-                                    .frame(maxWidth: .infinity, minHeight: 40)
-                                    .background(currency == option ? Color.Brand.cobalt : .clear, in: Capsule())
-                                    .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
+                                if option == currency {
+                                    Label("\(option.symbol) \(option.rawValue) · \(option.name)", systemImage: "checkmark")
+                                } else {
+                                    Text("\(option.symbol) \(option.rawValue) · \(option.name)")
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(option.name)
-                            .accessibilityAddTraits(currency == option ? .isSelected : [])
                         }
+                    } label: {
+                        HStack {
+                            Text("Currency")
+                                .font(BrandFont.body(14, weight: .bold))
+                            Spacer()
+                            Text("\(currency.symbol) \(currency.rawValue)")
+                                .font(BrandFont.type(13, bold: true))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.footnote.weight(.bold))
+                        }
+                        .foregroundStyle(Color.Brand.cobalt)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 52)
+                        .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 2))
+                        .contentShape(Capsule())
                     }
+                    .accessibilityLabel("Currency")
+                    .accessibilityValue(currency.name)
                     .accessibilityIdentifier("groupCurrencyPicker")
 
                     BrandSectionLabel("MEMBERS")
-                    Text("You are included automatically. Select friends to add.")
-                        .font(BrandFont.body(12))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                     if memberOptions.isEmpty {
                         Text("No friends yet. Invite a friend to share a group.")
                             .font(BrandFont.body(12))

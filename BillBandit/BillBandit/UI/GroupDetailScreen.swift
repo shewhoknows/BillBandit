@@ -2049,7 +2049,9 @@ struct SharedExpenseOverviewScreen: View {
                         Text("Saved expense · updates could not be checked. Reconnect to refresh.")
                             .font(BrandFont.body(12)).foregroundStyle(Color.Brand.creamSoft)
                     }
-                } else if ledger.isLoading {
+                } else if ledger.isLoading || (!ledger.hasFreshCanonicalRead && ledger.lastError == nil) {
+                    // Until the first load finishes (or fails), the expense is
+                    // loading, not missing.
                     ProgressView("Loading expense…").tint(Color.Brand.creamSoft)
                 } else {
                     Text("Expense unavailable").font(BrandFont.display(24, weight: .bold))
@@ -2109,9 +2111,7 @@ struct SharedExpenseOverviewScreen: View {
                                           currencyExponent: value.currencyExponent)
     }
     private func timestamp(_ value: String, includesTime: Bool = true) -> String {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return "Unavailable" }
+        guard let date = ExpenseDate.parse(value) else { return "Unavailable" }
         return date.formatted(date: .abbreviated, time: includesTime ? .shortened : .omitted)
     }
     private func actionLabel(_ action: String?) -> String {
