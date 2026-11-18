@@ -196,6 +196,14 @@ final class BillBanditUITests: XCTestCase {
         attachScreenshot(named: "onboarding-connected-enter")
         enter.tap()
         XCTAssertTrue(app.buttons["tab-home"].waitForExistence(timeout: 6))
+
+        // Home shows the automatic handle once; the cross closes it.
+        let note = app.buttons["homeNewHandleNote"]
+        XCTAssertTrue(note.waitForExistence(timeout: 4))
+        XCTAssertTrue(note.label.contains("@"))
+        attachScreenshot(named: "home-new-handle-note")
+        app.buttons["homeNewHandleNoteClose"].tap()
+        XCTAssertFalse(note.waitForExistence(timeout: 2))
     }
 
     func testOnboardingSlidesKeepTheirContentAligned() throws {

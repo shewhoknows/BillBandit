@@ -94,6 +94,9 @@ struct OnboardingScreen: View {
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
     @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
+    /// Set when the app picks a handle for a new account; Home shows a
+    /// one-time note so the person knows their handle and can change it.
+    @AppStorage("showNewHandleNote") private var showNewHandleNote = false
     @State private var page = 0
     @State private var mascotRaised = false
     @State private var authMessage: String?
@@ -382,11 +385,13 @@ struct OnboardingScreen: View {
         authMessage = "Setting up your ledger…"
         do {
             let confirmedHandle: String
+            var isAutomaticHandle = true
             if let existingHandle = UsernameOnboardingHandlePolicy.existingHandle(
                 remoteUsername: authenticatedRemoteUsername,
                 isForcedPreview: isForcedConnectedIncompletePreview
             ) {
                 confirmedHandle = existingHandle
+                isAutomaticHandle = false
             } else if isForcedConnectedIncompletePreview {
                 confirmedHandle = UsernameAutoHandle.candidates(from: preferredName).first?.value
                     ?? UsernameAutoHandle.fallbackBase
@@ -407,6 +412,7 @@ struct OnboardingScreen: View {
             }
             try context.save()
             usernameHandleVerified = true
+            showNewHandleNote = isAutomaticHandle
             authMessage = nil
             Task { await CloudCollaborationService.shared.accountDidChange() }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -511,6 +517,7 @@ struct HomeScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAddGroup = false
+    @AppStorage("showNewHandleNote") private var showNewHandleNote = false
 
     init(onSeeAllGroups: @escaping () -> Void = {},
          onOpenActivity: @escaping () -> Void = {},
@@ -559,6 +566,10 @@ struct HomeScreen: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     header
+                    if showNewHandleNote, let handle = currentUsers.first?.name,
+                       !handle.isEmpty {
+                        newHandleNote(handle)
+                    }
                     balanceHeader
                     groupGrid
                     recentActivity
@@ -578,6 +589,51 @@ struct HomeScreen: View {
                 await serverLedger.refresh(groups: visibleGroups)
             }
         }
+    }
+
+    /// One-time note for a new account: shows the automatic handle.
+    /// Tap opens Profile to change it; the cross closes the note.
+    private func newHandleNote(_ handle: String) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
+                    showNewHandleNote = false
+                }
+                onOpenProfile()
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(BrandFont.handText("you're @\(handle)."))
+                        .font(BrandFont.hand(22, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text("Tap to change your handle in Profile.")
+                        .font(BrandFont.body(13, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("homeNewHandleNote")
+            Button {
+                withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
+                    showNewHandleNote = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("homeNewHandleNoteClose")
+        }
+        .foregroundStyle(Color.Brand.cobalt)
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .padding(.vertical, 12)
+        .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 18))
+        .padding(.bottom, 12)
+        .transition(.opacity)
     }
 
     private var header: some View {
@@ -1292,24 +1348,22 @@ struct ProfileScreen: View {
                         .frame(width: 38, height: 38)
                         .foregroundStyle(Color.Brand.creamSoft)
                         .background(Color.Brand.cobalt, in: Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Signed in with Apple")
-                            .font(BrandFont.body(13.5, weight: .bold))
-                        if !applePrivateEmail.isEmpty {
-                            Text(applePrivateEmail)
-                                .font(BrandFont.type(11))
-                                .lineLimit(1)
-                                .opacity(0.7)
-                        }
-                    }
-                    Spacer()
+                    // One line only, also with large text sizes. No email.
+                    Text("Signed in with Apple")
+                        .font(BrandFont.body(13.5, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .accessibilityIdentifier("profileSignedInWithApple")
+                    Spacer(minLength: 8)
                     Button("Sign out") { showSignOutConfirmation = true }
                     .font(BrandFont.type(11, bold: true))
+                    .lineLimit(1)
+                    .fixedSize()
                     .buttonStyle(.plain)
                 }
                 .foregroundStyle(Color.Brand.cobalt)
                 .padding(.horizontal, 14)
-                .frame(height: 62)
+                .frame(minHeight: 62)
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.Brand.cobalt, lineWidth: 2))
             }
             if let authMessage {
