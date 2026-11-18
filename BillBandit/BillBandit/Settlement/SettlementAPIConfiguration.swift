@@ -21,13 +21,26 @@ enum SettlementAPIConfiguration {
         }
         #endif
         if let configured = configuredInfoValue(forKey: "API_BASE_URL"),
-           let url = URL(string: configured) {
+           let url = URL(string: configured),
+           !isLoopbackOnPhysicalDevice(url) {
             return url
         }
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         return URL(string: debugLocalHost)!
         #else
         return URL(string: productionHost)!
+        #endif
+    }
+
+    /// On a real iPhone, 127.0.0.1 is the phone itself, so a Debug build there can
+    /// never reach the local API on the Mac. Real devices use the live server;
+    /// the simulator keeps using the local API.
+    private static func isLoopbackOnPhysicalDevice(_ url: URL) -> Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        let host = url.host?.lowercased() ?? ""
+        return ["127.0.0.1", "localhost", "::1"].contains(host)
         #endif
     }
 
