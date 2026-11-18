@@ -14,6 +14,7 @@ struct SharedSettleUpScreen: View {
     @State private var settledExpanded = false
     @State private var isSubmitting = false
     @State private var actionError: String?
+    @State private var reverseError: String?
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -76,7 +77,26 @@ struct SharedSettleUpScreen: View {
         }) { transfer in
             settlementConfirmationSheet(transfer)
         }
+        .alert(
+            "Payment not reversed",
+            isPresented: Binding(
+                get: { reverseError != nil },
+                set: { if !$0 { reverseError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("\(reverseError ?? "Something went wrong.") The list now shows the latest payments. Check it, then try again if you still need to.")
+        }
         .accessibilityIdentifier("sharedSettleUpScreen")
+    }
+
+    /// The signed-in person reads as "You", like Activity.
+    private func transferLine(_ transfer: SettlementPlanTransferDTO) -> String {
+        let me = store.callerParticipantId
+        if transfer.payerParticipantId == me { return "You pay \(transfer.recipientName)" }
+        if transfer.recipientParticipantId == me { return "\(transfer.payerName) pays you" }
+        return "\(transfer.payerName) pays \(transfer.recipientName)"
     }
 
     private func linkedSettleContent(serverGroupId: String) -> some View {
@@ -291,7 +311,7 @@ struct SharedSettleUpScreen: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("\(transfer.payerName) pays \(transfer.recipientName)")
+                            Text(transferLine(transfer))
                                 .font(BrandFont.display(16, weight: .semibold))
                                 .foregroundStyle(Color.Brand.cobalt)
                             Text(transferAmount(transfer))
@@ -371,7 +391,7 @@ struct SharedSettleUpScreen: View {
                                 Text(settledSummary(item))
                                     .font(BrandFont.type(12, bold: true))
                                     .foregroundStyle(Color.Brand.cobalt)
-                                Text("\(item.actorName ?? "Unknown member") · \(settleFormattedDate(item.createdAt))")
+                                Text("\(item.actorName.map { personName($0, start: true) } ?? "Unknown member") · \(settleFormattedDate(item.createdAt))")
                                     .font(BrandFont.type(11))
                                     .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
                                 if item.type == "settlement", store.writesEnabled {
@@ -380,7 +400,7 @@ struct SharedSettleUpScreen: View {
                                             do {
                                                 try await store.reverse(settlementId: item.id)
                                             } catch {
-                                                actionError = error.localizedDescription
+                                                reverseError = error.localizedDescription
                                             }
                                         }
                                     }
@@ -423,7 +443,7 @@ struct SharedSettleUpScreen: View {
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("\(transfer.payerName) pays \(transfer.recipientName)")
+                            Text(transferLine(transfer))
                                 .font(BrandFont.display(17, weight: .semibold))
                             Text("Owed: \(transferAmount(transfer))")
                                 .font(BrandFont.display(27, weight: .bold))
@@ -593,6 +613,19 @@ struct SharedSettleUpScreen: View {
         )
     }
 
+    /// The signed-in member's server name. History rows carry names only.
+    private var myDisplayName: String? {
+        guard let group = store.canonicalSnapshot?.group, let id = group.currentMemberID else { return nil }
+        return group.members.first(where: { $0.memberID == id })?.displayName
+    }
+
+    /// Shows the signed-in person as "You"/"you", like Activity.
+    private func personName(_ name: String?, start: Bool) -> String {
+        guard let name else { return "?" }
+        if let me = myDisplayName, name == me { return start ? "You" : "you" }
+        return name
+    }
+
     private func settledSummary(_ item: SettlementHistoryItemDTO) -> String {
         switch item.type {
         case "reversal":
@@ -601,7 +634,7 @@ struct SharedSettleUpScreen: View {
             if let minorUnits = item.minorUnits,
                let currencyCode = item.currencyCode,
                let currencyExponent = item.currencyExponent {
-                return "\(item.payerName ?? "?") paid \(item.recipientName ?? "?") · "
+                return "\(personName(item.payerName, start: true)) paid \(personName(item.recipientName, start: false)) · "
                     + SettlementMoneyFormatting.display(
                         minorUnits: minorUnits,
                         currencyCode: currencyCode,
@@ -616,7 +649,7 @@ struct SharedSettleUpScreen: View {
             } else {
                 fallbackAmount = "\(item.amount ?? "") \(item.currencyCode ?? "")"
             }
-            return "\(item.payerName ?? "?") paid \(item.recipientName ?? "?") · \(fallbackAmount)"
+            return "\(personName(item.payerName, start: true)) paid \(personName(item.recipientName, start: false)) · \(fallbackAmount)"
         }
     }
 }

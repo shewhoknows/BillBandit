@@ -128,6 +128,10 @@ struct GroupsScreen: View {
             let name = args[(i + 1)...].joined(separator: " ")
             if let g = visibleGroups.first(where: { $0.name == name }) { path.append(g.id) }
         }
+        // A group created from New group opens here once it is in the list.
+        .onAppear { openCreatedGroupIfReady() }
+        .onChange(of: NewGroupRouter.shared.pendingGroupID) { _, _ in openCreatedGroupIfReady() }
+        .onChange(of: visibleGroups.map(\.id)) { _, _ in openCreatedGroupIfReady() }
         .onDisappear { onGroupContextChange(nil) }
         .task(id: visibleGroups.map { "\($0.id.uuidString):\($0.serverLedgerGroupID ?? "")" }) {
             await serverLedger.refresh(groups: visibleGroups)
@@ -143,6 +147,14 @@ struct GroupsScreen: View {
         RecencySectioning.sections(
             GroupRecency.sorted(visibleGroups, snapshot: serverLedger.snapshot)
         ) { GroupRecency.lastActivity(of: $0, snapshot: serverLedger.snapshot) }
+    }
+
+    private func openCreatedGroupIfReady() {
+        guard let id = NewGroupRouter.shared.pendingGroupID,
+              visibleGroups.contains(where: { $0.id == id }) else { return }
+        NewGroupRouter.shared.pendingGroupID = nil
+        path = NavigationPath()
+        path.append(id)
     }
 
     @ViewBuilder

@@ -310,7 +310,12 @@ struct OnboardingScreen: View {
                 Text(BrandFont.handText(pages[index].1))
                     .font(BrandFont.hand(28, weight: .bold))
                     .multilineTextAlignment(.center)
-                    .frame(height: index == 2 ? nil : 70)
+                    // Page 2's line is wider than the screen. Let it wrap and shrink a little
+                    // inside the same fixed box, so the pages stay aligned and nothing is cut.
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 20)
+                    .frame(height: index == 2 ? nil : 80)
                     .frame(minHeight: index == 2 ? 42 : nil)
                     .accessibilityIdentifier("onboardingTitle-\(index)")
                 Text(pages[index].2)

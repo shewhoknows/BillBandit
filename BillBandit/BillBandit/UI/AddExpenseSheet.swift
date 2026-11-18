@@ -303,7 +303,7 @@ struct AddExpenseSheet: View {
             .padding(.bottom, 10)
         }
         .background(Color.Brand.cobalt.ignoresSafeArea())
-        .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet() }
+        .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet(opensCreatedGroup: false) }
         .sheet(isPresented: $showDatePicker) {
             VStack(spacing: 16) {
                 BrandModalHeader(title: "Expense date") { showDatePicker = false }

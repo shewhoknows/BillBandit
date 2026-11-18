@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-18, App Store QA fixes on `fix/launch-blockers` (see 2026-11-18 entry). Before that: 2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
 
 ---
 
@@ -49,6 +49,19 @@ directly; regenerate them from sources (see §5).
 - **Palette:** cobalt and cream only for app chrome. Red stays for error text and the Delete account button (user decision 2026-10-22). The app accent colour is cobalt (`AccentColor` asset), so alerts, menus and pickers no longer show system blue.
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
+
+### 2026-11-18 — App Store QA fixes (branch `fix/launch-blockers`, merged into `main`)
+
+- QA on 2026-11-17 (TesterArmy `e2e` 0.23.1, iPhone 18 Pro iOS 27.0 simulator, local API) found no broken flow. Fixed and committed on 2026-11-18:
+  - Onboarding page 2 headline was cut to "old habi…": the title now wraps to 2 lines and may shrink (`lineLimit(2)`, `minimumScaleFactor(0.7)`, 20 pt side padding) in an 80 pt box (PlaceholderScreens).
+  - The signed-in person reads as "you" in the server invoice rows, the expense split breakdown, Settle up transfers ("ira pays you" / "You pay …") and settled history (GroupDetailScreen, SharedSettleUpScreen).
+  - Create group now opens the new group: `NewGroupRouter` (in AddGroupSheet.swift) hands the id to the Groups tab; RootTabView switches tab. Add expense's own New group keeps its flow (`opensCreatedGroup: false`).
+  - Group icons have VoiceOver names (Home, Travel, Food, …) and ids `groupIcon-<raw>`.
+  - Reverse refused by the server shows the alert "Payment not reversed" (it was silent). Offline reversals are still queued, by design.
+  - Delete group stays visible; with open transfers it shows "Settle up first" instead of the delete confirmation. The server rule is unchanged.
+- E2E proof: `.scratch/appstore-qa-20261117/` (README, `e2e/tests/verify.e2e.ts`, `reverse.e2e.ts`, `demo.e2e.ts`, `dumps/steps.log`, `shots/keep/`). Leave group, Remove friend, Delete group (archives) and Delete account (`DELETE /api/mobile/auth/me` 200, user anonymised, app back to sign-in) passed on local accounts.
+- Review files are served on the tailnet at `https://macbook.taile5de76.ts.net/billbandit-review/` from `~/Cowork/BillBandit-review/files` (LaunchAgent `com.prateekranka.billbandit-review`, port 18790). Run `node ~/Cowork/BillBandit-review/build-index.mjs` after adding a file named `YYYY-MM-DD-title.ext`.
+- Local demo accounts made by `.scratch/appstore-qa-20261117/demo-seed.ts` (ids `demo-*`, local DB only).
 
 ### 2026-11-10 — Any member can delete a shared expense
 

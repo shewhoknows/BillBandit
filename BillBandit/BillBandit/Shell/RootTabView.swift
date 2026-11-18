@@ -1790,6 +1790,10 @@ struct RootTabView: View {
             AddExpenseSheet(initialGroup: dockGroup)
         }
         .fullScreenCover(isPresented: $showAddGroup) { AddGroupSheet() }
+        // A new group from Home or the dock opens on the Groups tab.
+        .onChange(of: NewGroupRouter.shared.pendingGroupID) { _, id in
+            if id != nil { selectTab(.groups) }
+        }
         .sheet(isPresented: $showCurrencyPrompt) {
             DefaultCurrencyPromptSheet { showCurrencyPrompt = false }
         }

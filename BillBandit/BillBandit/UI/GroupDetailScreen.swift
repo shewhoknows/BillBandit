@@ -379,12 +379,26 @@ struct GroupDetailScreen: View {
         return group.members.first(where: { $0.memberID == memberID })?.role == "owner"
     }
 
+    /// True while the server's settle-up plan still has payments to make.
+    private var groupHasOpenDebts: Bool {
+        guard let group = canonicalSettlementStore.canonicalSnapshot?.group else { return false }
+        return !group.settlementPlan.transfers.isEmpty
+    }
+
     @ViewBuilder
     private var membershipButton: some View {
         if usesCanonicalLedger, let isOwner = currentUserIsOwner {
             let action: SharedGroupMembershipAction = isOwner ? .delete : .leave
             Button {
-                membershipAction = action
+                if action == .delete, groupHasOpenDebts {
+                    // Keep the button visible, but explain the rule before any request.
+                    membershipResult = MembershipResult(
+                        title: "Settle up first",
+                        message: "Everyone in this group must be settled up before you can delete it. Use Settle up to record the payments, then try again."
+                    )
+                } else {
+                    membershipAction = action
+                }
             } label: {
                 Label(
                     isChangingMembership
@@ -575,7 +589,10 @@ struct GroupDetailScreen: View {
                     Button {
                         canonicalExpenseForOverview = expense.id
                     } label: {
-                        CanonicalInvoiceExpenseRow(expense: expense)
+                        CanonicalInvoiceExpenseRow(
+                            expense: expense,
+                            currentMemberID: canonicalSettlementStore.canonicalSnapshot?.group.currentMemberID
+                        )
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -928,6 +945,12 @@ private struct InvoiceExpenseRow: View {
 
 private struct CanonicalInvoiceExpenseRow: View {
     let expense: SettlementLedgerExpense
+    var currentMemberID: String? = nil
+
+    /// The signed-in person reads as "you", like the local invoice and Activity.
+    private var payerName: String {
+        expense.payerMemberID == currentMemberID ? "you" : expense.payerName
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -941,13 +964,13 @@ private struct CanonicalInvoiceExpenseRow: View {
             )
             HStack(spacing: 0) {
                 Text("\(ExpenseDate.receiptDisplay(expense.date)) · paid by ").fixedSize()
-                Text(expense.payerName).lineLimit(1).truncationMode(.middle)
+                Text(payerName).lineLimit(1).truncationMode(.middle)
                 Text(" · \(ExpenseSplitCount.ways(expense.splitCount))").fixedSize()
             }
             .font(BrandFont.type(11))
             .opacity(0.7)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(ExpenseDate.receiptDisplay(expense.date)) · paid by \(expense.payerName) · \(ExpenseSplitCount.ways(expense.splitCount))")
+            .accessibilityLabel("\(ExpenseDate.receiptDisplay(expense.date)) · paid by \(payerName) · \(ExpenseSplitCount.ways(expense.splitCount))")
         }
         .padding(.bottom, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1982,7 +2005,7 @@ struct SharedExpenseOverviewScreen: View {
                         Text(expense.splitMethod.capitalized + " · " + ExpenseSplitCount.people(expense.participantCount))
                             .font(BrandFont.body(12, weight: .semibold))
                         ForEach(expense.splits.sorted { memberName($0.memberID) < memberName($1.memberID) }, id: \.splitID) { split in
-                            SplitBreakdownRow(name: canonicalGroup.memberByID[split.memberID]?.displayName ?? "Unknown member",
+                            SplitBreakdownRow(name: memberName(split.memberID),
                                               amount: money(split.amount))
                         }
                     }

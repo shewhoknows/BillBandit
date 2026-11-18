@@ -2,6 +2,14 @@ import SwiftUI
 import SwiftData
 import UIKit
 import Foundation
+import Observation
+
+/// Hands a just-created group to the Groups tab, which opens it.
+@MainActor @Observable
+final class NewGroupRouter {
+    static let shared = NewGroupRouter()
+    var pendingGroupID: UUID?
+}
 
 struct AddGroupSheet: View {
     @Query(sort: \Person.name) private var people: [Person]
@@ -19,6 +27,12 @@ struct AddGroupSheet: View {
     @State private var activeOperationID: UUID?
     @State private var requiresReconfirmation = false
     @FocusState private var nameFocused: Bool
+    /// Open the new group after it is created. Add expense keeps its own flow.
+    private let opensCreatedGroup: Bool
+
+    init(opensCreatedGroup: Bool = true) {
+        self.opensCreatedGroup = opensCreatedGroup
+    }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var memberOptions: [Person] {
@@ -57,6 +71,9 @@ struct AddGroupSheet: View {
                                     .overlay(Circle().stroke(Color.Brand.cobalt, lineWidth: 2))
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel(Self.spokenName(gi))
+                            .accessibilityAddTraits(icon == gi ? .isSelected : [])
+                            .accessibilityIdentifier("groupIcon-\(gi.rawValue)")
                         }
                     }
 
@@ -218,6 +235,20 @@ struct AddGroupSheet: View {
                     .opacity(trimmedName.isEmpty || isSubmitting || requiresReconfirmation ? 0.7 : 1)
     }
 
+    /// VoiceOver names for the group icons (the image names read as "icon-plane").
+    static func spokenName(_ icon: GroupIcon) -> String {
+        switch icon {
+        case .house: return "Home"
+        case .plane: return "Travel"
+        case .pizza: return "Food"
+        case .cart: return "Shopping"
+        case .gift: return "Gifts"
+        case .car: return "Car"
+        case .coffee: return "Coffee"
+        case .users: return "Friends"
+        }
+    }
+
     private func refreshFriends() {
         Task {
             await FriendInvitationService.shared.refreshAcceptedInvites()
@@ -355,6 +386,7 @@ struct AddGroupSheet: View {
             activeOperationID = nil
             statusMessage = nil
             dismiss()
+            if opensCreatedGroup { NewGroupRouter.shared.pendingGroupID = localGroup.id }
             // The POST is the create confirmation. The new local routing row
             // appears at once. Canonical details can refresh after the sheet
             // closes, without blocking the person who created the group.
