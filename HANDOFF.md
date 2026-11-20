@@ -8,6 +8,12 @@
 
 ## 1. What this is
 
+### 2026-11-20 — Reviewer demo data, Part 0
+
+- Reviewer demo friends use their display names on shared surfaces. Their reserved handles are `aarav_bb`, `kabir_bb`, and `ira_bb`; other accounts keep the existing naming rule.
+- Goa Trip starts with a partial payment to Aarav and both incoming and outgoing transfers. Flat 4B also has a partial payment so Home shows an amount owed in each direction. The local API check confirmed an Aarav payment remains after the planned ₹2,400 expense.
+- TesterArmy e2e passed Home, Goa Trip, and Activity on iPhone 17 Pro and iPad Air 11-inch M4 with iOS 26.5. The iPad review-code sheet and keyboard were visible. The iPad run entered a temporary local code using screen points because the driver could not locate the compatibility window for `fill`. Evidence is in `.scratch/reviewer-login/evidence/part0/20261120T125414Z.2IRPLb/` and the matching e2e result folders. The demo video and remaining iPad-fix matrix are not yet complete.
+
 ### 2026-11-20 — Reviewer-code login (local simulator verification)
 
 - Work on `feat/reviewer-login` adds a review-code API, an iOS sign-in sheet, a dedicated reviewer session, and a demo reset command. A migration adds the durable IP failure limit.

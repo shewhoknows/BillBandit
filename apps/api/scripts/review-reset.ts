@@ -13,7 +13,7 @@ const definitions = [
     id: `billbandit-review-${name.toLowerCase()}-v1`,
     email: `${name.toLowerCase()}@review.billbandit.invalid`,
     name,
-    username: `review_${name.toLowerCase()}`,
+    username: `${name.toLowerCase()}_bb`,
   })),
 ]
 
@@ -126,9 +126,13 @@ async function main() {
         splits: participants.map((p, i) => ({ id: `${expenseId}-${i}`, userId: p.id, amount: money(minor / count + (BigInt(i) < minor % count ? 1n : 0n)) })),
       })
     }
-    async function pay(id: string, partial: boolean) {
+    async function pay(id: string, partial: boolean, recipient?: Person) {
       const fresh = await read(id, reviewer)
-      const transfer = fresh.settlementPlan?.transfers?.[0]
+      const reviewerMember = (fresh.members as Json[]).find((m) => m.accountId === reviewer.id)
+      const recipientMember = recipient && (fresh.members as Json[]).find((m) => m.accountId === recipient.id)
+      const transfer = recipient
+        ? fresh.settlementPlan?.transfers?.find((t: Json) => t.payerMemberId === reviewerMember?.memberId && t.recipientMemberId === recipientMember?.memberId)
+        : fresh.settlementPlan?.transfers?.[0]
       if (!transfer) throw new Error(`No settlement transfer in ${id}`)
       const member = (fresh.members as Json[]).find((m) => m.memberId === transfer.payerMemberId)
       const payer = people.find((p) => p.id === member?.accountId)
@@ -147,15 +151,15 @@ async function main() {
       groupId: goa, operationId: randomUUID(), kind: 'settings.update',
       expectedRevision: initialGoa.revision, actorUserId: reviewer.id, payload: { simplifyDebts: false },
     }, { db })
-    await expense(goa, 'Beach shack dinner', 324000n, aarav, people)
-    await expense(goa, 'Scooter rental', 180000n, reviewer, people)
+    await expense(goa, 'Beach shack dinner', 1000000n, aarav, people)
+    await expense(goa, 'Scooter rental', 240000n, reviewer, people)
     await expense(goa, 'Fuel', 65050n, kabir, people)
     await expense(goa, 'Ferry tickets', 120000n, ira, [reviewer, kabir, ira])
-    await pay(goa, true)
+    await pay(goa, true, aarav)
     const flat = await group('Flat 4B', [kabir])
     await expense(flat, 'Groceries', 120000n, reviewer, [reviewer, kabir])
     await expense(flat, 'Internet', 60000n, kabir, [reviewer, kabir])
-    await pay(flat, false)
+    await pay(flat, true)
     console.log('Reviewer demo reset complete: Goa Trip and Flat 4B')
   } finally {
     await db.$disconnect()
