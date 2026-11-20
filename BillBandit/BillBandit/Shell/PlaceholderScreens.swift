@@ -267,6 +267,8 @@ struct OnboardingScreen: View {
                                 .accessibilityIdentifier("reviewCodeError")
                         }
                         Button(isReviewSigningIn ? "Signing in…" : "Sign in") {
+                            reviewCodeFocused = false
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                             Task { await signInWithReviewCode() }
                         }
                         .font(BrandFont.display(16, weight: .bold))
@@ -280,6 +282,8 @@ struct OnboardingScreen: View {
                     .padding(24)
                 }
                 .background(Color.Brand.creamSoft.ignoresSafeArea())
+                .toolbarBackground(Color.Brand.creamSoft, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { showReviewCode = false }
