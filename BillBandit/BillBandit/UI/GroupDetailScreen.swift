@@ -962,11 +962,8 @@ private struct CanonicalInvoiceExpenseRow: View {
                     currencyExponent: expense.amount.currencyExponent
                 )
             )
-            HStack(spacing: 0) {
-                Text("\(ExpenseDate.receiptDisplay(expense.date)) · paid by ").fixedSize()
-                Text(payerName).lineLimit(1).truncationMode(.middle)
-                Text(" · \(ExpenseSplitCount.ways(expense.splitCount))").fixedSize()
-            }
+            Text("\(ExpenseDate.receiptDisplay(expense.date)) · paid by \(payerName) · \(ExpenseSplitCount.ways(expense.splitCount))")
+                .fixedSize(horizontal: false, vertical: true)
             .font(BrandFont.type(11))
             .opacity(0.7)
             .accessibilityElement(children: .ignore)
