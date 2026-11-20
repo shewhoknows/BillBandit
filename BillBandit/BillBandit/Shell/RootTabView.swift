@@ -1792,6 +1792,7 @@ struct RootTabView: View {
     @AppStorage("activityLastReadTimestamp") private var activityLastReadTimestamp = 0.0
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Screenshot support: `-tab N` selects the initial tab, `-showAdd` opens the add sheet.
     init(forceCurrencyPrompt: Bool = false) {
@@ -1827,7 +1828,7 @@ struct RootTabView: View {
             .environment(\.groupContextChange) { dockGroup = $0 }
             .transition(tabTransition)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.bottom, 76) // keep content clear of the floating dock
+            .padding(.bottom, dynamicTypeSize.isAccessibilitySize ? 86 : 76)
 
             tabBar
 
@@ -1910,9 +1911,9 @@ struct RootTabView: View {
             tabButton(.profile)
         }
         .padding(.horizontal, 12)
-        .frame(height: 66)
+        .frame(height: dynamicTypeSize.isAccessibilitySize ? 76 : 66)
         .background(
-            Color.Brand.cobaltDeep.opacity(0.90),
+            Color.Brand.cobaltDeep.opacity(dynamicTypeSize.isAccessibilitySize ? 1 : 0.90),
             in: RoundedRectangle(cornerRadius: 27, style: .continuous)
         )
         .shadow(color: Color.Brand.cobaltDeep.opacity(0.34), radius: 12, y: 6)
@@ -1937,7 +1938,11 @@ struct RootTabView: View {
                     BrandIconView(icon: t.icon, size: 22)
                 }
                 Text(t.title)
-                    .font(BrandFont.body(11, weight: .extraBold))
+                    .font(BrandFont.body(dynamicTypeSize.isAccessibilitySize ? 9.5 : 11, weight: .extraBold))
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .frame(maxWidth: .infinity)
             }
             .foregroundStyle(Color.Brand.creamSoft.opacity(t == tab ? 1 : 0.9))
             .frame(maxWidth: .infinity)

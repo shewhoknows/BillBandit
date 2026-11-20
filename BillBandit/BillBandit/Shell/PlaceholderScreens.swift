@@ -691,6 +691,7 @@ struct HomeScreen: View {
     @Query(sort: \ActivityItem.timestamp, order: .reverse) private var activity: [ActivityItem]
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAddGroup = false
     @AppStorage("showNewHandleNote") private var showNewHandleNote = false
@@ -781,10 +782,13 @@ struct HomeScreen: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(BrandFont.handText("you're @\(handle)."))
                         .font(BrandFont.hand(22, weight: .bold))
-                        .lineLimit(1)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                         .minimumScaleFactor(0.6)
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
                     Text("Tap to change your handle in Profile.")
                         .font(BrandFont.body(13, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -798,7 +802,8 @@ struct HomeScreen: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
-                    .frame(width: 30, height: 30)
+                    .frame(width: dynamicTypeSize.isAccessibilitySize ? 44 : 30,
+                           height: dynamicTypeSize.isAccessibilitySize ? 44 : 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -931,7 +936,9 @@ struct HomeScreen: View {
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .frame(width: 122, height: 12)
 
-            HStack(spacing: 8) {
+            let pillLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+            pillLayout {
                 BalancePill(
                     text: "you owe \(summary.owe.absoluteDisplayText)",
                     filled: false,
@@ -993,7 +1000,9 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func groupCards(for sourceGroups: [Group]) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+        LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                  ? [GridItem(.flexible())]
+                  : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
             ForEach(sourceGroups.prefix(3), id: \.id) { group in
                 groupCard(for: group)
             }
@@ -1939,6 +1948,7 @@ private struct GroupCard: View {
     let balanceIsPositive: Bool
     let sourceLabel: String
     var balanceIsLoading = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1949,12 +1959,13 @@ private struct GroupCard: View {
                     .foregroundStyle(Color.Brand.creamSoft))
             Text(group.name)
                 .font(BrandFont.display(13.5, weight: .semibold))
-                .lineLimit(2)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
             Spacer(minLength: 2)
             if let balanceText {
                 BalancePill(
                     text: balanceText,
-                    filled: balanceIsPositive
+                    filled: balanceIsPositive,
+                    allowsWrapping: dynamicTypeSize.isAccessibilitySize
                 )
             } else {
                 ServerLedgerUnavailableChip(onLight: true, isLoading: balanceIsLoading)
@@ -1974,29 +1985,56 @@ private struct GroupCard: View {
 struct ServerLedgerActivityRow: View {
     let item: ServerLedgerSurfaceActivityItem
     var compact = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var summary: String { item.displaySummary }
 
     var body: some View {
-        HStack(spacing: 9) {
-            Circle()
-                .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
-                .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary)
-                    .font(BrandFont.type(compact ? 11 : 12, bold: true))
-                    .fixedSize(horizontal: false, vertical: true)
-                if !compact {
-                    Text(item.at.formatted(date: .omitted, time: .shortened))
-                        .font(BrandFont.type(11))
-                        .opacity(0.9)
+        SwiftUI.Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                HStack(alignment: .top, spacing: 9) {
+                    Circle()
+                        .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
+                        .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary)
+                            .font(BrandFont.type(compact ? 11 : 12, bold: true))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !compact {
+                            Text(item.at.formatted(date: .omitted, time: .shortened))
+                                .font(BrandFont.type(11))
+                                .opacity(0.9)
+                        }
+                        if item.showsAmount && item.type != "expense" {
+                            Text(item.amount.absoluteDisplayText)
+                                .font(BrandFont.type(11, bold: true))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            Spacer(minLength: 4)
-            if item.showsAmount && item.type != "expense" {
-                Text(item.amount.absoluteDisplayText)
-                    .font(BrandFont.type(compact ? 11 : 11, bold: true))
-                    .lineLimit(1)
+            } else {
+                HStack(spacing: 9) {
+                    Circle()
+                        .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
+                        .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary)
+                            .font(BrandFont.type(compact ? 11 : 12, bold: true))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !compact {
+                            Text(item.at.formatted(date: .omitted, time: .shortened))
+                                .font(BrandFont.type(11))
+                                .opacity(0.9)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if item.showsAmount && item.type != "expense" {
+                        Text(item.amount.absoluteDisplayText)
+                            .font(BrandFont.type(compact ? 11 : 11, bold: true))
+                            .lineLimit(1)
+                    }
+                }
             }
         }
         .padding(.vertical, compact ? 6 : 10)
@@ -2350,13 +2388,14 @@ struct BalancePill: View {
     let filled: Bool
     var onDark = false
     var animationValue: Decimal? = nil
+    var allowsWrapping = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Text(text)
             .font(BrandFont.type(11, bold: true))
-            .lineLimit(1)
+            .lineLimit(allowsWrapping ? nil : 1)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .foregroundStyle(filled || onDark ? Color.Brand.creamSoft : Color.Brand.cobalt)
