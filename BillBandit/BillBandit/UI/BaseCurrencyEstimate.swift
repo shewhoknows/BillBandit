@@ -65,6 +65,7 @@ struct DefaultCurrencyPromptSheet: View {
     @ObservedObject private var store = BaseCurrencyEstimateStore.shared
     @State private var choice: AppCurrency = BaseCurrencyEstimateStore.suggestedCurrency()
     @State private var isSaving = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         ScrollView {
@@ -76,7 +77,8 @@ struct DefaultCurrencyPromptSheet: View {
                 Text("BillBandit shows totals and estimates in this currency. Each group keeps its own currency. You can change this in Profile.")
                     .font(BrandFont.body(13))
                     .foregroundStyle(Color.Brand.cobalt.opacity(0.72))
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8),
+                                         count: dynamicTypeSize.isAccessibilitySize ? 1 : 3), spacing: 8) {
                     ForEach(AppCurrency.allCases) { option in
                         Button { choice = option } label: {
                             VStack(spacing: 2) {
@@ -84,7 +86,7 @@ struct DefaultCurrencyPromptSheet: View {
                                     .font(BrandFont.type(13, bold: true))
                                 Text(option.name)
                                     .font(BrandFont.body(11, weight: .semibold))
-                                    .lineLimit(1)
+                                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                                     .minimumScaleFactor(0.7)
                                     .opacity(0.75)
                             }

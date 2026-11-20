@@ -1452,6 +1452,7 @@ struct AppRootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var accountGateState: AccountGateState = .checking
+    @State private var firstSignInNeedsCurrency = false
 
     private var bypassOnboarding: Bool {
         let args = ProcessInfo.processInfo.arguments
@@ -1486,14 +1487,15 @@ struct AppRootView: View {
                             hasAppleIdentifier: !appleUserIdentifier.isEmpty || !reviewAccountID.isEmpty,
                             accountOnboardingComplete: accountOnboardingComplete
                         ) && usernameHandleVerified {
-                RootTabView()
+                RootTabView(forceCurrencyPrompt: firstSignInNeedsCurrency)
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             } else if accountGateState == .checking {
                 accountCheckView
                     .transition(.opacity)
             } else {
-                OnboardingScreen(startAtSignIn: hasCompletedOnboarding) {
+                OnboardingScreen(startAtSignIn: hasCompletedOnboarding) { needsCurrency in
                     withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
+                        firstSignInNeedsCurrency = needsCurrency
                         hasCompletedOnboarding = true
                         accountOnboardingComplete = true
                         accountGateState = .authorized
@@ -1751,6 +1753,7 @@ private extension String {
 
 /// App shell — cobalt tab bar with a raised cream FAB, mirroring the mockup board.
 struct RootTabView: View {
+    let forceCurrencyPrompt: Bool
     enum Tab: Int, CaseIterable {
         case home, groups, activity, profile
 
@@ -1791,7 +1794,8 @@ struct RootTabView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Screenshot support: `-tab N` selects the initial tab, `-showAdd` opens the add sheet.
-    init() {
+    init(forceCurrencyPrompt: Bool = false) {
+        self.forceCurrencyPrompt = forceCurrencyPrompt
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-tab"), i + 1 < args.count,
            let n = Int(args[i + 1]), let t = Tab(rawValue: n) {
@@ -1855,7 +1859,14 @@ struct RootTabView: View {
         .sheet(isPresented: $showCurrencyPrompt) {
             DefaultCurrencyPromptSheet { showCurrencyPrompt = false }
         }
-        .task { await askForDefaultCurrencyIfNeeded() }
+        .task {
+            if forceCurrencyPrompt && !BaseCurrencyEstimateStore.shared.isDefaultConfirmed &&
+                !ProcessInfo.processInfo.arguments.contains("-skipCurrencyPrompt") {
+                showCurrencyPrompt = true
+            } else {
+                await askForDefaultCurrencyIfNeeded()
+            }
+        }
         .fullScreenCover(isPresented: $friendInvitations.shouldPresentInviteSheet) {
             FriendInvitationSheet(initialCode: friendInvitations.incomingCode)
         }

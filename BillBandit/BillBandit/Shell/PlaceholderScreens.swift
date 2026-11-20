@@ -86,7 +86,7 @@ private enum AppleSignInSupport {
 }
 
 struct OnboardingScreen: View {
-    let onComplete: () -> Void
+    let onComplete: (Bool) -> Void
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -117,6 +117,7 @@ struct OnboardingScreen: View {
     /// A returning Apple account already has a server-owned handle. Keep that
     /// value so we do not POST a second claim for it.
     @State private var authenticatedRemoteUsername: String?
+    @State private var authenticatedCurrencyIsMissing = false
 
     private static let lastPage = 2
 
@@ -152,7 +153,7 @@ struct OnboardingScreen: View {
         return name
     }
 
-    init(startAtSignIn: Bool = false, onComplete: @escaping () -> Void) {
+    init(startAtSignIn: Bool = false, onComplete: @escaping (Bool) -> Void) {
         self.onComplete = onComplete
         let args = ProcessInfo.processInfo.arguments
         if args.contains("-onboardingAuthBusyPreview") {
@@ -533,7 +534,7 @@ struct OnboardingScreen: View {
             usernameHandleVerified = true
             hasUsernameSession = true
             showReviewCode = false
-            onComplete()
+            onComplete(user.defaultCurrency == nil)
         } catch {
             reviewCodeError = true
         }
@@ -589,7 +590,7 @@ struct OnboardingScreen: View {
             authMessage = nil
             Task { await CloudCollaborationService.shared.accountDidChange() }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            onComplete()
+            onComplete(authenticatedCurrencyIsMissing)
         } catch {
             authMessage = error.localizedDescription
         }
@@ -631,6 +632,7 @@ struct OnboardingScreen: View {
                     name: fullName,
                     email: credential.email
                 )
+                authenticatedCurrencyIsMissing = remoteUser.defaultCurrency == nil
                 AppleSignInSupport.logBackendExchangeSucceeded()
                 ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
                 reviewAccountID = ""
