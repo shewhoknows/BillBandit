@@ -188,30 +188,51 @@ struct OnboardingScreen: View {
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 10)
+                .environment(\.dynamicTypeSize, dynamicTypeSize.isAccessibilitySize ? .xxxLarge : dynamicTypeSize)
 
-                HStack {
-                    Text("BillBandit")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                        .font(BrandFont.display(44, weight: .bold))
-                    Spacer()
-                }
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
-
-                TabView(selection: $page) {
-                    ForEach(0...Self.lastPage, id: \.self) { index in
-                        onboardingPage(index)
-                            .tag(index)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    HStack {
+                        Text("BillBandit")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .font(BrandFont.display(44, weight: .bold))
+                        Spacer()
                     }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 10)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
 
-                // One fixed control area for all pages: "Next" on pages 1–2,
-                // Apple sign-in on page 3. The pages above never change size.
-                bottomControls
+                if dynamicTypeSize.isAccessibilitySize {
+                    TabView(selection: $page) {
+                        ForEach(0...Self.lastPage, id: \.self) { index in
+                            onboardingPage(index)
+                                .tag(index)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .clipped()
 
-                pageIndicator
+                    VStack(spacing: 0) {
+                        Color.Brand.creamSoft.opacity(0.45)
+                            .frame(height: 1)
+                            .padding(.horizontal, 22)
+                        bottomControls
+                        pageIndicator
+                    }
+                    .background(Color.Brand.cobalt)
+                    .environment(\.dynamicTypeSize, .xxxLarge)
+                } else {
+                    TabView(selection: $page) {
+                        ForEach(0...Self.lastPage, id: \.self) { index in
+                            onboardingPage(index)
+                                .tag(index)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+
+                    bottomControls
+                    pageIndicator
+                }
             }
             .foregroundStyle(Color.Brand.creamSoft)
         }
@@ -294,28 +315,42 @@ struct OnboardingScreen: View {
     @ViewBuilder
     private func onboardingPage(_ index: Int) -> some View {
         if dynamicTypeSize.isAccessibilitySize {
-            ScrollView {
-                VStack(spacing: 10) {
-                    MascotView(mascot: pages[index].0, size: 128, idle: false)
-                        .frame(height: 142)
-                        .accessibilityIdentifier("onboardingMascot-\(index)")
-                    Text(BrandFont.handText(pages[index].1))
-                        .font(BrandFont.hand(28, weight: .bold))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 20)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityIdentifier("onboardingTitle-\(index)")
-                    Text(pages[index].2)
-                        .font(BrandFont.body(15, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 32)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityIdentifier("onboardingDescription-\(index)")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 10) {
+                        Text("BillBandit")
+                            .font(BrandFont.display(20, weight: .bold))
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 22)
+                            .id("onboardingTop-\(index)")
+                        Text(BrandFont.handText(pages[index].1))
+                            .font(BrandFont.hand(28, weight: .bold))
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 20)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("onboardingTitle-\(index)")
+                        Text("Scroll for more ↓")
+                            .font(BrandFont.body(12, weight: .semibold))
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        Text(pages[index].2)
+                            .font(BrandFont.body(15, weight: .semibold))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 32)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("onboardingDescription-\(index)")
+                    }
+                    .padding(.vertical, 10)
                 }
-                .padding(.vertical, 10)
+                .onChange(of: page) { _, selected in
+                    if selected == index {
+                        proxy.scrollTo("onboardingTop-\(index)", anchor: .top)
+                    }
+                }
             }
         } else {
             onboardingStandardPage(index)
