@@ -24,11 +24,12 @@ async function main() {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname) throw new Error('DATABASE_URL must identify a PostgreSQL host')
   console.log(`Database host: ${parsed.hostname}`)
   if (!process.argv.slice(2).includes('--confirm')) throw new Error('Pass --confirm to reset the reviewer world')
+  const teardown = process.argv.slice(2).includes('--teardown')
   const base = process.env.REVIEW_API_BASE_URL
-  if (!base) throw new Error('REVIEW_API_BASE_URL is required')
-  const apiURL = new URL(base)
-  if (!['http:', 'https:'].includes(apiURL.protocol)) throw new Error('REVIEW_API_BASE_URL must be HTTP or HTTPS')
-  if (!process.env.MOBILE_JWT_SECRET && !process.env.NEXTAUTH_SECRET) throw new Error('MOBILE_JWT_SECRET or NEXTAUTH_SECRET is required')
+  if (!teardown && !base) throw new Error('REVIEW_API_BASE_URL is required')
+  const apiURL = base ? new URL(base) : null
+  if (apiURL && !['http:', 'https:'].includes(apiURL.protocol)) throw new Error('REVIEW_API_BASE_URL must be HTTP or HTTPS')
+  if (!teardown && !process.env.MOBILE_JWT_SECRET && !process.env.NEXTAUTH_SECRET) throw new Error('MOBILE_JWT_SECRET or NEXTAUTH_SECRET is required')
   const db = new PrismaClient()
   const ids = definitions.map(({ id }) => id)
   const allowed = new Set(ids)
@@ -44,7 +45,10 @@ async function main() {
       }
       const linkedAccounts = await tx.account.count({ where: { userId: { in: ids } } })
       const identities = await tx.externalIdentity.count({ where: { accountId: { in: ids } } })
-      if (linkedAccounts || identities) throw new Error('A reviewer account has an external identity; reset refused')
+      const sessions = await tx.session.count({ where: { userId: { in: ids } } })
+      const imports = await tx.ledgerImport.count({ where: { accountId: { in: ids } } })
+      const importRecords = await tx.ledgerImportRecord.count({ where: { accountId: { in: ids } } })
+      if (linkedAccounts || identities || sessions || imports || importRecords) throw new Error('A reviewer account has external data; operation refused')
       const friendships = await tx.friendship.findMany({ where: { OR: [{ fromId: { in: ids } }, { toId: { in: ids } }] } })
       if (friendships.some((f) => !allowed.has(f.fromId) || !allowed.has(f.toId))) throw new Error('A reviewer account has a non-demo friendship; reset refused')
       const groups = await tx.group.findMany({
@@ -64,10 +68,44 @@ async function main() {
           ...group.ledgerOperations.map((o) => o.accountId),
         ].filter((id): id is string => id !== null)
         if (people.some((id) => !allowed.has(id))) throw new Error(`Group ${group.id} contains non-demo data; reset refused`)
+        const participantIds = new Set(group.participants.map((participant) => participant.id))
+        if (group.transactions.some((transaction) => [transaction.payerParticipantId, transaction.recipientParticipantId]
+          .some((id) => id !== null && !participantIds.has(id)))) {
+          throw new Error(`Group ${group.id} refers to a participant outside the demo group; operation refused`)
+        }
       }
-      const stray = await tx.transaction.count({ where: { OR: [{ senderId: { in: ids } }, { receiverId: { in: ids } }, { actorUserId: { in: ids } }], NOT: { groupId: { in: groupIds } } } })
+      const stray = await tx.transaction.count({ where: { AND: [{ OR: [{ senderId: { in: ids } }, { receiverId: { in: ids } }, { actorUserId: { in: ids } }] }, { OR: [{ groupId: null }, { groupId: { notIn: groupIds } }] }] } })
       if (stray) throw new Error('A reviewer account has transactions outside the demo groups; reset refused')
-      const allocations = await tx.settlementAllocation.findMany({ where: { groupId: { in: groupIds } }, select: { id: true } })
+      const outside = { OR: [{ groupId: null }, { groupId: { notIn: groupIds } }] }
+      const strayExpenses = await tx.expense.count({ where: { AND: [outside, { OR: [
+        { paidById: { in: ids } }, { createdById: { in: ids } },
+        { splits: { some: { userId: { in: ids } } } }, { comments: { some: { userId: { in: ids } } } },
+      ] }] } })
+      const strayFinalized = await tx.group.count({ where: { finalizedById: { in: ids }, id: { notIn: groupIds } } })
+      const strayOperations = await tx.ledgerOperation.count({ where: { accountId: { in: ids }, ...outside } })
+      const strayAudits = await tx.settlementSettingAudit.count({ where: { actorUserId: { in: ids }, groupId: { notIn: groupIds } } })
+      const strayReversals = await tx.settlementReversal.count({ where: { actorUserId: { in: ids }, groupId: { notIn: groupIds } } })
+      if (strayExpenses || strayFinalized || strayOperations || strayAudits || strayReversals) {
+        throw new Error('A reviewer account has data outside the demo groups; operation refused')
+      }
+      const allocations = await tx.settlementAllocation.findMany({
+        where: { groupId: { in: groupIds } },
+        include: { transaction: true, paths: true },
+      })
+      for (const allocation of allocations) {
+        const group = groups.find((item) => item.id === allocation.groupId)!
+        const participantIds = new Set(group.participants.map((participant) => participant.id))
+        if (allocation.transaction.groupId !== group.id || allocation.paths.some((path) =>
+          !participantIds.has(path.payerParticipantId) || !participantIds.has(path.recipientParticipantId))) {
+          throw new Error(`Group ${group.id} contains an external settlement reference; operation refused`)
+        }
+      }
+      const reversals = await tx.settlementReversal.findMany({
+        where: { groupId: { in: groupIds } }, include: { transaction: true },
+      })
+      if (reversals.some((reversal) => reversal.transaction.groupId !== reversal.groupId)) {
+        throw new Error('A demo group contains an external reversal reference; operation refused')
+      }
       await tx.settlementAllocationPath.deleteMany({ where: { allocationId: { in: allocations.map((a) => a.id) } } })
       await tx.settlementReversal.deleteMany({ where: { groupId: { in: groupIds } } })
       await tx.settlementAllocation.deleteMany({ where: { groupId: { in: groupIds } } })
@@ -83,6 +121,10 @@ async function main() {
       await tx.friendInvitation.deleteMany({ where: { inviterId: { in: ids } } })
       await tx.friendClaimRateLimit.deleteMany({ where: { accountId: { in: ids } } })
       await tx.activityLog.deleteMany({ where: { userId: { in: ids } } })
+      if (teardown) {
+        await tx.user.deleteMany({ where: { id: { in: ids } } })
+        return
+      }
       for (const person of definitions) {
         await tx.user.upsert({
           where: { id: person.id },
@@ -96,10 +138,16 @@ async function main() {
       }
     }, { isolationLevel: 'Serializable', timeout: 30000 })
 
+    if (teardown) {
+      console.log('Reviewer demo teardown complete')
+      return
+    }
+    if (!apiURL) throw new Error('REVIEW_API_BASE_URL is required')
+    const resetAPIURL = apiURL
     const people: Person[] = definitions.map((person) => ({ ...person, token: createMobileToken(person) }))
     const [reviewer, aarav, kabir, ira] = people
     async function api(path: string, person: Person, method = 'GET', body?: unknown, headers: Record<string, string> = {}): Promise<Json> {
-      const response = await fetch(new URL(path, apiURL), {
+      const response = await fetch(new URL(path, resetAPIURL), {
         method, headers: { Authorization: `Bearer ${person.token}`, 'Content-Type': 'application/json', ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
       })

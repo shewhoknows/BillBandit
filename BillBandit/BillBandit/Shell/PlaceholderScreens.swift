@@ -91,6 +91,7 @@ struct OnboardingScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
@@ -106,6 +107,7 @@ struct OnboardingScreen: View {
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
     @State private var currentAppleNonce: String?
     @State private var isAuthorizingWithApple = false
+    @State private var reviewCodeEnabled = false
     @State private var showReviewCode = false
     @State private var reviewCode = ""
     @State private var reviewCodeError = false
@@ -216,6 +218,13 @@ struct OnboardingScreen: View {
         .onAppear {
             hasUsernameSession = UsernameIdentityService.hasStoredSession
             startMascotMotion()
+        }
+        .task(id: "\(page)-\(scenePhase)") {
+            reviewCodeEnabled = false
+            guard page == Self.lastPage, scenePhase == .active, needsAppleSignIn else { return }
+            let enabled = await UsernameIdentityService.reviewCodeIsEnabled()
+            guard !Task.isCancelled else { return }
+            reviewCodeEnabled = enabled
         }
         .sheet(isPresented: $showReviewCode) {
             NavigationStack {
@@ -363,14 +372,21 @@ struct OnboardingScreen: View {
             } else {
                 onboardingPrimaryAction
                 if needsAppleSignIn {
-                    Button("Have a review code?") {
-                        reviewCode = ""
-                        reviewCodeError = false
-                        showReviewCode = true
+                    ZStack {
+                        Text("Have a review code?")
+                            .hidden()
+                            .accessibilityHidden(true)
+                        if reviewCodeEnabled {
+                            Button("Have a review code?") {
+                                reviewCode = ""
+                                reviewCodeError = false
+                                showReviewCode = true
+                            }
+                            .accessibilityIdentifier("reviewCodeLink")
+                        }
                     }
                     .font(BrandFont.body(12, weight: .semibold))
                     .foregroundStyle(Color.Brand.creamSoft)
-                    .accessibilityIdentifier("reviewCodeLink")
                 }
             }
         }
@@ -637,6 +653,7 @@ struct HomeScreen: View {
     @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAddGroup = false
     @AppStorage("showNewHandleNote") private var showNewHandleNote = false
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
 
     init(onSeeAllGroups: @escaping () -> Void = {},
          onOpenActivity: @escaping () -> Void = {},
@@ -962,6 +979,9 @@ struct HomeScreen: View {
     @ViewBuilder
     private func groupCard(for group: Group) -> some View {
         let serverGroupID = group.serverLedgerGroupID
+        let reviewNames = group.members.filter { !$0.isCurrentUser }.map(\.name).sorted()
+        let memberLabel = !reviewAccountID.isEmpty && !reviewNames.isEmpty
+            ? reviewNames.joined(separator: ", ") : GroupCopy.memberCount(group.members.count)
         let presentation = serverGroupID == nil ? nil : serverLedger.groupBalancePresentation(for: group)
         let localNet: Decimal? = serverGroupID == nil
             ? currentUsers.first.map { BalanceMath.nets(in: group)[$0.id] ?? 0 }
@@ -973,7 +993,7 @@ struct HomeScreen: View {
                     ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0, currencyCode: group.resolvedCurrencyCode))" : "owe \(Money.currency(-$0, currencyCode: group.resolvedCurrencyCode))" }
                     : nil),
                 balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
-                sourceLabel: GroupCopy.memberCount(group.members.count),
+                sourceLabel: memberLabel,
                 balanceIsLoading: serverGroupID != nil
                     && presentation == nil
                     && serverLedger.status.phase == .loading
@@ -1899,6 +1919,7 @@ private struct GroupCard: View {
                 ServerLedgerUnavailableChip(onLight: true, isLoading: balanceIsLoading)
             }
             Text(sourceLabel)
+                .accessibilityIdentifier("groupMembers-\(group.name)")
                 .font(BrandFont.type(11, bold: true))
                 .opacity(0.9)
         }

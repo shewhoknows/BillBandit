@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
+import { REVIEW_ACCOUNT_ID, reviewCodeEnabled } from '@/lib/review-account'
 
 const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 
@@ -103,6 +104,7 @@ export async function getMobileSession(req: NextRequest): Promise<MobileSession 
 
   const payload = verifyMobileToken(match[1])
   if (!payload) return null
+  if (payload.sub === REVIEW_ACCOUNT_ID && !reviewCodeEnabled()) return null
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },

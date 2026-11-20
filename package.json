@@ -16,6 +16,7 @@
     "dev:server": "npm --workspace apps/api run dev:server",
     "dev:data": "npm --workspace apps/api run dev:data --",
     "review:reset": "npm --workspace apps/api run review:reset --",
-    "db:studio": "npm --workspace apps/api run db:studio"
+    "db:studio": "npm --workspace apps/api run db:studio",
+    "review:teardown": "npm --workspace apps/api run review:teardown --"
   }
 }

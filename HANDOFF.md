@@ -2,11 +2,19 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-18, App Store QA fixes on `fix/launch-blockers` (see 2026-11-18 entry). Before that: 2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-20, reviewer access switch on `feat/reviewer-login` (see the entry below). Before that: 2026-11-18, App Store QA fixes on `fix/launch-blockers` (see 2026-11-18 entry). Before that: 2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
 
 ---
 
 ## 1. What this is
+
+### 2026-11-20 — Reviewer access switch, Part 4
+
+- The unauthenticated review-code GET returns a non-cached enabled flag. The flag requires a code of at least 16 characters. Removing the variable also rejects reviewer tokens with 401. Apple accounts keep their existing path.
+- The sign-in screen checks the flag on entry and foreground return. It hides the link on failure and keeps the Apple button in place. A rejected reviewer session returns to sign-in. Reviewer Home group cards show the demo member names.
+- `npm run review:teardown -- --confirm` shares the reset safety checks and removes the demo accounts and groups. The local round trip refused a non-demo friendship and mixed group, preserved a separate account, and rebuilt the demo.
+- The normal Debug simulator build and API typecheck and lint passed. TesterArmy passed the iPhone flow. On iPad, the main run reached sign-in, Home, and return to sign-in; it then failed because its frame comparison depended on object key order. The numeric frames matched. A separate continuation passed the foreground and offline checks. See `.scratch/reviewer-login/REPORT-part4.md` for the traces and exact replay commands.
+- No production, deployment, upload, submission, or push action was taken. Physical devices and a real Apple sign-in were not tested. Reviewer tokens issued before teardown can become usable again if review access is later enabled and the same account is recreated before token expiry.
 
 ### 2026-11-20 — Reviewer demo data, Part 0
 

@@ -4,14 +4,20 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { createMobileToken } from '@/lib/mobile-auth'
 import { mobileUser } from '@/lib/mobile-dto'
-import { REVIEW_ACCOUNT_EMAIL, REVIEW_ACCOUNT_ID } from '@/lib/review-account'
+import { REVIEW_ACCOUNT_EMAIL, REVIEW_ACCOUNT_ID, reviewCodeEnabled } from '@/lib/review-account'
+
+export const dynamic = 'force-dynamic'
 
 const windowMs = 15 * 60 * 1000
 const failureLimit = 10
 
+export async function GET() {
+  return NextResponse.json({ enabled: reviewCodeEnabled() }, { headers: { 'Cache-Control': 'no-store' } })
+}
+
 export async function POST(req: NextRequest) {
   const expected = process.env.BILLBANDIT_REVIEW_CODE
-  if (!expected || expected.length < 16) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!expected || !reviewCodeEnabled()) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   let body: unknown
   try { body = await req.json() } catch { body = null }

@@ -194,7 +194,8 @@ final class APIClient: Sendable {
             ServerLedgerContract.clientValue,
             forHTTPHeaderField: ServerLedgerContract.clientCompatibilityHeader
         )
-        if let token = hasToken ? tokenProvider() : nil {
+        let requestToken = hasToken ? tokenProvider() : nil
+        if let token = requestToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let encodedBody {
@@ -241,7 +242,13 @@ final class APIClient: Sendable {
             "event=settlement.request.finish method=\(method) path=\(sanitizedPath) status=\(http.statusCode) duration_ms=\(durationMS(since: startedAt)) response_bytes=\(data.count)"
         )
 
-        if http.statusCode == 401 { throw SettlementAPIError.unauthorized }
+        if http.statusCode == 401 {
+            if UserDefaults.standard.string(forKey: "reviewAccountID") == "billbandit-review-account-v1",
+               let requestToken {
+                UsernameIdentityService.serverDidRejectCurrentSession(token: requestToken)
+            }
+            throw SettlementAPIError.unauthorized
+        }
         if !(200..<300).contains(http.statusCode) {
             if let error = try? JSONDecoder.settlement.decode(SettlementErrorResponse.self, from: data),
                let code = error.code ?? error.error {

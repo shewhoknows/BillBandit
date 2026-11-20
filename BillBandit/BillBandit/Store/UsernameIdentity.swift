@@ -241,6 +241,7 @@ enum UsernameIdentityService {
         let token: String
         let user: RemoteUser
     }
+    private struct ReviewCodeAvailability: Decodable { let enabled: Bool }
     private struct UserResponse: Decodable { let user: RemoteUser }
     private struct AccountDeletionResponse: Decodable { let deleted: Bool }
     private struct ErrorResponse: Decodable { let error: String? }
@@ -271,6 +272,19 @@ enum UsernameIdentityService {
         )
         try await activate(response, previousBindingAccountID: previousBindingAccountID)
         return response.user
+    }
+
+    static func reviewCodeIsEnabled() async -> Bool {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/api/mobile/auth/review-code"))
+        request.timeoutInterval = 5
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return false }
+            return try JSONDecoder().decode(ReviewCodeAvailability.self, from: data).enabled
+        } catch {
+            return false
+        }
     }
 
     static func authenticateWithReviewCode(_ code: String) async throws -> RemoteUser {
@@ -557,6 +571,9 @@ enum UsernameIdentityService {
         MobileTokenStore.clear()
         SessionBindingStore.clear()
         Task { @MainActor in
+            if accountID == "billbandit-review-account-v1" {
+                NotificationCenter.default.post(name: .reviewerSessionRejected, object: nil)
+            }
             ServerLedgerAccountLifecycle.shared.markUnauthorized(accountID: accountID)
             T15CanonicalLedgerRuntime.shared.accountDidLoseAuthorization(accountID: accountID)
         }
@@ -682,4 +699,8 @@ private enum SessionBindingStore {
         ]
         SecItemDelete(query as CFDictionary)
     }
+}
+
+extension Notification.Name {
+    static let reviewerSessionRejected = Notification.Name("reviewerSessionRejected")
 }

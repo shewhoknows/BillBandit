@@ -1503,6 +1503,12 @@ struct AppRootView: View {
             }
         }
         .task { await prepareAccountGate() }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewerSessionRejected)) { _ in
+            guard !reviewAccountID.isEmpty else { return }
+            reviewAccountID = ""
+            usernameHandleVerified = false
+            accountGateState = .signedOut
+        }
     }
 
     private var accountCheckView: some View {

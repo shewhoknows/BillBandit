@@ -15,7 +15,8 @@
     "dev:data": "tsx scripts/dev-data.ts",
     "review:reset": "tsx scripts/review-reset.ts",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "review:teardown": "tsx scripts/review-reset.ts --teardown"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
