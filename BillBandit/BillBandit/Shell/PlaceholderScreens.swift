@@ -90,6 +90,7 @@ struct OnboardingScreen: View {
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
@@ -281,7 +282,38 @@ struct OnboardingScreen: View {
         }
     }
 
+    @ViewBuilder
     private func onboardingPage(_ index: Int) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView {
+                VStack(spacing: 10) {
+                    MascotView(mascot: pages[index].0, size: 128, idle: false)
+                        .frame(height: 142)
+                        .accessibilityIdentifier("onboardingMascot-\(index)")
+                    Text(BrandFont.handText(pages[index].1))
+                        .font(BrandFont.hand(28, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("onboardingTitle-\(index)")
+                    Text(pages[index].2)
+                        .font(BrandFont.body(15, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 32)
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("onboardingDescription-\(index)")
+                }
+                .padding(.vertical, 10)
+            }
+        } else {
+            onboardingStandardPage(index)
+        }
+    }
+
+    private func onboardingStandardPage(_ index: Int) -> some View {
         GeometryReader { geometry in
             // Small phones (and very large text) get a smaller raccoon so the
             // copy always fits. The same size is used on all three pages.
