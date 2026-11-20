@@ -8,6 +8,12 @@
 
 ## 1. What this is
 
+### 2026-11-21 — Reviewer login, Part 5 (partial)
+
+- Accessibility fixes are committed on `feat/reviewer-login`: `ae3d33a` onboarding, `0a3ad4f` review sheet, `b4482b3` currency prompt, and `008d73b` Home. The signed Debug simulator build passed with the two existing warnings. TesterArmy evidence, screenshot mapping, exact replay and limits are in `.scratch/reviewer-login/REPORT-part5.md`.
+- The three-device contact sheets and the unscrolled Air before/after image are on the Tailscale review page. Its URL returned 200; browser rendering could not be checked because the in-app browser access host was unavailable.
+- Part 5 remains open: the simulators have no signed-in Apple Account; actual Apple authorization and post-Apple first run were not exercised. The signed-out iPhone system prompt clips text at the largest size. Some final Home states, conditional invitation/claim paths and the Pro default wrong-code accessibility assertion still need review. `DONE5.txt` was not created.
+
 ### 2026-11-20 — Reviewer access switch, Part 4
 
 - The unauthenticated review-code GET returns a non-cached enabled flag. The flag requires a code of at least 16 characters. Removing the variable also rejects reviewer tokens with 401. Apple accounts keep their existing path.
