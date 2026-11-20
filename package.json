@@ -15,6 +15,7 @@
     "db:push": "npm --workspace apps/api run db:push",
     "dev:server": "npm --workspace apps/api run dev:server",
     "dev:data": "npm --workspace apps/api run dev:data --",
+    "review:reset": "npm --workspace apps/api run review:reset --",
     "db:studio": "npm --workspace apps/api run db:studio"
   }
 }

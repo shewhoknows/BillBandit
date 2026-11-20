@@ -91,6 +91,7 @@ struct OnboardingScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
     @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
@@ -104,6 +105,11 @@ struct OnboardingScreen: View {
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
     @State private var currentAppleNonce: String?
     @State private var isAuthorizingWithApple = false
+    @State private var showReviewCode = false
+    @State private var reviewCode = ""
+    @State private var reviewCodeError = false
+    @State private var isReviewSigningIn = false
+    @FocusState private var reviewCodeFocused: Bool
     @State private var appleAuthorizationAttemptID = UUID()
     /// A returning Apple account already has a server-owned handle. Keep that
     /// value so we do not POST a second claim for it.
@@ -210,6 +216,47 @@ struct OnboardingScreen: View {
             hasUsernameSession = UsernameIdentityService.hasStoredSession
             startMascotMotion()
         }
+        .sheet(isPresented: $showReviewCode) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Review code")
+                            .font(BrandFont.display(28, weight: .bold))
+                        TextField("Review code", text: $reviewCode)
+                            .font(BrandFont.body(16, weight: .semibold))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($reviewCodeFocused)
+                            .accessibilityIdentifier("reviewCodeField")
+                            .padding(14)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                        if reviewCodeError {
+                            Text("That code did not work.")
+                                .font(BrandFont.body(14, weight: .semibold))
+                                .accessibilityIdentifier("reviewCodeError")
+                        }
+                        Button(isReviewSigningIn ? "Signing in…" : "Sign in") {
+                            Task { await signInWithReviewCode() }
+                        }
+                        .font(BrandFont.display(16, weight: .bold))
+                        .foregroundStyle(Color.Brand.creamSoft)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.Brand.cobalt, in: Capsule())
+                        .disabled(isReviewSigningIn)
+                        .accessibilityIdentifier("reviewCodeSubmit")
+                    }
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .padding(24)
+                }
+                .background(Color.Brand.creamSoft.ignoresSafeArea())
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showReviewCode = false }
+                    }
+                }
+                .onAppear { reviewCodeFocused = true }
+            }
+        }
         .onChange(of: reduceMotion) {
             startMascotMotion()
         }
@@ -283,6 +330,16 @@ struct OnboardingScreen: View {
                 nextButton
             } else {
                 onboardingPrimaryAction
+                if needsAppleSignIn {
+                    Button("Have a review code?") {
+                        reviewCode = ""
+                        reviewCodeError = false
+                        showReviewCode = true
+                    }
+                    .font(BrandFont.body(12, weight: .semibold))
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    .accessibilityIdentifier("reviewCodeLink")
+                }
             }
         }
         .padding(.horizontal, 22)
@@ -364,6 +421,35 @@ struct OnboardingScreen: View {
 
     private var onboardingTransition: Animation {
         reduceMotion ? .easeOut(duration: 0.16) : .easeInOut(duration: 0.46)
+    }
+
+    @MainActor
+    private func signInWithReviewCode() async {
+        guard !isReviewSigningIn else { return }
+        isReviewSigningIn = true
+        defer { isReviewSigningIn = false }
+        do {
+            let user = try await UsernameIdentityService.authenticateWithReviewCode(reviewCode)
+            guard user.id == "billbandit-review-account-v1",
+                  let username = user.username else { throw UsernameIdentityService.ServiceError.missingSession }
+            ServerLedgerSurfaceStore.shared.accountDidAuthenticate(user.id)
+            let current = AccountProfileIntegrity.canonicalize(
+                appleUserIdentifier: nil, cloudUserRecordName: nil, context: context
+            )
+            current.name = username
+            current.appleSessionStateRaw = "active"
+            try context.save()
+            appleUserIdentifier = ""
+            applePrivateEmail = ""
+            reviewAccountID = user.id
+            CloudCollaborationService.shared.beginReviewSession()
+            usernameHandleVerified = true
+            hasUsernameSession = true
+            showReviewCode = false
+            onComplete()
+        } catch {
+            reviewCodeError = true
+        }
     }
 
     /// Finishes setup and opens Home. A returning account keeps its handle.
@@ -460,6 +546,7 @@ struct OnboardingScreen: View {
                 )
                 AppleSignInSupport.logBackendExchangeSucceeded()
                 ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
+                reviewAccountID = ""
                 deferNextAppleCredentialStateCheck = true
                 appleUserIdentifier = credential.user
                 if let email = credential.email { applePrivateEmail = email }
@@ -1037,6 +1124,7 @@ struct ProfileScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
@@ -1323,7 +1411,7 @@ struct ProfileScreen: View {
 
     private var appleAccountSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if appleUserIdentifier.isEmpty || !hasUsernameSession {
+            if (appleUserIdentifier.isEmpty && reviewAccountID.isEmpty) || !hasUsernameSession {
                 if !appleUserIdentifier.isEmpty {
                     Text("Reconnect Apple to verify your unique handle.")
                         .font(BrandFont.type(11, bold: true))
@@ -1577,6 +1665,7 @@ struct ProfileScreen: View {
                 ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
                 deferNextAppleCredentialStateCheck = true
                 appleUserIdentifier = credential.user
+                reviewAccountID = ""
                 accountOnboardingComplete = true
                 hasUsernameSession = true
                 if let email = credential.email { applePrivateEmail = email }
@@ -1621,6 +1710,7 @@ struct ProfileScreen: View {
         }
         try? context.save()
         appleUserIdentifier = ""
+        reviewAccountID = ""
         applePrivateEmail = ""
         accountOnboardingComplete = false
         usernameHandleVerified = false
@@ -1642,6 +1732,7 @@ struct ProfileScreen: View {
                 CloudCollaborationService.shared.accountDidSignOut()
                 try LocalAccountDataCleanup.deleteAll(context: context)
                 appleUserIdentifier = ""
+                reviewAccountID = ""
                 applePrivateEmail = ""
                 accountOnboardingComplete = false
                 usernameHandleVerified = false

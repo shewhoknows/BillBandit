@@ -8,6 +8,13 @@
 
 ## 1. What this is
 
+### 2026-11-20 — Reviewer-code login (local simulator verification)
+
+- Work on `feat/reviewer-login` adds a review-code API, an iOS sign-in sheet, a dedicated reviewer session, and a demo reset command. A migration adds the durable IP failure limit.
+- The local API e2e checks passed for authentication, failed-code limiting, feature-off 404, demo balances, expense and payment creation, reset, the confirmation guard, and refusal to alter a non-demo friendship. The iOS Debug build, API typecheck, and lint passed; the build had the two existing warnings.
+- A normal automatically signed Debug simulator build passed. TesterArmy verified the iPhone reviewer flow, including wrong and correct codes, both groups, expense creation, payment, and reset. The same reviewer flow passed on the dedicated iPad in compatibility mode; the review sheet and feature-off message were also checked with the software keyboard open. Apple sign-in regression and physical-device behavior remain unverified. Do not ship without the owner approval and production checks in the report.
+- Evidence and replay steps are in `.scratch/reviewer-login/REPORT.md`. No production settings, production database, deployment, upload, or submission was changed.
+
 **BillBandit** — an iOS expense-splitting app (Splitwise-style) with a hand-drawn
 raccoon mascot, cobalt `#1F3FC3` + cream `#EFEFD7` palette, and an illustrated,
 poster-like aesthetic ("Direction B — Cobalt Club").

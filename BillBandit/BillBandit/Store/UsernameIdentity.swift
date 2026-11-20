@@ -234,6 +234,7 @@ enum UsernameIdentityService {
     }
 
     private struct UsernameRequest: Encodable { let username: String }
+    private struct ReviewCodeRequest: Encodable { let code: String }
     private struct AvatarRequest: Encodable { let avatar: String }
     private struct DefaultCurrencyRequest: Encodable { let defaultCurrency: String }
     private struct AuthenticationResponse: Decodable {
@@ -268,6 +269,21 @@ enum UsernameIdentityService {
         let response: AuthenticationResponse = try await perform(
             path: "/api/mobile/auth/apple", method: "POST", body: body, bearerToken: nil
         )
+        try await activate(response, previousBindingAccountID: previousBindingAccountID)
+        return response.user
+    }
+
+    static func authenticateWithReviewCode(_ code: String) async throws -> RemoteUser {
+        let previousBindingAccountID = SessionBindingStore.read()?.accountID
+        let response: AuthenticationResponse = try await perform(
+            path: "/api/mobile/auth/review-code", method: "POST",
+            body: ReviewCodeRequest(code: code), bearerToken: nil
+        )
+        try await activate(response, previousBindingAccountID: previousBindingAccountID)
+        return response.user
+    }
+
+    private static func activate(_ response: AuthenticationResponse, previousBindingAccountID: String?) async throws {
         try persistVerifiedSession(token: response.token, user: response.user)
         try await MainActor.run {
             guard MobileTokenStore.read() == response.token else {
@@ -282,7 +298,6 @@ enum UsernameIdentityService {
             try ServerLedgerAccountLifecycle.shared.activate(accountID: response.user.id)
             ServerSocialSyncService.shared.accountDidAuthenticate(response.user)
         }
-        return response.user
     }
 
     static func claim(_ handle: UsernameHandle) async throws -> String {

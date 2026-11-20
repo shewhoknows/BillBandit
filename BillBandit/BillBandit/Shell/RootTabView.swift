@@ -1445,6 +1445,7 @@ struct AppRootView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
     @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
@@ -1482,7 +1483,7 @@ struct AppRootView: View {
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             } else if accountGateState == .authorized &&
                         AccountOnboardingAccessPolicy.mayEnterApp(
-                            hasAppleIdentifier: !appleUserIdentifier.isEmpty,
+                            hasAppleIdentifier: !appleUserIdentifier.isEmpty || !reviewAccountID.isEmpty,
                             accountOnboardingComplete: accountOnboardingComplete
                         ) && usernameHandleVerified {
                 RootTabView()
@@ -1544,6 +1545,29 @@ struct AppRootView: View {
         if forceSignedOutOnboarding {
             ServerLedgerSurfaceStore.shared.accountDidSignOut()
             verifyAppleCredential()
+            return
+        }
+        if !reviewAccountID.isEmpty {
+            guard UsernameIdentityService.hasStoredSession, accountOnboardingComplete else {
+                reviewAccountID = ""
+                accountGateState = .signedOut
+                return
+            }
+            do {
+                let user = try await UsernameIdentityService.authenticatedUserForLedger()
+                guard user.id == reviewAccountID, user.id == "billbandit-review-account-v1",
+                      user.username != nil else {
+                    reviewAccountID = ""
+                    UsernameIdentityService.signOut()
+                    accountGateState = .signedOut
+                    return
+                }
+                ServerLedgerSurfaceStore.shared.accountDidAuthenticate(user.id)
+                usernameHandleVerified = true
+                accountGateState = .authorized
+            } catch {
+                accountGateState = .signedOut
+            }
             return
         }
         if bypassOnboarding {
