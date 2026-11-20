@@ -1463,17 +1463,23 @@ struct ProfileScreen: View {
                 .allowsHitTesting(!isSavingUsername)
             } else {
                 HStack(spacing: 12) {
-                    Text("")
-                        .font(.system(size: 22, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .foregroundStyle(Color.Brand.creamSoft)
-                        .background(Color.Brand.cobalt, in: Circle())
+                    SwiftUI.Group {
+                        if reviewAccountID.isEmpty {
+                            Text("")
+                        } else {
+                            Image(systemName: "person.fill")
+                        }
+                    }
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 38, height: 38)
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    .background(Color.Brand.cobalt, in: Circle())
                     // One line only, also with large text sizes. No email.
-                    Text("Signed in with Apple")
+                    Text(reviewAccountID.isEmpty ? "Signed in with Apple" : "Signed in as App Reviewer")
                         .font(BrandFont.body(13.5, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .accessibilityIdentifier("profileSignedInWithApple")
+                        .accessibilityIdentifier(reviewAccountID.isEmpty ? "profileSignedInWithApple" : "profileSignedInAsReviewer")
                     Spacer(minLength: 8)
                     Button("Sign out") { showSignOutConfirmation = true }
                     .font(BrandFont.type(11, bold: true))

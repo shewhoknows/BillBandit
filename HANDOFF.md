@@ -11,9 +11,10 @@
 ### 2026-11-20 — Reviewer demo data, Part 0
 
 - Reviewer demo friends use their display names on shared surfaces. Their reserved handles are `aarav_bb`, `kabir_bb`, and `ira_bb`; other accounts keep the existing naming rule.
-- For the reviewer account, the mobile friends response lets the existing client use those display names in the expense form and Profile. The API e2e check and the iPhone demo flow passed with this response.
+- For the reviewer account, the mobile friends response lets the existing client use those display names in the expense form and Profile. Profile labels this session as App Reviewer; Apple sessions keep their existing label. The API e2e check and the iPhone demo flow passed with this response.
 - Goa Trip starts with a partial payment to Aarav and both incoming and outgoing transfers. Flat 4B also has a partial payment so Home shows an amount owed in each direction. The local API check confirmed an Aarav payment remains after the planned ₹2,400 expense.
-- TesterArmy e2e passed Home, Goa Trip, and Activity on iPhone 17 Pro and iPad Air 11-inch M4 with iOS 26.5. The iPad review-code sheet and keyboard were visible. The iPad run entered a temporary local code using screen points because the driver could not locate the compatibility window for `fill`. Evidence is in `.scratch/reviewer-login/evidence/part0/20261120T125414Z.2IRPLb/` and the matching e2e result folders. The demo video and remaining iPad-fix matrix are not yet complete.
+- The local App Review demo and iPad comparison are on the Tailscale review page. The video uses local reset data and masks the temporary review code. See `.scratch/reviewer-login/REPORT-part2.md` for replay steps and proof limits.
+- TesterArmy e2e passed Home, Goa Trip, and Activity on iPhone 17 Pro and iPad Air 11-inch M4 with iOS 26.5. The iPad review-code sheet and keyboard were visible. The iPad run entered a temporary local code using screen points because the driver could not locate the compatibility window for `fill`. Evidence is in `.scratch/reviewer-login/evidence/part0/20261120T125414Z.2IRPLb/` and the matching e2e result folders. The iPad-fix matrix passed on the dedicated iPhone 17 Pro, iPad Air 11-inch M4, and iPad Pro 13-inch M5 simulators. The largest-text onboarding, long payer label, and cobalt date title were checked with TesterArmy e2e. Default-size layout was not separately compared pixel by pixel.
 
 ### 2026-11-20 — Reviewer-code login (local simulator verification)
 
