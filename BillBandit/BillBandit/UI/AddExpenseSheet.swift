@@ -306,7 +306,7 @@ struct AddExpenseSheet: View {
         .fullScreenCover(isPresented: $showNewGroup) { AddGroupSheet(opensCreatedGroup: false) }
         .sheet(isPresented: $showDatePicker) {
             VStack(spacing: 16) {
-                BrandModalHeader(title: "Expense date") { showDatePicker = false }
+                BrandModalHeader(title: "Expense date", titleColor: .Brand.cobalt) { showDatePicker = false }
                 DatePicker("Expense date", selection: $expenseDate, in: ...Date.now, displayedComponents: .date)
                     .datePickerStyle(.graphical)
                     .tint(Color.Brand.cobalt)
@@ -1196,6 +1196,7 @@ private struct T15ExpenseMutationBody: Encodable {
 /// Shared full-screen modal header. Keeping this in SwiftUI avoids system sheet chrome.
 struct BrandModalHeader: View {
     let title: String
+    var titleColor: Color = .Brand.creamSoft
     let close: () -> Void
 
     var body: some View {
@@ -1211,7 +1212,7 @@ struct BrandModalHeader: View {
             Spacer()
             Text(title)
                 .font(BrandFont.display(17, weight: .semibold))
-                .foregroundStyle(Color.Brand.creamSoft)
+                .foregroundStyle(titleColor)
             Spacer()
             Color.clear.frame(width: 42, height: 42)
         }
