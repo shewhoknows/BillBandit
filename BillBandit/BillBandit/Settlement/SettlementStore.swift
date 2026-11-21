@@ -235,6 +235,10 @@ final class SettlementStore {
             callerParticipantId = nil
             isMigrationBlocked = false
             requiresReconfirmation = false
+            // The old group's payments go back to AppFailureCenter.
+            for operationID in operationIDsByActionKey.values {
+                AppFailureCenter.shared.endOwning(operationID)
+            }
             operationIDsByActionKey.removeAll()
             reportedFailedOperationIDs.removeAll()
             writeFailureNotice = nil
@@ -258,6 +262,16 @@ final class SettlementStore {
 
     func setVisible(_ visible: Bool) {
         isVisible = visible
+        // While this screen is on screen it tells the person about the
+        // payments it queued (publishNewWriteFailures); afterwards the
+        // app-wide AppFailureCenter does.
+        for operationID in operationIDsByActionKey.values {
+            if visible {
+                AppFailureCenter.shared.beginOwning(operationID)
+            } else {
+                AppFailureCenter.shared.endOwning(operationID)
+            }
+        }
         if visible {
             Task { await refresh(forceWritesDisabled: true) }
         } else {
@@ -655,6 +669,7 @@ final class SettlementStore {
         }
         _ = try serverLedgerStore.enqueue(mutation)
         operationIDsByActionKey[actionKey] = mutation.operationID
+        if isVisible { AppFailureCenter.shared.beginOwning(mutation.operationID) }
     }
 
     private func reconcileAfterMutation(scope: ServerBackedLedgerScope) async throws {
@@ -697,6 +712,8 @@ final class SettlementStore {
         for (key, id) in operationIDsByActionKey { keyByID[id] = key }
         return rows.compactMap { row in
             guard row.retryState == .failed,
+                  row.failureAcknowledgedAt == nil,
+                  !AppFailureCenter.shared.isPending(row.operationID),
                   !reportedFailedOperationIDs.contains(row.operationID),
                   let key = keyByID[row.operationID] else { return nil }
             return (row, key.hasPrefix("reversal:"))
@@ -706,6 +723,7 @@ final class SettlementStore {
     private func markWriteFailuresReported(scope: ServerBackedLedgerScope) {
         for failed in ownFailedOperations(scope: scope) {
             reportedFailedOperationIDs.insert(failed.operation.operationID)
+            try? serverLedgerStore.acknowledgeFailure(operationID: failed.operation.operationID)
         }
     }
 
@@ -715,6 +733,7 @@ final class SettlementStore {
     private func publishNewWriteFailures(scope: ServerBackedLedgerScope) {
         for failed in ownFailedOperations(scope: scope) {
             reportedFailedOperationIDs.insert(failed.operation.operationID)
+            try? serverLedgerStore.acknowledgeFailure(operationID: failed.operation.operationID)
             let reason = failed.operation.lastError
             if reason == "revision_conflict_requires_reconfirmation" {
                 // Shown by the "Settlement changed. Confirm again." banner,

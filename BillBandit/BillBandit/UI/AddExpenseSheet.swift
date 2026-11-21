@@ -942,7 +942,7 @@ struct AddExpenseSheet: View {
                 queued = true
                 statusMessage = "Saving expense…"
 
-                let canonicalSnapshot = try await T15CanonicalLedgerRuntime.shared.reconcile(scope: scope)
+                let canonicalSnapshot = try await T15CanonicalLedgerRuntime.shared.reconcile(scope: scope, owning: operationID)
                 let reconciledGroup = try T15CanonicalLedgerRuntime.shared.validatedGroup(
                     from: canonicalSnapshot,
                     scope: scope

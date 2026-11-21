@@ -1,8 +1,8 @@
 # Settlement E2E
-Revision: c6c092abdc8b46f9f30d56742ef7ad28158c03b7 (+ uncommitted changes)
-Environment: API http://127.0.0.1:3200, DB postgresql://localhost:5432/billbandit_int, node v22.23.5, 2026-11-21T13:51:30.289Z
+Revision: 241151d3573b5809f6960a86929664b840c065b8 (+ uncommitted changes)
+Environment: API http://127.0.0.1:3200, DB postgresql://localhost:5432/billbandit_int3, node v22.23.5, 2026-11-21T14:41:45.123Z
 Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... npx tsx scripts/settlement-e2e.ts
-Group: cmwqguwu00014zd77d152h95l
+Group: cmwqinjvk001410omywp7q7g2
 | Step | Result |
 | --- | --- |
 | 1. Pay more than owed is refused and records nothing | PASS |

@@ -566,6 +566,37 @@ Group creation with accepted friends should normally use `memberAccountIds` in
 `POST /api/mobile/groups`, because that creates the complete initial membership in
 the same transaction as the group.
 
+### PATCH /api/groups/{id}/settlement-settings
+
+Auth: Bearer required (mobile session). Turns "simplify debts" on or off for
+one group. Added 2026-11-21.
+
+Request:
+```json
+{ "expectedVersion": 12, "simplifyDebts": false, "operationId": "optional" }
+```
+Header `Idempotency-Key` (or body `operationId`) is required. The same key
+replays the first answer.
+
+- Only a group administrator (owner) may change it. Others get 403 `FORBIDDEN`.
+- `expectedVersion` must be the group's current revision, or the answer is
+  409 `SETTLEMENT_VERSION_CONFLICT` with the current `state`.
+- An archived group refuses it.
+- Sending the value the group already has changes nothing:
+  `result.noop = true` and the revision stays.
+- A change writes one `SettlementSettingAudit` row (who, when, new value) and
+  bumps the revision by 1. The settle-up plan (`settlementPlan.mode`
+  `SIMPLIFIED` or `DIRECT`) changes on the next read. Balances and recorded
+  payments do not change. A payment confirmed against the old plan gets 409
+  and must be confirmed again.
+- 200 `{ result: { version, recordId, eventType, noop? }, state }`.
+  `state` is `null` when the caller can no longer read the group.
+
+The same `state: null` rule applies to `POST /api/groups/{id}/settlements`
+and `.../settlements/{settlementId}/reversals`: a person who left the group
+can record or reverse a payment only while they still owe or are owed money,
+so paying their last debt ends their read access. The payment is saved.
+
 ### POST /api/mobile/transactions
 
 Auth: Bearer required. Records a settlement payment.

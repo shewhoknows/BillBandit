@@ -1760,6 +1760,9 @@ struct RootTabView: View {
     @State private var movesForward = true
     @State private var profilePickerRequested = false
     @StateObject private var rewardFeedback = RewardFeedbackCenter.shared
+    @StateObject private var failureCenter = AppFailureCenter.shared
+    @StateObject private var socialSync = ServerSocialSyncService.shared
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var collaboration = CloudCollaborationService.shared
     @StateObject private var friendInvitations = FriendInvitationService.shared
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
@@ -1823,6 +1826,34 @@ struct RootTabView: View {
         }
         .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
                    value: rewardFeedback.current?.id)
+        // No silent failures: a change the server refused after its screen
+        // closed, or background work that stopped, is shown here until the
+        // person presses OK. Refresh problems show as a small line.
+        .overlay(alignment: .top) {
+            VStack(spacing: 8) {
+                if let notice = failureCenter.current {
+                    FailureNoticeView(notice: notice) { failureCenter.dismissCurrent() }
+                        .id(notice.id)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                }
+                if socialSync.showsRefreshProblem {
+                    RefreshProblemLine {
+                        Task { await ServerSocialSyncService.shared.refresh() }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 6)
+            .zIndex(30)
+        }
+        .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
+                   value: failureCenter.current?.id)
+        .animation(.easeOut(duration: 0.2), value: socialSync.showsRefreshProblem)
+        .onAppear { failureCenter.start() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { failureCenter.scheduleLedgerCheck() }
+        }
         .fullScreenCover(isPresented: $showAdd) {
             AddExpenseSheet(initialGroup: dockGroup)
         }
@@ -2035,6 +2066,73 @@ private struct MemberClaimView: View {
         withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
             CloudCollaborationService.shared.claimCurrentUser(in: groupID, as: memberID)
         }
+    }
+}
+
+/// One failure the person must see. Stays until OK.
+private struct FailureNoticeView: View {
+    let notice: AppFailureNotice
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            MascotView(mascot: .confused, size: 40, idle: false)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(notice.title)
+                    .font(BrandFont.display(14, weight: .bold))
+                Text(notice.message)
+                    .font(BrandFont.type(11, bold: true))
+                    .opacity(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button("OK", action: onDismiss)
+                .font(BrandFont.display(14, weight: .bold))
+                .foregroundStyle(Color.Brand.creamSoft)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 36)
+                .background(Color.Brand.cobalt, in: Capsule())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("failureNoticeOK")
+        }
+        .foregroundStyle(Color.Brand.cobalt)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .stroke(Color.Brand.cobalt, lineWidth: 2.5))
+        .shadow(color: Color.black.opacity(0.22), radius: 12, y: 5)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("failureNotice")
+    }
+}
+
+/// Friends and groups could not be refreshed. Tap to try again.
+private struct RefreshProblemLine: View {
+    let onRetry: () -> Void
+
+    var body: some View {
+        Button(action: onRetry) {
+            HStack(spacing: 7) {
+                BrandIconView(icon: .pulse, size: 13)
+                Text("Couldn't refresh friends and groups · showing saved data")
+                    .font(BrandFont.type(11, bold: true))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                Text("retry")
+                    .font(BrandFont.type(11, bold: true))
+                    .opacity(0.72)
+            }
+            .foregroundStyle(Color.Brand.cobalt)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.Brand.creamSoft, in: Capsule())
+            .overlay(Capsule().stroke(Color.Brand.cobalt, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("refreshProblemLine")
+        .accessibilityHint("Tries to refresh friends and groups again")
     }
 }
 

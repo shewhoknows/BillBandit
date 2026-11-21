@@ -276,7 +276,28 @@ final class CloudCollaborationService: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var lastSync: Date?
-    @Published private(set) var lastIssue: String?
+    @Published private(set) var lastIssue: String? {
+        didSet {
+            guard let issue = lastIssue, issue != oldValue else { return }
+            Self.reportIssueOnce(issue)
+        }
+    }
+
+    /// iCloud profile and friend-photo sync stopped. Said once per distinct
+    /// reason (it used to be stored and never shown).
+    private static func reportIssueOnce(_ issue: String) {
+        let key = "iCloudSyncIssueNoticeShown"
+        guard UserDefaults.standard.string(forKey: key) != issue else { return }
+        AppFailureCenter.shared.report(
+            AppFailureNotice(
+                id: "icloud-issue",
+                title: "iCloud profile sync stopped",
+                message: "\(issue) Friends' names and pictures may be out of date. Your groups and balances are not affected."
+            )
+        ) {
+            UserDefaults.standard.set(issue, forKey: key)
+        }
+    }
     @Published private(set) var pendingMemberClaimGroupID: UUID?
 
     let container: CKContainer
@@ -845,6 +866,7 @@ private extension CloudCollaborationService {
             try? context.save()
             state = created
         }
+        if state.statusRaw == "needsRepair" { reportLegacyImportNeedsRepair(accountID: accountID) }
         guard !state.isComplete, state.statusRaw != "needsRepair" else { return }
 
         do {
@@ -901,16 +923,36 @@ private extension CloudCollaborationService {
             state.lastError = completed ? nil : response.status
             state.updatedAt = .now
             try? context.save()
+            if needsRepair, !completed { reportLegacyImportNeedsRepair(accountID: accountID) }
         } catch {
             guard isCurrentAccount() else { return }
             state.lastError = error.localizedDescription
             if case let LegacyImportError.server(status, _) = error, status == 409 {
                 state.statusRaw = "needsRepair"
             } else {
+                // Temporary (offline, iCloud busy): tried again on the next
+                // foreground, so nothing to tell yet.
                 state.statusRaw = state.importID == nil ? "collecting" : "submitted"
             }
             state.updatedAt = .now
             try? context.save()
+            if state.statusRaw == "needsRepair" { reportLegacyImportNeedsRepair(accountID: accountID) }
+        }
+    }
+
+    /// The old CloudKit data could not be moved and the app stops trying.
+    /// Say so once per account (it used to stop silently).
+    private func reportLegacyImportNeedsRepair(accountID: String) {
+        let key = "legacyImportNeedsRepairNoticeShown.\(accountID)"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        AppFailureCenter.shared.report(
+            AppFailureNotice(
+                id: "legacy-import-\(accountID)",
+                title: "Old iCloud data not moved",
+                message: "BillBandit could not move your groups from the earlier iCloud version to your account. They are still in iCloud. Your current groups and balances are not affected."
+            )
+        ) {
+            UserDefaults.standard.set(true, forKey: key)
         }
     }
 
@@ -1508,7 +1550,13 @@ enum ServerGroupCatalogProjection {
 final class ServerSocialSyncService: ObservableObject {
     static let shared = ServerSocialSyncService()
 
-    @Published private(set) var lastError: String?
+    @Published private(set) var lastError: String? {
+        didSet { if lastError == nil { showsRefreshProblem = false } }
+    }
+    /// True when friends and groups could not be refreshed: a full refresh
+    /// failed, or two change polls in a row failed. RootTabView shows a small
+    /// "Couldn't refresh" line with retry, so a refresh problem is never silent.
+    @Published private(set) var showsRefreshProblem = false
     private let api = APIClient.live()
     private var refreshTask: Task<Void, Never>?
     private var activeAccountID: String?
@@ -1565,6 +1613,7 @@ final class ServerSocialSyncService: ObservableObject {
             await refresh(remoteUser: remoteUser)
         } catch {
             lastError = error.localizedDescription
+            showsRefreshProblem = true
         }
     }
 
@@ -1599,6 +1648,7 @@ final class ServerSocialSyncService: ObservableObject {
             guard !Task.isCancelled else { return }
             pollFailureCount += 1
             lastError = error.localizedDescription
+            if pollFailureCount >= 2 { showsRefreshProblem = true }
             if pollFailureCount.isMultiple(of: 4) {
                 await refresh()
             }
@@ -1712,6 +1762,7 @@ final class ServerSocialSyncService: ObservableObject {
                   activeAccountID == remoteUser.id,
                   !Task.isCancelled else { return }
             lastError = error.localizedDescription
+            showsRefreshProblem = true
         }
     }
 

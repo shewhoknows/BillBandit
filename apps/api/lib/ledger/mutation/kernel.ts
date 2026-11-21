@@ -19,7 +19,8 @@ import { wakeOutboxDispatcher } from '../../settlement/outbox/dispatcher'
 import type { GroupLedgerInput, SettlementRecord } from '../../settlement/ledger/types'
 import {
   OperationKeyRaceError,
-  assertDepartedBalances,
+  assertLeaverIsSettled,
+  hasUnsettledPosition,
   assertExpenseEvent,
   assertGroupEvent,
   assertKeepsAnAdmin,
@@ -266,6 +267,32 @@ async function ensureActiveMember(
     throw new LedgerMutationError('FORBIDDEN', 403, 'An administrator is required')
   }
   return member as { id: string; role: 'ADMIN' | 'MEMBER'; userId: string }
+}
+
+/**
+ * Who may record or reverse a payment: an active member, or a person who
+ * left the group while they still owe or are owed money (an old expense they
+ * shared changed after they left). This is the access matrix's "departed
+ * with unsettled position" (lib/settlement/access/matrix.ts). The callers
+ * then also require the actor to be the payer or the recipient.
+ */
+async function ensureSettlementActor(tx: MutationTransaction, request: NormalizedRequest): Promise<void> {
+  const member = await tx.groupMember.findUnique({
+    where: { groupId_userId: { groupId: request.groupId, userId: request.actorUserId } },
+    select: { id: true },
+  })
+  if (member) return
+  const participant = await tx.groupParticipant.findUnique({
+    where: { groupId_userId: { groupId: request.groupId, userId: request.actorUserId } },
+    select: { id: true, status: true },
+  })
+  if (
+    participant?.status === 'DEPARTED' &&
+    hasUnsettledPosition(await loadMutationLedger(request.groupId, tx), participant.id)
+  ) {
+    return
+  }
+  throw new LedgerMutationError('FORBIDDEN', 403, 'Actor is not a group member')
 }
 
 /** Expense writes are allowed only while the group is open (not finalized or archived). */
@@ -861,7 +888,7 @@ async function prepareMembership(
     throw new LedgerMutationError('MEMBER_NOT_FOUND', 404, 'Membership not found')
   }
   if (request.kind === 'membership.remove') {
-    // The balance-is-zero guard runs after the write (assertDepartedBalances).
+    // The balance-is-zero guard runs after the write (assertLeaverIsSettled).
     assertKeepsAnAdmin({
       targetRole: existing.role,
       nextRole: null,
@@ -941,7 +968,7 @@ async function prepareSettlement(
   request: NormalizedRequest,
   group: GroupSnapshot
 ): Promise<PreparedMutation> {
-  await ensureActiveMember(tx, request)
+  await ensureSettlementActor(tx, request)
   const payload = settlementPayload(request.payload)
   const payerParticipantId = requiredString(payload.payerParticipantId, 'payerParticipantId')
   const recipientParticipantId = requiredString(
@@ -1101,7 +1128,7 @@ async function prepareReversal(
   tx: MutationTransaction,
   request: NormalizedRequest
 ): Promise<PreparedMutation> {
-  await ensureActiveMember(tx, request)
+  await ensureSettlementActor(tx, request)
   const payload = reversalPayload(request.payload)
   const settlementId = requiredString(payload.settlementId, 'settlementId')
   const transaction = await tx.transaction.findUnique({
@@ -1434,35 +1461,6 @@ async function recordMutationActivity(
   })
 }
 
-const BALANCE_CHANGING_KINDS = new Set<CanonicalMutationKind>([
-  'expense.create',
-  'expense.edit',
-  'expense.delete',
-  'membership.remove',
-  'settlement.create',
-  'settlement.reverse',
-])
-
-/**
- * The ledger before the write, when the write could move a departed
- * person's balance: a member is leaving, or someone already left. Most
- * groups have nobody departed, so they pay only one count query.
- */
-async function departedGuardLedger(
-  tx: MutationTransaction,
-  request: NormalizedRequest,
-  prepared: PreparedMutation
-): Promise<GroupLedgerInput | null> {
-  if (!BALANCE_CHANGING_KINDS.has(prepared.kind)) return null
-  if (prepared.kind !== 'membership.remove') {
-    const departed = await tx.groupParticipant.count({
-      where: { groupId: request.groupId, status: 'DEPARTED' },
-    })
-    if (departed === 0) return null
-  }
-  return loadMutationLedger(request.groupId, tx)
-}
-
 async function executeInTransaction(
   tx: MutationTransaction,
   request: NormalizedRequest,
@@ -1518,11 +1516,10 @@ async function executeInTransaction(
     })
   }
 
-  const balancesBefore = await departedGuardLedger(tx, request, prepared)
   const revision = await reserveRevision(tx, request)
   await commitPreparedMutation(tx, prepared)
-  if (balancesBefore) {
-    assertDepartedBalances(balancesBefore, await loadMutationLedger(request.groupId, tx))
+  if (prepared.kind === 'membership.remove' && prepared.participantUserId) {
+    assertLeaverIsSettled(await loadMutationLedger(request.groupId, tx), prepared.participantUserId)
   }
   const committedAt = options.now()
   await recordMutationActivity(tx, request, prepared, operation.id, committedAt)

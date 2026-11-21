@@ -1,20 +1,22 @@
-revision: merged branch fix/state-machines-tla, checked 2026-11-21 13:54-14:03 UTC (Java 11, TLC 2026.11.19)
+revision: fix/state-machines-tla + 2026-11-21 follow-up (departed members, simplify route, failure notices), checked 2026-11-21T14:41:06Z
 identity-friends-import/AccountDeletion-after (AccountDeletion.tla): Model checking completed. No error has been found. | 23 distinct states found, 0 states left on queue.
 identity-friends-import/AppleSignIn-after (AppleSignIn.tla): Model checking completed. No error has been found. | 158 distinct states found, 0 states left on queue.
 identity-friends-import/CloudKitImport-after (CloudKitImport.tla): Model checking completed. No error has been found. | 167 distinct states found, 0 states left on queue.
 identity-friends-import/CloudKitImport-change-after (CloudKitImport.tla): Error: Temporal property EventuallyCompleted was violated. | 1062 distinct states found, 0 states left on queue.
 identity-friends-import/FriendClaimLimit-after (FriendClaimLimit.tla): Model checking completed. No error has been found. | 297 distinct states found, 0 states left on queue.
+ios-failure-notices/FailureNotices_after (FailureNotices.tla): Model checking completed. No error has been found. | 100 distinct states found, 0 states left on queue.
+ios-ledger-sync/after (LedgerQueueSync.tla): Model checking completed. No error has been found. | 159131 distinct states found, 0 states left on queue.
 ios-ledger-sync/after_live (LedgerQueueSync.tla): Model checking completed. No error has been found. | 44000 distinct states found, 0 states left on queue.
-ledger-kernel/GroupMembership_after (GroupMembership.tla): Model checking completed. No error has been found. | 668 distinct states found, 0 states left on queue.
+ledger-kernel/GroupMembership_after (GroupMembership.tla): Model checking completed. No error has been found. | 808 distinct states found, 0 states left on queue.
+ledger-kernel/LedgerKernel_after: SKIPPED
+ledger-kernel/LedgerKernel_after_2ops (LedgerKernel.tla): Model checking completed. No error has been found. | 36526 distinct states found, 0 states left on queue.
+ledger-kernel/LedgerKernel_after_liveness (LedgerKernel.tla): Model checking completed. No error has been found. | 36526 distinct states found, 0 states left on queue.
 settlement/SettlementCompletion_after (SettlementCompletion.tla): Model checking completed. No error has been found. | 744 distinct states found, 0 states left on queue.
 settlement/SettlementCompletion_after_crash (SettlementCompletion.tla): Error: Invariant CompletionDateCorrect is violated. | 16 distinct states found, 9 states left on queue.
+settlement/SettlementLedger_after (SettlementLedger.tla): Model checking completed. No error has been found. | 27915 distinct states found, 0 states left on queue.
 settlement/SettlementOutbox_after (SettlementOutbox.tla): Model checking completed. No error has been found. | 943 distinct states found, 0 states left on queue.
 ios-settlement-shell/AccountGate_fixed (AccountGate.tla): Model checking completed. No error has been found. | 298 distinct states found, 0 states left on queue.
 ios-settlement-shell/SettleShell_fixed (SettleShell.tla): Model checking completed. No error has been found. | 818252 distinct states found, 0 states left on queue.
-ios-ledger-sync/after (LedgerQueueSync.tla): Model checking completed. No error has been found. | 159131 distinct states found, 0 states left on queue.
-ledger-kernel/LedgerKernel_after_liveness (LedgerKernel.tla): Model checking completed. No error has been found. | 36526 distinct states found, 0 states left on queue.
-settlement/SettlementLedger_after (SettlementLedger.tla): Model checking completed. No error has been found. | 27915 distinct states found, 0 states left on queue.
-ledger-kernel/LedgerKernel_after_2ops (LedgerKernel.tla): Model checking completed. No error has been found. | 36526 distinct states found, 0 states left on queue.
-ledger-kernel/LedgerKernel_after (3 ops, random search -simulate num=2000000 -depth 80, 4,000,000 runs, 117M states): no invariant violated (EXIT 0)
+ledger-kernel/LedgerKernel_after (3 ops): not re-run (LedgerKernel.tla unchanged today). Last result: random search, 4,000,000 runs, 117M states, no invariant violated (tlc-LedgerKernel-after_3ops_simulate.txt).
 
 Expected failures (known open items, see docs/state-machines/README.md): CloudKitImport-change-after, SettlementCompletion_after_crash.

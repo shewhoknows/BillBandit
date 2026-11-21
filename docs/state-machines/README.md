@@ -12,6 +12,7 @@ has a TLA+ model in `specs/tla/<part>/` that the TLC model checker checked.
 | Server: account deletion, Apple sign-in, friend codes, CloudKit import | `identity-friends-import.md` | `apps/api/lib/identity-friends-state.ts` | `AccountDeletion.tla`, `AppleSignIn.tla`, `FriendClaimLimit.tla`, `CloudKitImport.tla` |
 | iOS: offline queue, sync, cache, account switch | `ios-ledger-sync.md` | `PendingLedgerOperationState.canTransition`, `ServerLedgerQueueOrder` | `LedgerQueueSync.tla` |
 | iOS: settle-up screen, account gate | `ios-settlement-shell.md` | `SettlementStore` (derived `isUpdating`, `writeGatesOpen`, `canReverse`) | `SettleShell.tla`, `AccountGate.tla` |
+| iOS: failure notices ("no silent failures") | `ios-failure-notices.md` | `AppFailureCenter`, `PendingLedgerOperation.failureAcknowledgedAt` | `FailureNotices.tla` |
 
 ## How to check again
 
@@ -31,6 +32,7 @@ has a TLA+ model in `specs/tla/<part>/` that the TLC model checker checked.
   npx tsx scripts/ledger-kernel-e2e.ts        # also adds dev_zoya
   npx tsx scripts/any-member-delete-e2e.ts    # needs dev_zoya, so run it after ledger-kernel-e2e
   npx tsx scripts/identity-friends-import-e2e.ts
+  npx tsx scripts/simplify-debts-e2e.ts
   ```
 
   Each script prints the revision, environment, replay command and a PASS/FAIL
@@ -42,8 +44,12 @@ Money or data:
 1. Account deletion removed payment reversals and allocations. A reversed
    payment then counted again (Bob's ₹50 debt dropped to ₹0). Now kept.
 2. A member who still owed money could leave or be removed. Now refused.
-3. A write could move a departed member's balance away from zero (for
-   example, deleting an old expense they shared). Now refused.
+3. A person who left a group and then owed money again (an old expense
+   they shared was edited or deleted) could not pay it: the server refused
+   them. Now they can record or reverse their own payment, and the answer
+   is no longer a 500 after the payment is saved. (Changed 2026-11-21: an
+   earlier version of this work refused such edits instead. Bobby rejected
+   that rule.)
 4. iOS offline queue: after a retry delay, a later expense was sent first and
    was lost with no message. Now each group's rows go in order.
 5. iOS offline queue: an edit queued after an add failed for good with a
@@ -83,22 +89,28 @@ Security and realtime:
     the deletion.
 20. A realtime event could be published twice when a worker's lease expired.
 
+## Added 2026-11-21
+
+- **Simplify debts on/off:** `PATCH /api/groups/{id}/settlement-settings`
+  (owner only, revision-checked, idempotent, audited; same value = no
+  change). See `docs/api-contracts.md`. E2E: `simplify-debts-e2e.ts`
+  (11 steps). The app does not have a switch for it yet; it only shows it.
+- **No silent failures in the app:** see `ios-failure-notices.md`.
+
 ## Open items (not fixed — need a decision or UI work)
 
-- **CloudKit import:** if the CloudKit data changes after the first upload, the
-  import stays FAILED and the app gives up (`CloudKitImport-change-after`
-  fails on purpose). Also, nothing creates the `cloudkit` identity rows, so a
-  real import always ends "needs repair".
+- **A person who left a group does not see it in the app.** If an old
+  expense changes after they left, the other members see the new debt and
+  can record the payment, but the person who left is not told.
+- **CloudKit import:** it moves data from the old iCloud version of the app
+  to the server. It needs a link between each old iCloud user and a server
+  account, and nothing creates those links, so every real import stops as
+  "needs repair". Also, if the iCloud data changes after the first upload,
+  the import stays FAILED (`CloudKitImport-change-after` fails on purpose).
+  The app now tells the person once.
 - **Completion flags:** if the server crashes between a payment and the flag
   update, the flags stay stale until the next payment
-  (`SettlementCompletion_after_crash` fails on purpose). The full fix moves
-  the update into the kernel transaction.
-- **Failed background changes:** a queued change that fails while no
-  settle-up screen is open is kept, but no screen shows it.
-- **Simplify debts:** the app sends the switch, but the server has no route for
-  it.
-- **Product rule to confirm:** after a member leaves, expenses that include them
-  can no longer be edited or deleted (their balance must stay zero).
+  (`SettlementCompletion_after_crash` fails on purpose).
 - **Queue delay:** a group's later changes can wait up to 300 s behind an
   earlier change that is in retry.
 - `scripts/vietnam-trip-qa.ts` starts its server on port 31301 but calls

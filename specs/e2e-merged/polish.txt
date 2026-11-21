@@ -1,6 +1,6 @@
 # App Store polish: server end-to-end check
 
-- Base commit: c6c092a (plus uncommitted changes)
+- Base commit: 241151d (plus uncommitted changes)
 - API: http://127.0.0.1:31401
 - Result: 10 passed, 0 failed
 

@@ -56,11 +56,14 @@ Stored as the `GroupMember` row (role `ADMIN` or `MEMBER`) and `GroupParticipant
 | active | remove self (`POST /leave`) | departed | route: not owner, own balance 0 at the read revision | `leave/route.ts` 45, then kernel |
 | active | remove (`DELETE /members`) | departed | self: any member; other: ADMIN. **New:** balance 0 in every currency (`MEMBER_UNSETTLED` 409); not the last ADMIN (`LAST_ADMIN` 409) | `kernel.ts` 865, 1311/1324, 1525 |
 | active | role update (`PATCH /members`) | active | ADMIN. **New:** the last ADMIN cannot become MEMBER (`LAST_ADMIN`) | `kernel.ts` 890 |
-| departed | any write that moves their balance away from 0 | refused `DEPARTED_MEMBER_BALANCE` 409 (**new**) | | `kernel.ts` 1521-1525, `assertDepartedBalances` |
+| departed | an old expense that includes them is edited or deleted, or one of their payments is reversed | departed, now owing or owed (allowed: Bobby's rule, 2026-11-21) | | — |
+| departed, owing or owed | records or reverses a payment they are part of | departed | `ensureSettlementActor`: active member, or departed with an unsettled position (access matrix) | `kernel.ts` `ensureSettlementActor` |
 
-Invariants (TLC `GroupMembership.tla`): `DepartedAreSettled` (intent from the leave route: "no debt is left behind with a person who can no longer see it"), `HasAdmin`, `BalancesSumToZero`, `MemberRowsAgree`.
+Invariants (TLC `GroupMembership.tla`): `HasAdmin`, `BalancesSumToZero`, `MemberRowsAgree`, `DepartedCanSettle` (a departed person who owes money can pay it), and the action property `LeaverSettled` (balance 0 at the moment of leaving). `GroupMembership_newrule_departed_can_owe.cfg` shows, on purpose, that a departed person can owe money again.
 
-The departed guard runs after the write, in the same transaction, so a refusal rolls back. It loads the ledger twice only when someone is leaving or someone already left. Old rows that are already off are not made worse: an already departed person may only move toward zero, so settling them up still works.
+The leave guard (`assertLeaverIsSettled`) runs after `membership.remove`, in the same transaction, so a refusal rolls back.
+
+**Rule change 2026-11-21 (Bobby):** the first version of this work refused every write that moved a departed person's balance (`DEPARTED_MEMBER_BALANCE`). That blocked edits and deletes of old expenses, so it was removed. Now such writes are allowed. The debt shows in the group's balances and plan, and the other member, or the departed person, records the payment. The settle routes answer `state: null` when a payment ends the departed person's read access (it was a 500 after commit). Open question: the departed person does not see the group in the app.
 
 ## 4. LedgerOperation (idempotency receipt)
 
@@ -91,5 +94,6 @@ Invariants (TLC): `RevisionIsApplyCount` (each step is one applied operation; no
 | 2 | Fixes={"route"}: two attempts of o1, first prepared, second blocked, commit → second 500 (P2002) | retry on LedgerOperation P2002 (kernel, finalize, group create) |
 | 3 | `GroupMembership` Fixes={}: `RemoveSelf("a")` with a owing 1 | balance must be 0 on remove (after-write guard) |
 | 4 | Fixes={"balance"}: `SetRole(o,o,member)` / settled `RemoveSelf(o)` → no admin | `assertKeepsAnAdmin` |
-| 5 | Fixes={"balance","admin"}: `Create(a,E2)`, `LeaveRoute(a)`, `Delete(o,E1)` → departed a is owed 1 | departed balances may only move toward 0 |
+| 5 | `GroupMembership_before_departedsettle`: a departed person owes 1 and cannot pay it (kernel `ensureActiveMember` 403) | `ensureSettlementActor` lets a departed person with an unsettled position record or reverse their own payment |
+| 5b | (E2E B5a) that payment was saved but answered 500, because the payer could no longer read the group | `getSettleUpStateAfterCommit`: answer 201 with `state: null` |
 | 6 | (E2E) self-removal through `DELETE /members` committed but answered 500; the phone retries 5xx forever | members route answers 200 with the receipt when the remover can no longer read the group |

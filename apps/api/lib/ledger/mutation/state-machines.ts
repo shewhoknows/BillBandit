@@ -173,47 +173,37 @@ export function participantBalances(ledger: BalanceLedger): ParticipantBalances 
   return balances
 }
 
-function movesTowardZero(before: bigint, after: bigint): boolean {
-  return before >= 0n ? after >= 0n && after <= before : after <= 0n && after >= before
-}
-
 /**
- * Checked after the write, inside the same transaction, so a refusal rolls
- * the whole mutation back. A person who has left can only be settled up:
- * a newly departed person must be at zero, and an already departed person's
- * balance may only move toward zero (old rows that are already off are not
- * made worse, and unrelated writes are not blocked by them).
+ * Checked after a membership.remove, inside the same transaction, so a
+ * refusal rolls the removal back: a person must be settled up (zero in every
+ * currency) when they leave or are removed.
+ *
+ * After they left, later writes MAY change their balance (for example an old
+ * expense they shared is edited or deleted). Such a debt stays visible, and
+ * the departed person or the other side can settle or reverse it
+ * (ensureSettlementActor; access matrix "departed with unsettled position").
  */
-export function assertDepartedBalances(before: BalanceLedger, after: BalanceLedger): void {
-  const beforeStatus = new Map(before.participants.map((participant) => [participant.id, participant.status]))
-  const beforeBalances = participantBalances(before)
-  const afterBalances = participantBalances(after)
-  for (const participant of after.participants) {
-    if (participant.status !== 'DEPARTED') continue
-    const wasDeparted = beforeStatus.get(participant.id) === 'DEPARTED'
-    const currencies = new Set([
-      ...(beforeBalances.get(participant.id)?.keys() ?? []),
-      ...(afterBalances.get(participant.id)?.keys() ?? []),
-    ])
-    for (const currency of currencies) {
-      const was = beforeBalances.get(participant.id)?.get(currency) ?? 0n
-      const now = afterBalances.get(participant.id)?.get(currency) ?? 0n
-      if (!wasDeparted && now !== 0n) {
-        throw new LedgerMutationError(
-          'MEMBER_UNSETTLED',
-          409,
-          "Settle this person's balance in the group before they leave it."
-        )
-      }
-      if (wasDeparted && !movesTowardZero(was, now)) {
-        throw new LedgerMutationError(
-          'DEPARTED_MEMBER_BALANCE',
-          409,
-          'This would change what someone who left the group owes or is owed. Add them back to the group first.'
-        )
-      }
+export function assertLeaverIsSettled(after: BalanceLedger, leavingUserId: string): void {
+  const participant = after.participants.find((row) => row.userId === leavingUserId)
+  if (!participant) return
+  const balances = participantBalances(after).get(participant.id)
+  for (const amount of balances?.values() ?? []) {
+    if (amount !== 0n) {
+      throw new LedgerMutationError(
+        'MEMBER_UNSETTLED',
+        409,
+        "Settle this person's balance in the group before they leave it."
+      )
     }
   }
+}
+
+/** True when a departed participant still owes or is owed money. */
+export function hasUnsettledPosition(ledger: BalanceLedger, participantId: string): boolean {
+  for (const amount of participantBalances(ledger).get(participantId)?.values() ?? []) {
+    if (amount !== 0n) return true
+  }
+  return false
 }
 
 // ---------------------------------------------------------------------------

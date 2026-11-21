@@ -5,7 +5,7 @@ import {
   normalizeSettlementError,
 } from '@/lib/settlement/commands/core'
 import { onSettlementCommandCommitted } from '@/lib/settlement/version/sources'
-import { getSettleUpState } from '@/lib/settlement/read/sync'
+import { getSettleUpState, getSettleUpStateAfterCommit } from '@/lib/settlement/read/sync'
 
 export async function POST(
   req: NextRequest,
@@ -35,7 +35,7 @@ export async function POST(
       note: body.note,
     })
     await onSettlementCommandCommitted(params.id, result.eventType)
-    const state = await getSettleUpState(params.id, userId!)
+    const state = await getSettleUpStateAfterCommit(params.id, userId!)
     return NextResponse.json({ result, state }, { status: 201 })
   } catch (error) {
     const normalized = normalizeSettlementError(error)

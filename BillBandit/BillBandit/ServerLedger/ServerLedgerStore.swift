@@ -1,6 +1,14 @@
 import Foundation
 import SwiftData
 
+extension Notification.Name {
+    /// Posted on the main actor when a queued change becomes failed and has
+    /// not been shown to the person. userInfo["operationID"]: UUID.
+    static let serverLedgerOperationFailed = Notification.Name("BillBandit.serverLedgerOperationFailed")
+    /// Posted when `clear(accountID:)` removed an account's queue and cache.
+    static let serverLedgerAccountCleared = Notification.Name("BillBandit.serverLedgerAccountCleared")
+}
+
 enum ServerLedgerStoreError: Error, Equatable, Sendable {
     case operationIDCollision
     case accountScopeRequired
@@ -266,6 +274,19 @@ final class ServerLedgerStore {
             context.delete(row)
         }
         try context.save()
+        NotificationCenter.default.post(
+            name: .serverLedgerAccountCleared,
+            object: nil,
+            userInfo: ["accountID": accountID]
+        )
+    }
+
+    /// Changes of this account that are not on the server yet (waiting or
+    /// sending). Sign-out deletes them, so the person is asked first.
+    func unsentOperationCount(for accountID: String) -> Int {
+        ((try? pendingOperations(for: accountID, includingCompleted: false)) ?? [])
+            .filter { $0.retryState.isWaiting }
+            .count
     }
 
     /// Consecutive offline creates reserve consecutive group revisions.
@@ -302,6 +323,35 @@ final class ServerLedgerStore {
         guard operation.accountID.isEmpty == false else {
             throw ServerLedgerStoreError.accountScopeRequired
         }
+        try context.save()
+        if operation.retryState == .failed, operation.failureAcknowledgedAt == nil {
+            // AppFailureCenter tells the person unless the screen that sent
+            // the change already does.
+            NotificationCenter.default.post(
+                name: .serverLedgerOperationFailed,
+                object: nil,
+                userInfo: ["operationID": operation.operationID]
+            )
+        }
+    }
+
+    /// Failed rows of this account that nobody has shown to the person yet.
+    func unacknowledgedFailures(for accountID: String) throws -> [PendingLedgerOperation] {
+        try pendingOperations(for: accountID, includingCompleted: false)
+            .filter { $0.retryState == .failed && $0.failureAcknowledgedAt == nil }
+    }
+
+    /// Records that the person has been told about this failed row, so no
+    /// other screen tells them again.
+    func acknowledgeFailure(operationID: UUID) throws {
+        let id = operationID
+        let descriptor = FetchDescriptor<PendingLedgerOperation>(
+            predicate: #Predicate { row in row.operationID == id }
+        )
+        guard let row = try context.fetch(descriptor).first,
+              row.retryState == .failed,
+              row.failureAcknowledgedAt == nil else { return }
+        row.failureAcknowledgedAt = .now
         try context.save()
     }
 

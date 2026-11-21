@@ -1,19 +1,19 @@
 # Vietnam trip backend QA
 
-- Revision: c6c092abdc8b46f9f30d56742ef7ad28158c03b7
+- Revision: 241151d3573b5809f6960a86929664b840c065b8
 - Base URL: http://127.0.0.1:31301
-- API port: 31301 (PID 5191)
-- Database URL: postgresql://prateekranka@127.0.0.1:5432/bb_vietnam_test_mwqgy098_a27f70?schema=[task-schema]
-- Schema: ledger_test_5137_372d75cad50f
-- Financial QA group: Vietnam QA mwqgy098_a27f70 (cmwqgy4fc0006eneiajkcrern)
-- Empty UI group: Vietnam UI mwqgy098_a27f70 (cmwqgyb700024enein9qu7zna)
+- API port: 31301 (PID 8693)
+- Database URL: postgresql://prateekranka@127.0.0.1:5432/bb_vietnam_test_mwqip8m5_bd3933?schema=[task-schema]
+- Schema: ledger_test_8640_cefd80b83a52
+- Financial QA group: Vietnam QA mwqip8m5_bd3933 (cmwqipcxu00068gj11aziqv68)
+- Empty UI group: Vietnam UI mwqip8m5_bd3933 (cmwqiphv600248gj19a8ks4we)
 - Final settlement revision: 8
 - Checks: 10 passed, 0 failed
 
 ## Commands
 
 ```sh
-VIETNAM_TRIP_EVIDENCE_DIR='/tmp/int-e2e/vietnam-evidence' START_VIETNAM_TRIP_SERVER=1 node --import tsx apps/api/scripts/vietnam-trip-qa.ts
+VIETNAM_TRIP_EVIDENCE_DIR='/tmp/int3-e2e/vietnam-evidence' START_VIETNAM_TRIP_SERVER=1 node --import tsx apps/api/scripts/vietnam-trip-qa.ts
 ```
 
 ## Covered behavior
@@ -39,5 +39,5 @@ VIETNAM_TRIP_EVIDENCE_DIR='/tmp/int-e2e/vietnam-evidence' START_VIETNAM_TRIP_SER
 - PASS Separate INR control aggregate remains independent
 - PASS Empty VND UI group has two members and no expenses
 
-Credentials for the simulator are in chmod 600 [qa-session.json](/tmp/int-e2e/vietnam-evidence/qa-session.json).
-Task-owned database bb_vietnam_test_mwqgy098_a27f70 and schema ledger_test_5137_372d75cad50f remain available for simulator QA.
+Credentials for the simulator are in chmod 600 [qa-session.json](/tmp/int3-e2e/vietnam-evidence/qa-session.json).
+Task-owned database bb_vietnam_test_mwqip8m5_bd3933 and schema ledger_test_8640_cefd80b83a52 remain available for simulator QA.

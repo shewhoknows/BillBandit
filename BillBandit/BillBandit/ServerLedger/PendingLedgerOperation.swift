@@ -60,6 +60,11 @@ final class PendingLedgerOperation {
     var retryCount: Int
     var nextRetryAt: Date?
     var lastError: String?
+    /// When the person was told that this row failed (an alert, a banner or
+    /// the settle-up screen). nil for a failed row means nobody has told them
+    /// yet; AppFailureCenter shows those. Optional so existing stores migrate
+    /// without a mapping model.
+    var failureAcknowledgedAt: Date?
     var createdAt: Date
     var updatedAt: Date
 
@@ -93,6 +98,7 @@ final class PendingLedgerOperation {
         self.retryCount = retryCount
         self.nextRetryAt = nextRetryAt
         self.lastError = lastError
+        self.failureAcknowledgedAt = nil
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }

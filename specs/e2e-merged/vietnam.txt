@@ -1,1 +1,1 @@
-Vietnam trip backend QA passed: 10 checks; API http://127.0.0.1:31301; group cmwqgy4fc0006eneiajkcrern; evidence /tmp/int-e2e/vietnam-evidence/backend-trip-qa.md
+Vietnam trip backend QA passed: 10 checks; API http://127.0.0.1:31301; group cmwqipcxu00068gj11aziqv68; evidence /tmp/int3-e2e/vietnam-evidence/backend-trip-qa.md

@@ -230,21 +230,39 @@ async function main() {
     const g = await newGroup('departed-balance', [kabir, zoya])
     const taxi = await addExpense(g, you, [[you, 500], [kabir, 500]], 'Taxi')
     await addExpense(g, kabir, [[you, 500], [kabir, 500]], 'Dinner')
-    await step('B5', 'After a settled member leaves, deleting an expense they shared is refused; their balance stays 0', async () => {
+    // Bobby's rule (2026-11-21): after someone leaves, old expenses that
+    // include them can still be edited or deleted. The debt that this makes
+    // stays visible to the members, and either side can settle it.
+    await step('B5', 'After a settled member leaves, deleting an expense they shared is allowed; their new debt shows', async () => {
       assert.equal(balanceOf(await read(g), kabir), '0')
       const left = await request(T(kabir), `/api/mobile/groups/${g}/leave`, 'POST', undefined, { 'Idempotency-Key': randomUUID() })
       assert.equal(left.status, 200, `leave: ${brief(left)}`)
       const del = await request(T(you), `/api/mobile/expenses/${taxi.expenseId}`, 'DELETE',
         { operationId: randomUUID(), expectedRevision: (await read(g)).revision })
+      assert.equal(del.status, 200, brief(del))
       const after = await read(g)
-      assert.equal(balanceOf(after, kabir), '0', `departed kabir balance ${balanceOf(after, kabir)} after delete ${brief(del)}`)
-      assert.equal(del.status, 409, brief(del))
-      assert.equal(del.data.error, 'DEPARTED_MEMBER_BALANCE')
+      assert.notEqual(balanceOf(after, kabir), '0', 'the departed member now owes or is owed money')
+      assert.ok(
+        after.settlementPlan.transfers.some((t: Json) => t.payerMemberId === memberOf(after, kabir).memberId || t.recipientMemberId === memberOf(after, kabir).memberId),
+        'the plan has a transfer with the departed member'
+      )
+    })
+    await step('B5a', 'The departed member can settle their new debt themself; the balance is 0 again', async () => {
+      const before = await read(g)
+      const transfer = before.settlementPlan.transfers.find((t: Json) =>
+        t.payerMemberId === memberOf(before, kabir).memberId || t.recipientMemberId === memberOf(before, kabir).memberId)
+      const paid = await request(T(kabir), `/api/groups/${g}/settlements`, 'POST', {
+        expectedVersion: before.revision, planTransferId: transfer.planTransferId,
+        payerParticipantId: transfer.payerMemberId, recipientParticipantId: transfer.recipientMemberId,
+        currencyCode: 'INR', currencyExponent: 2, minorUnits: transfer.amount.minorUnits,
+      }, { 'Idempotency-Key': randomUUID() })
+      assert.equal(paid.status, 201, `pay: ${brief(paid)}`)
+      assert.equal(balanceOf(await read(g), kabir), '0')
     })
     await step('B5b', 'Unrelated writes still work in a group with a departed member', async () => {
       await addExpense(g, you, [[you, 200], [zoya, 200]], 'Coffee')
     })
-    await step('B5c', 'Reversing a payment of a member who has since left is refused', async () => {
+    await step('B5c', 'Reversing a payment of a member who has since left is allowed; the debt shows again', async () => {
       const g2 = await newGroup('departed-reversal', [kabir])
       await addExpense(g2, you, [[you, 500], [kabir, 500]])
       const before = await read(g2)
@@ -261,9 +279,20 @@ async function main() {
       const settlementId = settled.settlementHistory.find((s: Json) => s.status === 'active').settlementId
       const rev = await request(T(you), `/api/groups/${g2}/settlements/${settlementId}/reversals`, 'POST',
         { expectedVersion: settled.revision }, { 'Idempotency-Key': randomUUID() })
-      const after = await read(g2)
-      assert.equal(balanceOf(after, kabir), '0', `departed kabir balance ${balanceOf(after, kabir)} after reversal ${brief(rev)}`)
-      assert.equal(rev.status, 409, brief(rev))
+      assert.equal(rev.status, 201, brief(rev))
+      assert.equal(balanceOf(await read(g2), kabir), '-500', 'kabir owes his share again')
+    })
+    await step('B5d', 'A departed member with no debt still cannot record payments (403)', async () => {
+      const g3 = await newGroup('departed-settled', [kabir])
+      await addExpense(g3, you, [[you, 300], [kabir, 300]])
+      const open = await read(g3)
+      const t = open.settlementPlan.transfers[0]
+      const body = () => ({ payerParticipantId: t.payerMemberId, recipientParticipantId: t.recipientMemberId, currencyCode: 'INR', currencyExponent: 2, minorUnits: t.amount.minorUnits })
+      assert.equal((await request(T(kabir), `/api/groups/${g3}/settlements`, 'POST', { ...body(), expectedVersion: open.revision, planTransferId: t.planTransferId }, { 'Idempotency-Key': randomUUID() })).status, 201)
+      assert.equal((await request(T(kabir), `/api/mobile/groups/${g3}/leave`, 'POST', undefined, { 'Idempotency-Key': randomUUID() })).status, 200)
+      const later = await read(g3)
+      const again = await request(T(kabir), `/api/groups/${g3}/settlements`, 'POST', { ...body(), expectedVersion: later.revision, planTransferId: t.planTransferId }, { 'Idempotency-Key': randomUUID() })
+      assert.ok(again.status === 403 || again.status === 404, brief(again))
     })
   }
 

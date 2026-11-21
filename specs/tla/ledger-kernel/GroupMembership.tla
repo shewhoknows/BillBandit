@@ -15,12 +15,17 @@
 (* "shared" = 1 + 1, "solo" = the payer's own 2. S1 = a pays o 1,          *)
 (* S2 = o pays a 1.                                                        *)
 (*                                                                         *)
-(* Fixes \subseteq {"balance", "admin", "departed"}:                       *)
+(* Fixes \subseteq {"balance", "admin", "departedSettle"}:                 *)
 (*   balance : membership.remove needs the target's balance to be zero     *)
 (*   admin   : membership.remove / membership.update may not remove or     *)
 (*             demote the last administrator                               *)
-(*   departed: no mutation may move a departed person's balance away from  *)
-(*             zero (they can only be settled up)                          *)
+(*   departedSettle: a departed person who owes or is owed money may       *)
+(*             record or reverse a payment they are part of                *)
+(*             (kernel ensureSettlementActor; access matrix)               *)
+(*                                                                         *)
+(* Product rule (Bobby, 2026-11-21): after a person leaves, old expenses   *)
+(* that include them may still be edited or deleted, so a departed person  *)
+(* can owe money again. That debt must stay settleable.                    *)
 (***************************************************************************)
 EXTENDS Integers
 
@@ -63,16 +68,11 @@ Init ==
   /\ content = [e \in Exps |-> "shared"]
   /\ pay = [s \in Pays |-> "none"]
 
-Toward(before, after) ==
-  IF before >= 0 THEN 0 <= after /\ after <= before
-                 ELSE before <= after /\ after <= 0
-
-\* Fix "departed": checked after the write, inside the same transaction.
-DepartedGuard ==
-  "departed" \in Fixes =>
-    \A z \in People :
-      part'[z] = "departed" =>
-        IF part[z] = "departed" THEN Toward(Bal(z), Bal(z)') ELSE Bal(z)' = 0
+\* Who may record or reverse a payment (before the actor must also be one
+\* of the two ends).
+SettleActor(x) ==
+  \/ IsMember(x)
+  \/ ("departedSettle" \in Fixes /\ part[x] = "departed" /\ Bal(x) # 0)
 
 -----------------------------------------------------------------------------
 (* expense.create / expense.edit / expense.delete (any active member)      *)
@@ -83,7 +83,6 @@ Create(x, e) ==
   /\ exp' = [exp EXCEPT ![e] = "active"]
   /\ content' = [content EXCEPT ![e] = "shared"]
   /\ UNCHANGED <<member, part, pay>>
-  /\ DepartedGuard
 
 Edit(x, e, c) ==
   /\ IsMember(x) /\ exp[e] = "active" /\ content[e] # c
@@ -91,29 +90,25 @@ Edit(x, e, c) ==
   /\ c = "shared" => (IsMember("o") /\ IsMember("a"))
   /\ content' = [content EXCEPT ![e] = c]
   /\ UNCHANGED <<member, part, exp, pay>>
-  /\ DepartedGuard
 
 Delete(x, e) ==
   /\ IsMember(x) /\ exp[e] = "active"
   /\ exp' = [exp EXCEPT ![e] = "deleted"]
   /\ UNCHANGED <<member, part, content, pay>>
-  /\ DepartedGuard
 
-(* settlement.create: actor is an active member and one of the two ends;   *)
+(* settlement.create: actor is SettleActor and one of the two ends;        *)
 (* the plan must hold the transfer (payer owes recipient). The ends may be *)
 (* departed participants.                                                  *)
 Pay(x, s) ==
-  /\ IsMember(x) /\ x \in {PFrom(s), PTo(s)} /\ pay[s] = "none"
+  /\ SettleActor(x) /\ x \in {PFrom(s), PTo(s)} /\ pay[s] = "none"
   /\ Bal(PFrom(s)) <= -1 /\ Bal(PTo(s)) >= 1
   /\ pay' = [pay EXCEPT ![s] = "active"]
   /\ UNCHANGED <<member, part, exp, content>>
-  /\ DepartedGuard
 
 Reverse(x, s) ==
-  /\ IsMember(x) /\ x \in {PFrom(s), PTo(s)} /\ pay[s] = "active"
+  /\ SettleActor(x) /\ x \in {PFrom(s), PTo(s)} /\ pay[s] = "active"
   /\ pay' = [pay EXCEPT ![s] = "reversed"]
   /\ UNCHANGED <<member, part, exp, content>>
-  /\ DepartedGuard
 
 -----------------------------------------------------------------------------
 (* membership                                                              *)
@@ -126,7 +121,6 @@ DoRemove(y) ==
   /\ member' = [member EXCEPT ![y] = "none"]
   /\ part' = [part EXCEPT ![y] = "departed"]
   /\ UNCHANGED <<exp, content, pay>>
-  /\ DepartedGuard
 
 \* POST /groups/:id/leave: not the owner, own balance zero.
 LeaveRoute(x) ==
@@ -182,8 +176,20 @@ BalancesSumToZero == Bal("o") + Bal("a") = 0
 \* GroupMember and GroupParticipant agree.
 MemberRowsAgree == \A x \in People : IsMember(x) <=> part[x] = "active"
 
-\* "No debt is left behind with a person who can no longer see it"
-\* (leave route comment): a departed person's balance is zero.
+\* A person is settled up at the moment they leave or are removed.
+LeaverSettled ==
+  [][\A x \in People : (part[x] = "active" /\ part'[x] = "departed") => Bal(x)' = 0]_vars
+
+\* A departed person who owes money can pay it themself, whenever the plan
+\* holds that transfer (Pay's own money guard).
+DepartedCanSettle ==
+  \A x \in People, s \in Pays :
+    (/\ part[x] = "departed" /\ x = PFrom(s) /\ pay[s] = "none"
+     /\ Bal(PFrom(s)) <= -1 /\ Bal(PTo(s)) >= 1)
+      => ENABLED Pay(x, s)
+
+\* Old intent, no longer wanted (kept to show the new rule allows it):
+\* a departed person's balance is always zero.
 DepartedAreSettled == \A x \in People : part[x] = "departed" => Bal(x) = 0
 
 \* The group always keeps an owner who can finalize, delete and add admins.

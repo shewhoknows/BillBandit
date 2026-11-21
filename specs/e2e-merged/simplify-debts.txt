@@ -1,0 +1,20 @@
+# Simplify-debts setting E2E
+Revision: 241151d3573b5809f6960a86929664b840c065b8 (+ uncommitted changes)
+Environment: API http://127.0.0.1:3200, DB postgresql://localhost:5432/billbandit_int3, node v22.23.5, 2026-11-21T14:42:30.837Z
+Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... npx tsx scripts/simplify-debts-e2e.ts
+Group: cmwqiokyu00ws10omb50lrdwp
+| Step | Result |
+| --- | --- |
+| S0 A new group starts with simplify on: 1 payment (Aarav -> you) | PASS |
+| S1 The owner turns simplify off: 200, revision +1, 2 direct payments, balances unchanged | PASS |
+| S2 Every member reads the same new plan | PASS |
+| S3 The same Idempotency-Key again replays the first answer; nothing new is written | PASS |
+| S4 Sending the value the group already has changes nothing (noop, same revision) | PASS |
+| S5 A member who is not an owner is refused (403); the setting stays | PASS |
+| S6 A stale revision is refused with 409 and the current state | PASS |
+| S7 Bad bodies are refused with 400 and change nothing | PASS |
+| S8 A payment recorded under the direct plan stays when simplify is turned back on | PASS |
+| S9 An old plan payment id from before the switch is refused (409, confirm again) | PASS |
+| S10 An archived group refuses the setting | PASS |
+
+11 PASS, 0 FAIL

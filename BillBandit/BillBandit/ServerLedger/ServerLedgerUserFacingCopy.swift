@@ -63,3 +63,55 @@ enum ServerLedgerUserFacingCopy {
         return sharedBalancesUnavailable
     }
 }
+
+/// Words for a queued change that the server refused for good. Used by the
+/// app-wide failure notice and by the group screen's pending list. Never
+/// shows machine codes.
+enum LedgerFailureCopy {
+    /// Why it failed, from `PendingLedgerOperation.lastError`.
+    static func reason(for lastError: String?) -> String {
+        switch lastError {
+        case "revision_conflict_requires_reconfirmation":
+            return "Someone changed this group before your change reached the server."
+        case "idempotency_key_reused":
+            return "The server already has a different change with the same ID."
+        case "snapshot_scope_mismatch":
+            return "The server answered for a different group or account."
+        case let value?:
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let looksLikeCode = trimmed.isEmpty
+                || (trimmed.contains("_") && !trimmed.contains(" "))
+            return looksLikeCode ? "The server refused it." : trimmed
+        case nil:
+            return "The server refused it."
+        }
+    }
+
+    /// Title and message for one failed row.
+    static func notice(for operation: PendingLedgerOperation) -> (title: String, message: String) {
+        let request = try? operation.makeRequest()
+        let kind = request?.kind.lowercased() ?? ""
+        var name: String?
+        if let payload = request?.bodyPayload,
+           let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+           let description = object["description"] as? String {
+            let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { name = trimmed }
+        }
+        let quoted = name.map { " \u{201C}\($0)\u{201D}" } ?? ""
+        let title: String
+        switch kind {
+        case "expense.create": title = "Expense\(quoted) not saved"
+        case "expense.edit": title = "Change to\(quoted.isEmpty ? " an expense" : quoted) not saved"
+        case "expense.delete": title = "Expense\(quoted) not deleted"
+        case "settlement.create": title = "Payment not recorded"
+        case "settlement.reverse": title = "Payment not reversed"
+        case "settings.update": title = "Setting not changed"
+        case let value where value.hasPrefix("membership."): title = "Member change not saved"
+        case let value where value.hasPrefix("group."): title = "Group change not saved"
+        default: title = "A change was not saved"
+        }
+        let message = "\(reason(for: operation.lastError)) Open the group, check it, and try again if you still need to."
+        return (title, message)
+    }
+}
