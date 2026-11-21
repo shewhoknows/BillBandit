@@ -101,6 +101,9 @@ enum AppStore {
 @MainActor
 enum LocalAccountDataCleanup {
     static func deleteAll(context: ModelContext) throws {
+        // Stops any drain or refresh still running for the deleted account
+        // before its rows disappear (same fence as ServerLedgerStore.clear).
+        AppStore.serverLedgerStore.invalidateAllAccounts()
         for row in try context.fetch(FetchDescriptor<PendingLedgerOperation>()) {
             context.delete(row)
         }

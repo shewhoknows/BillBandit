@@ -143,7 +143,13 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
     func fetchSnapshot(for scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
         let groupID = Self.pathComponent(scope.groupID)
         let path = "/api/mobile/ledger/groups/\(groupID)"
-        let (data, status, bearerToken) = try await perform(path: path, method: "GET", body: nil, request: nil)
+        let (data, status, bearerToken) = try await perform(
+            path: path,
+            method: "GET",
+            body: nil,
+            request: nil,
+            accountID: scope.accountID
+        )
         guard (200..<300).contains(status) else {
             throw try makeHTTPError(
                 status: status,
@@ -172,7 +178,8 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
             path: path,
             method: request.method,
             body: body,
-            request: request
+            request: request,
+            accountID: request.accountID
         )
         let requestedScope: ServerBackedLedgerScope?
         if case let .serverBacked(accountID, groupID) = request.scope {
@@ -230,17 +237,26 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
         }
     }
 
+    /// `accountID` is the account that owns the cache row or queued operation.
+    /// The keychain token is read at send time and can already belong to
+    /// another account (a new sign-in writes it before the ledger lifecycle
+    /// switches accounts). Such a request is never sent: the server would
+    /// apply account A's queued change as account B. The session is not
+    /// rejected here, because it is valid for its own account.
     private func perform(
         path: String,
         method: String,
         body: Data?,
-        request mutation: ServerLedgerMutationRequest?
+        request mutation: ServerLedgerMutationRequest?,
+        accountID: String
     ) async throws -> (Data, Int, String?) {
         guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
             throw ServerLedgerAPIClientError.invalidURL
         }
 
-        let token = tokenProvider()
+        guard let token = tokenProvider(), Self.tokenSubject(token) == accountID else {
+            throw ServerLedgerAPIClientError.unauthorized
+        }
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -252,9 +268,7 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
             ServerLedgerContract.clientValue,
             forHTTPHeaderField: ServerLedgerContract.clientCompatibilityHeader
         )
-        if let token, token.isEmpty == false {
-            urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let mutation {
             urlRequest.setValue(
                 mutation.idempotencyKey,
@@ -345,6 +359,24 @@ final class URLSessionServerLedgerAPIClient: ServerLedgerAPIClient, @unchecked S
             return .server(status: status, code: Self.errorCode(from: data))
         }
         return .server(status: status, code: Self.errorCode(from: data))
+    }
+
+    /// The `sub` claim of a mobile session token (apps/api/lib/mobile-auth.ts
+    /// `createMobileToken`: `sub` is the API user ID, which is the ledger
+    /// account ID). The signature is the server's business; this only binds a
+    /// request to the account it was made for.
+    static func tokenSubject(_ token: String) -> String? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        var encoded = String(parts[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let payload = Data(base64Encoded: encoded),
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let subject = object["sub"] as? String,
+              subject.isEmpty == false else { return nil }
+        return subject
     }
 
     private static func errorCode(from data: Data) -> String? {

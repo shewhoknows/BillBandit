@@ -1,0 +1,354 @@
+TLC2 Version 2026.11.19.180144 (rev: bc1b506)
+Running breadth-first search Model-Checking with fp 35 and seed -2657623162404915906 with 1 worker on 2 cores with 1365MB heap and 64MB offheap memory [pid: 17333] (Linux 6.18.44-fc-v726 amd64, Ubuntu 21.0.13.0.3 64bit, MSBDiskFPSet, DiskStateQueue).
+Starting... (2026-11-21 06:20:51)
+Computing initial states...
+Finished computing initial states: 2 distinct states generated at 2026-11-21 06:20:51.
+Error: Invariant ReverseOnlyWhenReversible is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ mine = {}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "none" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 0
+/\ mutPc = [t1 |-> "idle", t2 |-> "idle"]
+/\ isUpdatingVar = FALSE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 0, reversed |-> FALSE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = FALSE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "none", t2 |-> "none"]
+/\ applied = {}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "none"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 0
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "none" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 0
+
+State 2: <Tap("t1","reverse") line 209, col 3 to line 218, col 66 of module SettleShell>
+/\ mine = {}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "none" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 0
+/\ mutPc = [t1 |-> "spawned", t2 |-> "idle"]
+/\ isUpdatingVar = FALSE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 0, reversed |-> FALSE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = FALSE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "reverse", t2 |-> "none"]
+/\ applied = {}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "none"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 0
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "none" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 0
+
+State 3: <TaskStart("t1") line 232, col 3 to line 261, col 50 of module SettleShell>
+/\ mine = {<<"reverse", 0>>}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "none" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 0
+/\ mutPc = [t1 |-> "drain", t2 |-> "idle"]
+/\ isUpdatingVar = TRUE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 0, reversed |-> FALSE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = FALSE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "reverse", t2 |-> "none"]
+/\ applied = {}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "none"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<<<"reverse", 0>>>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 1
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "pending" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 0
+
+State 4: <TaskTakeLock("t1") line 282, col 3 to line 287, col 84 of module SettleShell>
+/\ mine = {<<"reverse", 0>>}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "none" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 0
+/\ mutPc = [t1 |-> "drain", t2 |-> "idle"]
+/\ isUpdatingVar = TRUE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 0, reversed |-> FALSE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = FALSE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "reverse", t2 |-> "none"]
+/\ applied = {}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "t1"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<<<"reverse", 0>>>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 1
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "pending" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 0
+
+State 5: <TaskDrainStep("t1") line 290, col 3 to line 310, col 72 of module SettleShell>
+/\ mine = {<<"reverse", 0>>}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "ok" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 1
+/\ mutPc = [t1 |-> "drain", t2 |-> "idle"]
+/\ isUpdatingVar = TRUE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 0, reversed |-> FALSE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = TRUE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "reverse", t2 |-> "none"]
+/\ applied = {<<"reverse", 0>>}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "t1"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<<<"reverse", 0>>>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 1
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "succeeded" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 1
+
+State 6: <TaskDrainStep("t1") line 290, col 3 to line 310, col 72 of module SettleShell>
+/\ mine = {<<"reverse", 0>>}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "ok" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 1
+/\ mutPc = [t1 |-> "fetch", t2 |-> "idle"]
+/\ isUpdatingVar = TRUE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 0, reversed |-> FALSE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = TRUE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "reverse", t2 |-> "none"]
+/\ applied = {<<"reverse", 0>>}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "none"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<<<"reverse", 0>>>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 1
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "succeeded" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 1
+
+State 7: <TaskFetch("t1") line 313, col 3 to line 319, col 91 of module SettleShell>
+/\ mine = {<<"reverse", 0>>}
+/\ lastResp = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "ok" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ peerWrote = FALSE
+/\ startedWhileBlocked = FALSE
+/\ srvRev = 1
+/\ mutPc = [t1 |-> "idle", t2 |-> "idle"]
+/\ isUpdatingVar = FALSE
+/\ reported = {}
+/\ offline = FALSE
+/\ snap = [rev |-> 1, reversed |-> TRUE, paid |-> FALSE, blocked |-> FALSE]
+/\ srvReversed = TRUE
+/\ srvPaid = FALSE
+/\ uiBusy = FALSE
+/\ mutKind = [t1 |-> "reverse", t2 |-> "none"]
+/\ applied = {<<"reverse", 0>>}
+/\ srvBlocked = FALSE
+/\ netFlips = 0
+/\ participant = TRUE
+/\ spurious = FALSE
+/\ lockHolder = "none"
+/\ reqReconf = FALSE
+/\ refVis = FALSE
+/\ queue = <<<<"reverse", 0>>>>
+/\ isOffline = FALSE
+/\ srvPayments = 0
+/\ mutBusy = 0
+/\ refPc = "idle"
+/\ opState = ( <<"settle", 0>> :> "none" @@
+  <<"settle", 1>> :> "none" @@
+  <<"settle", 2>> :> "none" @@
+  <<"settle", 3>> :> "none" @@
+  <<"settle", 4>> :> "none" @@
+  <<"reverse", 0>> :> "succeeded" @@
+  <<"reverse", 1>> :> "none" @@
+  <<"reverse", 2>> :> "none" @@
+  <<"reverse", 3>> :> "none" @@
+  <<"reverse", 4>> :> "none" )
+/\ srvReversals = 1
+
+9946 states generated, 4354 distinct states found, 2328 states left on queue.
+The depth of the complete state graph search is 7.
+Finished in 03s at (2026-11-21 06:20:53)
+Trace exploration spec path: ./SettleShell_TTrace_1795242050.tla

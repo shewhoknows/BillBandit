@@ -29,7 +29,6 @@ enum SettlementRealtimeRefreshPolicy {
 final class SettlementStore {
     private(set) var snapshot: SettlementSnapshotDTO?
     private(set) var isLoading = false
-    private(set) var isUpdating = false
     private(set) var isOffline = false
     private(set) var lastError: String?
     private(set) var appliedVersion = 0
@@ -60,17 +59,37 @@ final class SettlementStore {
     private var pendingRefreshVersion: Int?
     private var currentUserLabel = "You"
     private var operationIDsByActionKey: [String: UUID] = [:]
+    /// Number of settle()/reverse() calls between enqueue and their end.
+    /// Owned only by those two functions (docs/state-machines/ios-settlement-shell.md).
+    private var mutationsInFlight = 0
+    /// A refresh started with forceWritesDisabled while a snapshot is shown.
+    /// Owned only by refresh().
+    private var isVisibleRefreshInFlight = false
+    /// Failed queue rows of this screen that the person was already told about.
+    private var reportedFailedOperationIDs: Set<UUID> = []
+    /// A queued write of this screen that the server refused during a
+    /// background refresh (the call that queued it had already returned).
+    /// The screen shows it once and then calls clearWriteFailureNotice().
+    private(set) var writeFailureNotice: SettlementWriteFailureNotice?
 
-    var writesEnabled: Bool {
+    /// One flag for the spinner and the write gates. It is derived, so a
+    /// refresh that ends cannot clear it while a payment is still saving.
+    var isUpdating: Bool { mutationsInFlight > 0 || isVisibleRefreshInFlight }
+
+    /// Every write gate except requiresReconfirmation.
+    private var writeGatesOpen: Bool {
         guard let snapshot, let canonicalSnapshot else { return false }
         return !isUpdating
             && !isRefreshInFlight
             && !isOffline
-            && !requiresReconfirmation
             && !isMigrationBlocked
             && !canonicalSnapshot.isStale
             && snapshot.lifecycle.isArchived == false
             && snapshot.permissions.canSettleOrReverse
+    }
+
+    var writesEnabled: Bool {
+        writeGatesOpen && !requiresReconfirmation
     }
 
     /// T-12 supplies an account-scoped durable queue. Offline settlement is
@@ -217,6 +236,8 @@ final class SettlementStore {
             isMigrationBlocked = false
             requiresReconfirmation = false
             operationIDsByActionKey.removeAll()
+            reportedFailedOperationIDs.removeAll()
+            writeFailureNotice = nil
         }
 
         do {
@@ -280,12 +301,12 @@ final class SettlementStore {
         if snapshot == nil {
             isLoading = true
         } else if showsVisibleActivity {
-            isUpdating = true
+            isVisibleRefreshInFlight = true
         }
         defer {
             isLoading = false
             if showsVisibleActivity {
-                isUpdating = false
+                isVisibleRefreshInFlight = false
             }
             isRefreshInFlight = false
             if refreshRequestedWhileInFlight {
@@ -310,6 +331,9 @@ final class SettlementStore {
             hasFreshCanonicalRead = true
             isOffline = false
             lastError = nil
+            // Another sync owner (the app-wide reconcile) may have sent and
+            // lost one of this screen's queued writes.
+            publishNewWriteFailures(scope: scope)
             await subscribeRealtimeIfNeeded()
             startPollingIfNeeded()
         } catch {
@@ -320,12 +344,18 @@ final class SettlementStore {
             if case ServerLedgerSyncError.conflictRequiresReconfirmation = error {
                 requiresReconfirmation = true
             }
+            // A write this screen queued earlier may have been refused just
+            // now by the drain inside onForeground. Its own call has already
+            // returned, so nobody else will tell the person.
+            publishNewWriteFailures(scope: scope)
         }
     }
 
     func canStartSettlement(_ transfer: SettlementPlanTransferDTO) -> Bool {
         guard isCurrentTransfer(transfer), canSettle(transfer) else { return false }
-        return writesEnabled || canQueueSettlement || requiresReconfirmation
+        // requiresReconfirmation lifts only its own gate; every other gate
+        // (saving, refreshing, offline without queue, read only) still holds.
+        return writesEnabled || canQueueSettlement || (requiresReconfirmation && writeGatesOpen)
     }
 
     func canDisplaySettlementAction(_ transfer: SettlementPlanTransferDTO) -> Bool {
@@ -359,7 +389,7 @@ final class SettlementStore {
               SettlementMoneyFormatting.compare(minorUnits, transfer.minorUnits) != .orderedDescending else {
             throw SettlementClientError.requiresReconfirmation
         }
-        guard writesEnabled || canQueueSettlement || requiresReconfirmation else {
+        guard writesEnabled || canQueueSettlement || (requiresReconfirmation && writeGatesOpen) else {
             throw SettlementClientError.writeDisabled
         }
 
@@ -395,8 +425,8 @@ final class SettlementStore {
         )
         try enqueueIfNeeded(mutation, actionKey: actionKey)
         requiresReconfirmation = false
-        isUpdating = true
-        defer { isUpdating = false }
+        mutationsInFlight += 1
+        defer { mutationsInFlight -= 1 }
         do {
             try await reconcileAfterMutation(scope: scope)
         } catch let error as SettlementClientError where error == .offline {
@@ -405,6 +435,8 @@ final class SettlementStore {
             // next foreground/reconnect cycle.
             return nil
         } catch {
+            // The caller shows this error; do not report it again later.
+            markWriteFailuresReported(scope: scope)
             throw error
         }
         return canonicalSnapshot?.group.settlementHistory.first(where: { item in
@@ -434,15 +466,36 @@ final class SettlementStore {
             body: body
         )
         try enqueueIfNeeded(mutation, actionKey: actionKey)
-        isUpdating = true
-        defer { isUpdating = false }
+        mutationsInFlight += 1
+        defer { mutationsInFlight -= 1 }
         do {
             try await reconcileAfterMutation(scope: scope)
         } catch let error as SettlementClientError where error == .offline {
             // Keep the queued reversal durable and show the cached history.
         } catch {
+            // The caller shows this error; do not report it again later.
+            markWriteFailuresReported(scope: scope)
             throw error
         }
+    }
+
+    /// "Reverse" is offered only where the server can accept it: an active
+    /// payment that the signed-in member paid or received (the kernel refuses
+    /// others with ALREADY_REVERSED 409 or FORBIDDEN 403).
+    func canReverse(settlementId: String) -> Bool {
+        guard writesEnabled,
+              let group = canonicalSnapshot?.group,
+              let memberID = group.currentMemberID,
+              let item = group.settlementHistory.first(where: {
+                  $0.type == "settlement" && $0.settlementID == settlementId
+              }) else { return false }
+        return item.status != "reversed"
+            && item.reversalID == nil
+            && (item.payerMemberID == memberID || item.recipientMemberID == memberID)
+    }
+
+    func clearWriteFailureNotice() {
+        writeFailureNotice = nil
     }
 
     func applyRealtimeVersion(_ version: Int) {
@@ -630,6 +683,56 @@ final class SettlementStore {
         }
     }
 
+    /// Failed queue rows that this store enqueued, by operation ID, with
+    /// whether each one was a reversal.
+    private func ownFailedOperations(
+        scope: ServerBackedLedgerScope
+    ) -> [(operation: PendingLedgerOperation, isReversal: Bool)] {
+        guard !operationIDsByActionKey.isEmpty,
+              let rows = try? serverLedgerStore.pendingOperations(
+                for: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
+                includingCompleted: false
+              ) else { return [] }
+        var keyByID: [UUID: String] = [:]
+        for (key, id) in operationIDsByActionKey { keyByID[id] = key }
+        return rows.compactMap { row in
+            guard row.retryState == .failed,
+                  !reportedFailedOperationIDs.contains(row.operationID),
+                  let key = keyByID[row.operationID] else { return nil }
+            return (row, key.hasPrefix("reversal:"))
+        }
+    }
+
+    private func markWriteFailuresReported(scope: ServerBackedLedgerScope) {
+        for failed in ownFailedOperations(scope: scope) {
+            reportedFailedOperationIDs.insert(failed.operation.operationID)
+        }
+    }
+
+    /// Tells the screen once about a queued write the server refused. A
+    /// revision conflict is shown by the "Settlement changed" banner
+    /// (requiresReconfirmation) instead of an alert.
+    private func publishNewWriteFailures(scope: ServerBackedLedgerScope) {
+        for failed in ownFailedOperations(scope: scope) {
+            reportedFailedOperationIDs.insert(failed.operation.operationID)
+            let reason = failed.operation.lastError
+            if reason == "revision_conflict_requires_reconfirmation" {
+                // Shown by the "Settlement changed. Confirm again." banner,
+                // also when another sync owner sent the row.
+                requiresReconfirmation = true
+                continue
+            }
+            // Machine codes (snake_case) are not shown; the alert has its own
+            // fallback sentence.
+            let isMachineCode = reason.map { $0.contains("_") && !$0.contains(" ") } ?? true
+            writeFailureNotice = SettlementWriteFailureNotice(
+                operationID: failed.operation.operationID,
+                isReversal: failed.isReversal,
+                message: isMachineCode ? nil : reason
+            )
+        }
+    }
+
     private func sumBaseCurrency(_ values: [ServerLedgerMoneyDTO]) -> ServerLedgerMoneyDTO {
         let group = canonicalSnapshot?.group
         let code = group?.baseCurrency.currencyCode ?? values.first?.currencyCode ?? Money.currentCurrency.rawValue
@@ -739,6 +842,14 @@ final class SettlementStore {
     }
 }
 
+/// A queued write that the server refused after its call had returned.
+struct SettlementWriteFailureNotice: Equatable {
+    let operationID: UUID
+    let isReversal: Bool
+    /// User-facing reason, or nil to use the alert's fallback sentence.
+    let message: String?
+}
+
 @MainActor
 private enum SettlementLedgerRuntime {
     static let store = AppStore.serverLedgerStore
@@ -760,8 +871,18 @@ private final class SettlementServerLedgerTransport: ServerLedgerAPIClient, @unc
             throw ServerLedgerAPIClientError.invalidRequest
         }
         let scope = ServerBackedLedgerScope(accountID: accountID, groupID: groupID)
+        let kind = request.kind.lowercased()
+        if kind == "settlement.create" || kind == "settlement.reverse" {
+            // The legacy client does not check the account itself. A row
+            // queued by account A must never be sent with account B's token
+            // (docs/state-machines/ios-ledger-sync.md, account fence).
+            guard let token = legacy.authorizationToken(),
+                  URLSessionServerLedgerAPIClient.tokenSubject(token) == accountID else {
+                throw ServerLedgerAPIClientError.unauthorized
+            }
+        }
         do {
-            switch request.kind.lowercased() {
+            switch kind {
             case "settlement.create":
                 let body = try JSONDecoder.serverLedger.decode(
                     CreateSettlementRequest.self,
@@ -813,6 +934,11 @@ private final class SettlementServerLedgerTransport: ServerLedgerAPIClient, @unc
                     currentRevision: nil,
                     snapshot: try? await canonical.fetchSnapshot(for: scope)
                 )
+            case let .structured(code, status, _):
+                // Keep the real status. ServerLedgerSync stops retrying a
+                // 4xx refusal (403 FORBIDDEN, 404 SETTLEMENT_NOT_FOUND, 400 …);
+                // reporting every refusal as 500 retried it forever.
+                throw ServerLedgerAPIClientError.server(status: status, code: code)
             default:
                 throw ServerLedgerAPIClientError.server(status: 500, code: error.localizedDescription)
             }

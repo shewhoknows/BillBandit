@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { LedgerMutationError } from '@/lib/ledger/mutation'
 import { buildPlan, planIsEmpty } from '../ledger/projections'
 import { loadGroupLedger } from '../ledger/load'
@@ -76,6 +76,32 @@ export function normalizeSettlementError(error: unknown): NormalizedSettlementEr
   }
 
   return null
+}
+
+/**
+ * True when this attempt lost the race to insert its LedgerOperation row:
+ * another attempt with the same Idempotency-Key (an offline-queue replay
+ * racing the original request) committed first.
+ */
+function isOperationKeyRace(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false
+  const target = (error.meta as { target?: unknown } | undefined)?.target
+  const fields = Array.isArray(target) ? target.map(String) : [String(target ?? '')]
+  return fields.some((field) => field.includes('operationKey'))
+}
+
+/**
+ * Run a settle-up command so a same-key race replays instead of failing.
+ * The second run finds the winner's COMMITTED operation and returns its
+ * result; nothing is applied twice (the kernel's operation row is unique).
+ */
+export async function withOperationKeyReplay<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (error) {
+    if (!isOperationKeyRace(error)) throw error
+    return run()
+  }
 }
 
 async function resolveCallerAccess(

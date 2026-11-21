@@ -1,0 +1,35 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=46647 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+Picked up _JAVA_OPTIONS: -XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_base64_encodeBlock,_base64_decodeBlock
+TLC2 Version 2026.11.19.180144 (rev: bc1b506)
+Running breadth-first search Model-Checking with fp 12 and seed 7973621012509517613 with 2 workers on 2 cores with 2731MB heap and 64MB offheap memory [pid: 256] (Linux 6.18.44-fc-v726 amd64, Ubuntu 21.0.13.0.3 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/claude/wt/ledger-kernel/specs/tla/ledger-kernel/LedgerKernel.tla
+Parsing file /tmp/tlc-6028241196407130824/Naturals.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-6028241196407130824/FiniteSets.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-6028241196407130824/TLC.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-6028241196407130824/_TLCTrace.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-6028241196407130824/Sequences.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-6028241196407130824/TLCExt.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-6028241196407130824/Integers.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module LedgerKernel
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module LedgerKernel
+Starting... (2026-11-21 13:45:42)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-21 13:45:42.
+Progress(8) at 2026-11-21 13:45:45: 108,482 states generated (108,482 s/min), 54,831 distinct states found (54,831 ds/min), 37,553 states left on queue.
+Progress(13) at 2026-11-21 13:46:45: 8,883,659 states generated (8,775,177 s/min), 4,014,189 distinct states found (3,959,358 ds/min), 2,264,860 states left on queue.
+Progress(14) at 2026-11-21 13:47:45: 18,422,216 states generated (9,538,557 s/min), 7,890,260 distinct states found (3,876,071 ds/min), 4,152,245 states left on queue.
+Progress(14) at 2026-11-21 13:48:45: 26,808,710 states generated (8,386,494 s/min), 11,273,041 distinct states found (3,382,781 ds/min), 5,767,291 states left on queue.
+Progress(14) at 2026-11-21 13:49:45: 33,684,005 states generated (6,875,295 s/min), 13,630,257 distinct states found (2,357,216 ds/min), 6,618,449 states left on queue.
+Progress(15) at 2026-11-21 13:50:45: 42,118,336 states generated (8,434,331 s/min), 16,540,464 distinct states found (2,910,207 ds/min), 7,650,839 states left on queue.
+Progress(15) at 2026-11-21 13:51:45: 48,818,660 states generated (6,700,324 s/min), 18,751,565 distinct states found (2,211,101 ds/min), 8,358,803 states left on queue.
+Progress(15) at 2026-11-21 13:52:45: 55,468,658 states generated (6,649,998 s/min), 21,173,106 distinct states found (2,421,541 ds/min), 9,407,222 states left on queue.
+EXIT 143

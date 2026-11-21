@@ -3,6 +3,7 @@ import type { GroupCategory, Prisma, PrismaClient } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { listAcceptedFriends } from '@/lib/friends'
 import { hashCanonicalRequest } from '@/lib/ledger/mutation'
+import { isOperationKeyUniqueViolation } from '@/lib/ledger/mutation/state-machines'
 import { ensureParticipantsForGroup } from '@/lib/settlement/participants/service'
 
 export const groupCreationInclude = {
@@ -142,6 +143,23 @@ export async function createGroupWithFriends(
     .filter((accountId) => accountId !== input.accountId)
     .sort()
 
+  // A second attempt with the same key that loses Prisma's read-then-insert
+  // race (P2002) runs once more and then replays the first attempt's group.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await createGroupOnce(input, memberAccountIds, db)
+    } catch (error) {
+      if (attempt === 0 && isOperationKeyUniqueViolation(error)) continue
+      throw error
+    }
+  }
+}
+
+async function createGroupOnce(
+  input: Parameters<typeof createGroupWithFriends>[0],
+  memberAccountIds: string[],
+  db: PrismaClient
+) {
   return db.$transaction(async (tx) => {
     if (!input.idempotencyKey) {
       return {

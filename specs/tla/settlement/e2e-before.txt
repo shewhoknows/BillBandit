@@ -1,0 +1,24 @@
+Old code: apps/api/lib checked out from d4d55b1 (before the fixes), E2E script from the final commit. 3 runs, all 8 PASS / 3 FAIL; run 1 shown, runs 2-3 summarized at the end. The Revision line says '+ uncommitted' because lib/ was swapped for the old version.
+# Settlement E2E
+Revision: 95c3aa1eabdd5ca1aefa4170974ac3437d9c61dd (+ uncommitted changes)
+Environment: API http://127.0.0.1:3102, DB postgresql://localhost:5432/billbandit_a2, node v22.23.5, 2026-11-21T06:15:16.607Z
+Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... npx tsx scripts/settlement-e2e.ts
+Group: cmwq0k20r00yc4qopo3fo8rse
+| Step | Result |
+| --- | --- |
+| 1. Pay more than owed is refused and records nothing | PASS |
+| 2. Same payment sent 4 times at once with one Idempotency-Key (offline replay racing the original) is applied once | FAIL: statuses 201 , 500 Internal server error, 500 Internal server error, 500 Internal server error |
+| 3. Paying the rest settles everyone and sets the completion date | PASS |
+| 4. New expense, then settled again: completion date is the new payment, not the old one | FAIL: shows 2026-11-21T06:15:03.349Z (first settle-up was 2026-11-21T06:15:03.349Z); the payment that settled everyone is 2026-11-21T06:15:05.589Z |
+| 5. Two phones reverse the same payment at once: one reversal, one 409, debt returns once | PASS |
+| 6. Retrying the loser with a fresh version is refused: ALREADY_REVERSED | PASS |
+| 7. A reversal cannot be reversed | PASS |
+| 8. Stale plan (version moved) is refused with requiresReconfirmation | PASS |
+| 9. Two phones pay the same transfer at once: one payment, no overpay | PASS |
+| 10. Finalized group still accepts a reversal and a payment (api-contracts.md) | PASS |
+| 11. Outbox: a slow worker whose lease expired cannot undo a newer worker's PUBLISHED row | FAIL: worker A moved PUBLISHED back to PENDING (failureCode PUBLISH_FAILED); publishes: slow:2, fast:2, fast:2 + actual - expected  + 'PENDING' - 'PUBLISHED'  |
+
+8 PASS, 3 FAIL
+
+Run 2: 8 PASS, 3 FAIL
+Run 3: 8 PASS, 3 FAIL

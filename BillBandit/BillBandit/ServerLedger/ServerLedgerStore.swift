@@ -18,6 +18,12 @@ enum ServerLedgerStoreError: Error, Equatable, Sendable {
 final class ServerLedgerStore {
     let context: ModelContext
     private var drainingAccountIDs = Set<String>()
+    /// Bumped by every `clear(accountID:)`. All `ServerLedgerSync` instances
+    /// share this store, so a drain or refresh that started before a sign-out
+    /// or account switch sees the change even when its own instance was never
+    /// told about it, and stops before it sends or caches anything.
+    private var accountEpochs: [String: Int] = [:]
+    private var allAccountsEpoch = 0
 
     init(context: ModelContext) {
         self.context = context
@@ -96,7 +102,10 @@ final class ServerLedgerStore {
     /// Insert an operation once. A retry or duplicate enqueue with the same
     /// operation ID returns the durable row only when its request is identical.
     @discardableResult
-    func enqueue(_ request: ServerLedgerMutationRequest) throws -> PendingLedgerOperation {
+    func enqueue(
+        _ request: ServerLedgerMutationRequest,
+        basedOnRevision: Int64? = nil
+    ) throws -> PendingLedgerOperation {
         try requireAccount(request.accountID)
         guard request.scope.accountID == request.accountID else {
             throw ServerLedgerStoreError.accountScopeRequired
@@ -121,6 +130,7 @@ final class ServerLedgerStore {
             operationID: request.operationID,
             scope: request.scope,
             expectedRevision: request.expectedRevision,
+            basedOnRevision: basedOnRevision,
             requestPayload: request.requestPayload
         )
         context.insert(operation)
@@ -131,7 +141,8 @@ final class ServerLedgerStore {
     @discardableResult
     func enqueue(
         _ request: ServerLedgerMutationRequest,
-        optimisticSnapshot: ServerLedgerSnapshot?
+        optimisticSnapshot: ServerLedgerSnapshot?,
+        basedOnRevision: Int64? = nil
     ) throws -> PendingLedgerOperation {
         if let optimisticSnapshot {
             guard optimisticSnapshot.accountID == request.accountID else {
@@ -142,7 +153,7 @@ final class ServerLedgerStore {
             }
             _ = try cache(snapshot: optimisticSnapshot)
         }
-        return try enqueue(request)
+        return try enqueue(request, basedOnRevision: basedOnRevision)
     }
 
     @discardableResult
@@ -205,6 +216,23 @@ final class ServerLedgerStore {
         }
     }
 
+    /// The rows one drain may send now, in send order: waiting rows that are
+    /// due, except that a group stops at its first row still in backoff.
+    func drainableOperations(for accountID: String, dueAt: Date) throws -> [PendingLedgerOperation] {
+        ServerLedgerQueueOrder.drainable(
+            try pendingOperations(for: accountID, includingCompleted: false, includingFailed: false, dueAt: nil),
+            dueAt: dueAt
+        )
+    }
+
+    /// See `ServerLedgerQueueOrder.reservationIsIntact`.
+    func reservationIsIntact(_ operation: PendingLedgerOperation, kind: String) throws -> Bool {
+        let key = ServerLedgerQueueOrder.scopeKey(operation)
+        let scopeRows = try pendingOperations(for: operation.accountID, includingCompleted: true)
+            .filter { ServerLedgerQueueOrder.scopeKey($0) == key }
+        return ServerLedgerQueueOrder.reservationIsIntact(operation, kind: kind, scopeRows: scopeRows)
+    }
+
     func pendingOperations(
         for scope: ServerLedgerMutationScope,
         includingCompleted: Bool = false
@@ -221,6 +249,7 @@ final class ServerLedgerStore {
     /// touched.
     func clear(accountID: String) throws {
         try requireAccount(accountID)
+        accountEpochs[accountID, default: 0] &+= 1
         let cacheAccountID = accountID
         let cacheDescriptor = FetchDescriptor<CachedLedgerSnapshot>(
             predicate: #Predicate { row in row.accountID == cacheAccountID }
@@ -256,6 +285,17 @@ final class ServerLedgerStore {
         let next = last.addingReportingOverflow(1)
         guard !next.overflow else { throw ServerLedgerSyncError.conflictRequiresReconfirmation }
         return next.partialValue
+    }
+
+    /// Token for "this account's rows have not been cleared since".
+    func accountEpoch(_ accountID: String) -> Int {
+        accountEpochs[accountID, default: 0] &+ allAccountsEpoch
+    }
+
+    /// Called when rows are deleted outside `clear(accountID:)`, such as by
+    /// `LocalAccountDataCleanup` after account deletion.
+    func invalidateAllAccounts() {
+        allAccountsEpoch &+= 1
     }
 
     func markPending(_ operation: PendingLedgerOperation) throws {

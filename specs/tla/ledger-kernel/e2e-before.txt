@@ -1,0 +1,31 @@
+# Ledger kernel E2E
+Revision: 07a3461 with kernel.ts, mobile-group-creation.ts and the expenses/[id], finalize, members routes checked out from base 372c5b3 (the code before the fix)
+Environment: API http://127.0.0.1:3101, database billbandit_a1 on localhost:5432, node v22.23.5
+Run at: 2026-11-21T06:23:14.203Z
+Replay: cd apps/api && DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_a1 DEV_API_BASE=http://127.0.0.1:3101 npx tsx scripts/ledger-kernel-e2e.ts
+Groups: 12 (first cmwq0u19e00tei5c3nw7ylwxw)
+
+| Step | Check | Result |
+| --- | --- | --- |
+| B1 | Retry of a committed DELETE (same operationId) replays the first answer, not 404 | FAIL: retry: 404 Not found  404 !== 200  |
+| B1b | A NEW delete of the deleted expense is still refused (404 already deleted) | PASS |
+| B1c | Retry of a committed edit after another member deleted the expense replays, not 404 | FAIL: retry: 404 Not found  404 !== 200  |
+| B2 | Two attempts of one expense create at the same moment: both succeed, one applied + one replayed (8 rounds) | FAIL: round 0: 201 applied / 500 Internal server error |
+| B2b | Two attempts of one group create (same Idempotency-Key) at once: same group, no 500 (8 rounds) | FAIL: round 0: 201 / 500 Internal server error |
+| B2c | Two attempts of one finalize at once: both succeed with the same revision | FAIL: 500 Internal server error / 200 applied |
+| B3 | A member who owes money cannot remove themself through DELETE /members | FAIL: kabir is departed after 500 Internal server error + actual - expected  + 'departed' - 'active'  |
+| B3b | The owner cannot remove a member who still owes money | FAIL: kabir is departed after 404 MEMBER_NOT_FOUND Membership not found + actual - expected  + 'departed' - 'active'  |
+| B4 | The only owner cannot remove themself (group keeps an owner) | FAIL: owner row removed after 500 Internal server error |
+| B4b | The only owner cannot make themself a plain member | FAIL: admins=0 after 200 applied  0 !== 1  |
+| B5 | After a settled member leaves, deleting an expense they shared is refused; their balance stays 0 | FAIL: departed kabir balance 500 after delete 200 applied  '500' !== '0'  |
+| B5b | Unrelated writes still work in a group with a departed member | PASS |
+| B5c | Reversing a payment of a member who has since left is refused | FAIL: departed kabir balance -500 after reversal 201  '-500' !== '0'  |
+| B6 | A settled member removing themself through DELETE /members gets 200, not 500 | FAIL: 500 Internal server error  500 !== 200  |
+| R1 | Two phones edit one expense with the same stale revision: one 200, one REVISION_CONFLICT (no lost update) | PASS |
+| R2 | Same operationId with a different body is refused (IDEMPOTENCY_KEY_REUSED) and writes nothing | PASS |
+| R3 | A finalized group refuses new expenses; an archived group refuses everything | PASS |
+| R4 | A create sent with member ids replays after membership changed (zoya leaves, is added back): no IDEMPOTENCY_KEY_REUSED | PASS |
+| R5 | An offline queue sent in order with a reserved revision chain (r, r+1, r+2) applies, and replays unchanged when sent again | FAIL: 404 Not found / 200 replayed / 404 Not found + actual - expected    [     [ +     404, +     undefined, +     undefined -     200, -     'replayed', -     7     ],     [       200,       'replayed',       8     ],     [ +     404, +     undefined, +     undefined -     200, -     'replayed', -     9     ]   ]  |
+| I1 | Every group used: balances sum to zero per currency; journal versions are exactly 1..revision; deleted expenses do not count | PASS |
+
+7 passed, 13 failed

@@ -14,6 +14,7 @@ import {
   readMutationMetadata,
 } from '@/lib/mobile-expenses'
 import { loadGroupReadModel } from '@/lib/ledger/read-model/loader'
+import { LedgerReadModelError } from '@/lib/ledger/read-model/types'
 import { executeMutation } from '@/lib/ledger/mutation'
 import { mobileMembershipV2Schema } from '@/lib/validations-mobile-ledger'
 
@@ -105,7 +106,19 @@ async function mutateMembership(
       payload,
     })
 
-    const after = await loadGroupReadModel(groupId, session.user.id)
+    const after = await loadGroupReadModel(groupId, session.user.id).catch((error: unknown) => {
+      // A person who removed themself can no longer read the group. The
+      // removal is committed, so answer with the receipt instead of a 500
+      // that the phone would retry forever.
+      if (method === 'membership.remove' && error instanceof LedgerReadModelError) return null
+      throw error
+    })
+    if (!after) {
+      return NextResponse.json(
+        { member: null, mutation: result, revision: result.revision, readModel: null },
+        { status: 200 }
+      )
+    }
     const targetUserId = target.userId ?? null
     const member = targetUserId ? memberForAccount(after.group, targetUserId) : null
     return NextResponse.json(

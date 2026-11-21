@@ -17,15 +17,34 @@ import {
 import { mobileFinalizeV2Schema } from '@/lib/validations-mobile-ledger'
 import { mutationRequestHash } from '@/lib/ledger/mutation'
 import { LedgerMutationError, MutationConflictError, conflictReadModel } from '@/lib/ledger/mutation/errors'
+import {
+  assertGroupEvent,
+  deriveGroupLifecycle,
+  isOperationKeyUniqueViolation,
+} from '@/lib/ledger/mutation/state-machines'
 
 const RETENTION_DAYS = 30
 
-async function finalizeGroup(input: {
+type FinalizeInput = {
   groupId: string
   accountId: string
   operationId: string
   expectedRevision: number
-}) {
+}
+
+/** A second attempt with the same key that lost the insert race replays the first. */
+async function finalizeGroup(input: FinalizeInput) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await finalizeGroupOnce(input)
+    } catch (error) {
+      if (attempt === 0 && isOperationKeyUniqueViolation(error)) continue
+      throw error
+    }
+  }
+}
+
+async function finalizeGroupOnce(input: FinalizeInput) {
   const requestHash = mutationRequestHash({
     groupId: input.groupId,
     kind: 'group.finalize',
@@ -136,8 +155,8 @@ async function finalizeGroup(input: {
         currentReadModel: readModel,
       })
     }
-    if (current.isArchived) throw new LedgerMutationError('GROUP_ARCHIVED', 403, 'Group is archived')
-    if (current.finalizedAt) throw new LedgerMutationError('GROUP_FINALIZED', 409, 'Group is finalized')
+    // open -> finalized; finalized answers GROUP_FINALIZED, archived GROUP_ARCHIVED.
+    assertGroupEvent(deriveGroupLifecycle(current), 'finalize')
 
     const finalizedAt = now
     const updated = await tx.group.updateMany({

@@ -19,6 +19,7 @@ import {
   type JsonObject,
   type NormalizedCloudKitExport,
 } from './types'
+import { assertImportRecordTransition, assertImportTransition } from '../../identity-friends-state'
 import {
   moneyContextFromFields,
   normalizeCloudKitExport,
@@ -88,6 +89,18 @@ type ImportRow = {
   failureReason: string | null
   startedAt: Date | null
   completedAt: Date | null
+}
+
+/**
+ * Transaction-scoped advisory lock. Two runs of one import (a client retry
+ * after its 30 s timeout, or a resume while the first run is still going) used
+ * to race on the create-or-find steps: the loser's unique-key error aborted
+ * its Postgres transaction, so the "re-read the winner" branch could never
+ * run and the request failed with 500. With the lock the second run waits and
+ * then sees the first run's rows.
+ */
+async function lockImportKey(tx: DbTransaction, key: string): Promise<void> {
+  await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtextextended(${`cloudkit-import:${key}`}, 0))`
 }
 
 function isUniqueConstraint(error: unknown): boolean {
@@ -734,6 +747,9 @@ async function prepareImport(
   now: Date
 ): Promise<PreparedImport> {
   return withTransaction(rootDb, async (tx) => {
+    // One prepare at a time per account: createOrFindImport also checks the
+    // account's other imports (one completed import per account).
+    await lockImportKey(tx, accountId)
     const importRow = await createOrFindImport(tx, normalized, accountId, now)
     if (importRow.sourceChecksum && importRow.sourceChecksum !== normalized.sourceChecksum) {
       if (importRow.state === 'COMPLETED') {
@@ -744,6 +760,7 @@ async function prepareImport(
         )
       }
       const reason = 'The CloudKit export checksum changed while the import was incomplete.'
+      assertImportTransition(importRow.state, 'FAILED')
       await tx.ledgerImport.update({
         where: { id: importRow.id },
         data: { state: 'FAILED', failureReason: reason, completedAt: null },
@@ -773,6 +790,7 @@ async function prepareImport(
     } catch (error) {
       if (!(error instanceof CloudKitImportNeedsRepairError) && !(error instanceof CloudKitImportValidationError)) throw error
       const reason = error.message
+      assertImportTransition(importRow.state, 'FAILED')
       await tx.ledgerImport.update({
         where: { id: importRow.id },
         data: { state: 'FAILED', failureReason: reason, sourceChecksum: normalized.sourceChecksum, completedAt: null },
@@ -787,6 +805,7 @@ async function prepareImport(
     }
 
     const startedAt = importRow.startedAt ?? now
+    assertImportTransition(importRow.state, 'RUNNING')
     await tx.ledgerImport.update({
       where: { id: importRow.id },
       data: {
@@ -1204,6 +1223,9 @@ async function processSourceRecord(
   state: SemanticState,
   now: Date
 ): Promise<ProcessedSource> {
+  // One writer per source record. A second run waits here, then reads the
+  // committed IMPORTED row and reuses it instead of writing the money again.
+  await lockImportKey(tx, `${accountId}:${source.logicalKey}`)
   const row = await tx.ledgerImportRecord.findUnique({
     where: {
       accountId_sourceSystem_sourceRecordKey: {
@@ -1231,6 +1253,7 @@ async function processSourceRecord(
           : source.recordType === CLOUDKIT_RECORD_TYPES.SETTLEMENT
             ? await importSettlement(tx, source, state, accountId, now)
             : await importActivity(tx, source, state, accountId, now, importId)
+  assertImportRecordTransition(row.state, 'IMPORTED')
   await tx.ledgerImportRecord.update({
     where: { id: row.id },
     data: {
@@ -1280,6 +1303,10 @@ async function processAllRecords(
     }
   }
   await withTransaction(rootDb, async (tx) => {
+    await lockImportKey(tx, accountId)
+    const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true } })
+    // Another run already finished (or failed) this import.
+    if (!current || current.state !== 'RUNNING') return
     let ready = true
     for (const source of normalized.records) {
       const row = await tx.ledgerImportRecord.findUnique({
@@ -1298,6 +1325,7 @@ async function processAllRecords(
       }
     }
     if (ready) {
+      assertImportTransition(current.state, 'COMPLETED')
       await tx.ledgerImport.update({
         where: { id: importId },
         data: { state: 'COMPLETED', completedAt: now, failureReason: null },

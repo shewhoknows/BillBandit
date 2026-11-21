@@ -1,0 +1,418 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=42985 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+Picked up _JAVA_OPTIONS: -XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_base64_encodeBlock,_base64_decodeBlock
+TLC2 Version 2026.11.19.180144 (rev: bc1b506)
+Running breadth-first search Model-Checking with fp 40 and seed 7724652467267670302 with 1 worker on 2 cores with 1365MB heap and 64MB offheap memory [pid: 13402] (Linux 6.18.44-fc-v726 amd64, Ubuntu 21.0.13.0.3 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/claude/wt/ios-ledger-sync/specs/tla/ios-ledger-sync/LedgerQueueSync.tla
+Parsing file /tmp/tlc-13786822869795932468/Integers.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-13786822869795932468/Sequences.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-13786822869795932468/FiniteSets.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-13786822869795932468/_TLCTrace.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-13786822869795932468/Naturals.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-13786822869795932468/TLC.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-13786822869795932468/TLCExt.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module LedgerQueueSync
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module LedgerQueueSync
+Starting... (2026-11-21 06:16:12)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-21 06:16:15.
+Error: Invariant NoSelfConflict is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 0>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 0
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"none", "none">>
+/\ switched = FALSE
+/\ due = <<TRUE, TRUE>>
+/\ drain = [ on |-> FALSE,
+  owner |-> "L",
+  acct |-> "none",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 2: <Create(1) line 99, col 3 to line 106, col 69 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 0>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 0
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"pending", "none">>
+/\ switched = FALSE
+/\ due = <<TRUE, TRUE>>
+/\ drain = [ on |-> FALSE,
+  owner |-> "L",
+  acct |-> "none",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 3: <Create(2) line 99, col 3 to line 106, col 69 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 0
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"pending", "pending">>
+/\ switched = FALSE
+/\ due = <<TRUE, TRUE>>
+/\ drain = [ on |-> FALSE,
+  owner |-> "L",
+  acct |-> "none",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 4: <DrainStart("S") line 157, col 3 to line 164, col 77 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 0
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"pending", "pending">>
+/\ switched = FALSE
+/\ due = <<TRUE, TRUE>>
+/\ drain = [ on |-> TRUE,
+  owner |-> "S",
+  acct |-> "A",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<1, 2>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 5: <DrainSend line 183, col 3 to line 203, col 29 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [op |-> 1, tok |-> "A", e |-> 0, phase |-> "req", result |-> "none", rev |-> 0]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 0
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"inflight", "pending">>
+/\ switched = FALSE
+/\ due = <<TRUE, TRUE>>
+/\ drain = [ on |-> TRUE,
+  owner |-> "S",
+  acct |-> "A",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<1, 2>>,
+  wait |-> TRUE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 6: <Lose line 240, col 3 to line 245, col 69 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 1,
+  tok |-> "A",
+  e |-> 0,
+  phase |-> "resp",
+  result |-> "offline",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 1
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"inflight", "pending">>
+/\ switched = FALSE
+/\ due = <<TRUE, TRUE>>
+/\ drain = [ on |-> TRUE,
+  owner |-> "S",
+  acct |-> "A",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<1, 2>>,
+  wait |-> TRUE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 7: <Receive line 249, col 3 to line 280, col 29 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 1
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"retrying", "pending">>
+/\ switched = FALSE
+/\ due = <<FALSE, TRUE>>
+/\ drain = [ on |-> FALSE,
+  owner |-> "L",
+  acct |-> "none",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 8: <DrainStart("S") line 157, col 3 to line 164, col 77 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 1
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"retrying", "pending">>
+/\ switched = FALSE
+/\ due = <<FALSE, TRUE>>
+/\ drain = [ on |-> TRUE,
+  owner |-> "S",
+  acct |-> "A",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<2>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 9: <DrainSend line 183, col 3 to line 203, col 29 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [op |-> 2, tok |-> "A", e |-> 1, phase |-> "req", result |-> "none", rev |-> 0]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 1
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"retrying", "inflight">>
+/\ switched = FALSE
+/\ due = <<FALSE, TRUE>>
+/\ drain = [ on |-> TRUE,
+  owner |-> "S",
+  acct |-> "A",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<2>>,
+  wait |-> TRUE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 10: <Server line 214, col 3 to line 236, col 27 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 2,
+  tok |-> "A",
+  e |-> 1,
+  phase |-> "resp",
+  result |-> "conflict",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 1
+/\ token = "A"
+/\ selfFail = FALSE
+/\ st = <<"retrying", "inflight">>
+/\ switched = FALSE
+/\ due = <<FALSE, TRUE>>
+/\ drain = [ on |-> TRUE,
+  owner |-> "S",
+  acct |-> "A",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<2>>,
+  wait |-> TRUE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+State 11: <Receive line 249, col 3 to line 280, col 29 of module LedgerQueueSync>
+/\ instActive = [S |-> "A", L |-> "A"]
+/\ epoch = 0
+/\ srvRev = 0
+/\ lostUpdate = FALSE
+/\ writer = <<"none", "none">>
+/\ crossSent = FALSE
+/\ applied = <<0, 0>>
+/\ receipt = {}
+/\ exp = <<0, 1>>
+/\ net = [ op |-> 0,
+  tok |-> "none",
+  e |-> 0,
+  phase |-> "none",
+  result |-> "none",
+  rev |-> 0 ]
+/\ rd = -1
+/\ cacheRev = 0
+/\ losses = 1
+/\ token = "A"
+/\ selfFail = TRUE
+/\ st = <<"retrying", "failed">>
+/\ switched = FALSE
+/\ due = <<FALSE, TRUE>>
+/\ drain = [ on |-> FALSE,
+  owner |-> "L",
+  acct |-> "none",
+  g |-> 0,
+  ep |-> 0,
+  list |-> <<>>,
+  wait |-> FALSE ]
+/\ peerWrites = 0
+/\ crashes = 0
+/\ gen = [S |-> 0, L |-> 0]
+/\ seen = <<0, 0>>
+
+615 states generated, 307 distinct states found, 82 states left on queue.
+The depth of the complete state graph search is 11.
+Finished in 07s at (2026-11-21 06:16:16)
+Trace exploration spec path: ./LedgerQueueSync_TTrace_1795241768.tla

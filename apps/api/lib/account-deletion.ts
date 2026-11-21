@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { assertAccountTransition, deriveAccountState } from '@/lib/identity-friends-state'
 
 const DELETED_USER_NAME = 'Deleted user'
 
@@ -19,20 +20,21 @@ export async function deleteMobileAccount(
   db: PrismaClient = prisma,
 ): Promise<AccountDeletionResult> {
   return db.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({
-      where: { id: accountId },
-      select: {
-        id: true,
-        email: true,
-        phone: true,
-        deletedAt: true,
-      },
-    })
+    // Lock the account row first. A friend claim or invitation that touches
+    // this account takes FOR SHARE on it, so it either finishes before this
+    // deletion (and its rows are removed below) or waits and then sees
+    // deletedAt. Two deletions at once also serialize here.
+    const locked = await tx.$queryRaw<Array<{ id: string; email: string; phone: string | null; deletedAt: Date | null }>>`
+      SELECT "id", "email", "phone", "deletedAt" FROM "User" WHERE "id" = ${accountId} FOR UPDATE
+    `
+    const user = locked[0]
 
     if (!user) return { status: 'not_found' as const }
-    if (user.deletedAt) {
-      return { status: 'already_deleted' as const, deletedAt: user.deletedAt }
+    const from = deriveAccountState(user)
+    if (from === 'deleted') {
+      return { status: 'already_deleted' as const, deletedAt: user.deletedAt! }
     }
+    assertAccountTransition(from, 'deleted')
 
     const deletedAt = new Date()
     const participantRows = await tx.groupParticipant.findMany({
@@ -41,6 +43,11 @@ export async function deleteMobileAccount(
     })
     const participantIds = participantRows.map(({ id }) => id)
 
+    // Payments that involve this account keep their amounts, allocations and
+    // reversals: those rows decide every other member's balance. Deleting a
+    // SettlementReversal made a reversed payment count again, and deleting an
+    // allocation re-routed a simplified payment between two other people.
+    // Only the free-form note is personal data.
     const transactionConditions = [
       { senderId: accountId },
       { receiverId: accountId },
@@ -52,60 +59,10 @@ export async function deleteMobileAccount(
           ]
         : []),
     ]
-    const transactionRows = await tx.transaction.findMany({
+    await tx.transaction.updateMany({
       where: { OR: transactionConditions },
-      select: { id: true },
+      data: { note: null },
     })
-    const transactionIds = new Set(transactionRows.map(({ id }) => id))
-
-    const participantPathRows = participantIds.length > 0
-      ? await tx.settlementAllocationPath.findMany({
-          where: {
-            OR: [
-              { payerParticipantId: { in: participantIds } },
-              { recipientParticipantId: { in: participantIds } },
-            ],
-          },
-          select: { allocationId: true },
-        })
-      : []
-    const allocationIds = new Set(participantPathRows.map(({ allocationId }) => allocationId))
-
-    const allocationConditions = []
-    if (transactionIds.size > 0) {
-      allocationConditions.push({ transactionId: { in: [...transactionIds] } })
-    }
-    if (allocationIds.size > 0) {
-      allocationConditions.push({ id: { in: [...allocationIds] } })
-    }
-    const allocationRows = allocationConditions.length > 0
-      ? await tx.settlementAllocation.findMany({
-          where: { OR: allocationConditions },
-          select: { id: true, transactionId: true },
-        })
-      : []
-    for (const allocation of allocationRows) {
-      allocationIds.add(allocation.id)
-      transactionIds.add(allocation.transactionId)
-    }
-
-    if (allocationIds.size > 0) {
-      await tx.settlementAllocationPath.deleteMany({
-        where: { allocationId: { in: [...allocationIds] } },
-      })
-    }
-    if (transactionIds.size > 0) {
-      await tx.settlementReversal.deleteMany({
-        where: { transactionId: { in: [...transactionIds] } },
-      })
-      await tx.settlementAllocation.deleteMany({
-        where: { transactionId: { in: [...transactionIds] } },
-      })
-      await tx.transaction.updateMany({
-        where: { id: { in: [...transactionIds] } },
-        data: { note: null },
-      })
-    }
 
     // Preserve the financial shape of a shared expense while removing the
     // deleted user's free-form text and receipt attachment.

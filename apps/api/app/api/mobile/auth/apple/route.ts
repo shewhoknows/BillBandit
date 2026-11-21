@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { appleSignInSchema } from '@/lib/validations-mobile-auth'
@@ -17,6 +18,17 @@ const userSelect = {
   upiID: true,
 }
 
+async function withUniqueRetry<T>(write: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await write()
+    } catch (error) {
+      const unique = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+      if (!unique || attempt >= attempts) throw error
+    }
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -31,7 +43,10 @@ export async function POST(req: NextRequest) {
     const email = identity.email ?? syntheticEmailForAppleSubject(identity.subject)
     const displayName = parsed.data.name ?? parsed.data.fullName
 
-    const account = await prisma.account.upsert({
+    // First sign-in from two devices at once: both miss the Account row and
+    // both try to create it (and the User). The loser hits a unique key; on
+    // retry it finds the winner's Account and signs in to the same user.
+    const account = await withUniqueRetry(() => prisma.account.upsert({
       where: {
         provider_providerAccountId: {
           provider: 'apple',
@@ -57,7 +72,7 @@ export async function POST(req: NextRequest) {
         },
       },
       select: { user: { select: userSelect } },
-    })
+    }))
     const user = account.user
     return NextResponse.json({ token: createMobileToken(user), user: mobileUser(user) })
   } catch (error) {

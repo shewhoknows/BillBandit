@@ -1,0 +1,38 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=46647 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+Picked up _JAVA_OPTIONS: -XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=_base64_encodeBlock,_base64_decodeBlock
+TLC2 Version 2026.11.19.180144 (rev: bc1b506)
+Running Random Simulation with seed 7472893805110578812 with 2 workers on 2 cores with 2731MB heap and 64MB offheap memory [pid: 6472] (Linux 6.18.44-fc-v726 amd64, Ubuntu 21.0.13.0.3 64bit).
+Parsing file /home/claude/bb/specs/tla/ledger-kernel/LedgerKernel.tla
+Parsing file /tmp/tlc-10616303568465404556/Naturals.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-10616303568465404556/FiniteSets.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-10616303568465404556/TLC.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-10616303568465404556/_TLCTrace.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-10616303568465404556/Sequences.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-10616303568465404556/TLCExt.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-10616303568465404556/Integers.tla (jar:file:/home/claude/shared/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Integers
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module LedgerKernel
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module LedgerKernel
+Starting... (2026-11-21 13:55:46)
+Computed 1 initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-21 13:55:47.
+Progress: 16018600 states checked, 546487 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 32894758 states checked, 1122200 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 49449103 states checked, 1686653 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 66447280 states checked, 2266616 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 83617553 states checked, 2852570 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 100433786 states checked, 3426478 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 116894635 states checked, 3987962 traces generated (trace length: mean=14, var(x)=20, sd=4)
+Progress: 117248877 states checked, 4000000 traces generated (trace length: mean=14, var(x)=20, sd=4)
+The number of states generated: 117248877
+Simulation using seed 7472893805110578812 and aril 0
+Finished in 07min 03s at (2026-11-21 14:02:49)
+EXIT 0

@@ -1685,6 +1685,15 @@ struct AppRootView: View {
             DispatchQueue.main.async {
                 switch decision {
                 case .authorize, .preserveSession:
+                    // Another request may have had the token rejected (401)
+                    // while Apple was answering. Do not open the app without
+                    // a session; ask for sign-in as the launch check does.
+                    guard UsernameIdentityService.hasStoredSession else {
+                        ServerLedgerSurfaceStore.shared.accountDidLoseAuthorization()
+                        usernameHandleVerified = false
+                        accountGateState = .signedOut
+                        return
+                    }
                     persistSession(isActive: true, identifier: appleUserIdentifier)
                     accountGateState = .authorized
                 case .signOut:

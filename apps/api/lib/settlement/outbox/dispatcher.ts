@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { isRealtimeConfigured, publishOutboxEvent } from './pusher'
+import { outboxLeaseToken, outboxTransition } from '../state'
 
 const LEASE_MS = 30_000
 const MAX_BACKOFF_MS = 60_000
@@ -20,13 +22,14 @@ export async function drainOutboxOnce(owner = `worker-${process.pid}`): Promise<
   }
 
   const now = new Date()
+  const reclaim = outboxTransition('reclaimExpired')
   await prisma.settlementOutbox.updateMany({
     where: {
-      state: 'LEASED',
+      state: reclaim.from,
       leaseExpiresAt: { lt: now },
     },
     data: {
-      state: 'PENDING',
+      state: reclaim.to,
       leaseOwner: null,
       leaseExpiresAt: null,
     },
@@ -34,7 +37,7 @@ export async function drainOutboxOnce(owner = `worker-${process.pid}`): Promise<
 
   const pending = await prisma.settlementOutbox.findMany({
     where: {
-      state: 'PENDING',
+      state: outboxTransition('lease').from,
       nextAttemptAt: { lte: now },
     },
     orderBy: { createdAt: 'asc' },
@@ -44,15 +47,20 @@ export async function drainOutboxOnce(owner = `worker-${process.pid}`): Promise<
   let published = 0
   for (const row of pending) {
     const leaseExpiresAt = new Date(Date.now() + LEASE_MS)
+    const lease = outboxTransition('lease')
+    const leaseToken = outboxLeaseToken(owner, randomUUID())
     const leased = await prisma.settlementOutbox.updateMany({
-      where: { id: row.id, state: 'PENDING' },
+      where: { id: row.id, state: lease.from },
       data: {
-        state: 'LEASED',
-        leaseOwner: owner,
+        state: lease.to,
+        leaseOwner: leaseToken,
         leaseExpiresAt,
       },
     })
     if (leased.count === 0) continue
+    // Only the current lease holder may finish the row. If this lease expired
+    // and another worker took the row, these writes match nothing.
+    const held = { id: row.id, state: lease.to, leaseOwner: leaseToken }
 
     try {
       await publishOutboxEvent(row.groupId, {
@@ -61,24 +69,24 @@ export async function drainOutboxOnce(owner = `worker-${process.pid}`): Promise<
         recordId: row.recordId,
         version: row.version,
       })
-      await prisma.settlementOutbox.update({
-        where: { id: row.id },
+      const done = await prisma.settlementOutbox.updateMany({
+        where: held,
         data: {
-          state: 'PUBLISHED',
+          state: outboxTransition('published').to,
           publishedAt: new Date(),
           leaseOwner: null,
           leaseExpiresAt: null,
           failureCode: null,
         },
       })
-      published++
+      if (done.count === 1) published++
     } catch {
       const attemptCount = row.attemptCount + 1
-      await prisma.settlementOutbox.update({
-        where: { id: row.id },
+      await prisma.settlementOutbox.updateMany({
+        where: held,
         data: {
-          state: 'PENDING',
-          attemptCount,
+          state: outboxTransition('publishFailed').to,
+          attemptCount: { increment: 1 },
           nextAttemptAt: new Date(Date.now() + computeBackoffMs(attemptCount)),
           leaseOwner: null,
           leaseExpiresAt: null,
@@ -91,17 +99,23 @@ export async function drainOutboxOnce(owner = `worker-${process.pid}`): Promise<
   return published
 }
 
+function drainInBackground(): void {
+  // A database error here must not become an unhandled rejection. Rows stay
+  // PENDING or LEASED (lease expires) and the next drain picks them up.
+  drainOutboxOnce().catch((error) => {
+    console.error('[settlement outbox] drain failed', error)
+  })
+}
+
 export function wakeOutboxDispatcher(): void {
   if (!isRealtimeConfigured()) return
-  void drainOutboxOnce()
+  drainInBackground()
 }
 
 export function startOutboxDispatcher(): void {
   if (dispatcherStarted || !isRealtimeConfigured()) return
   dispatcherStarted = true
-  void drainOutboxOnce()
-  intervalHandle = setInterval(() => {
-    void drainOutboxOnce()
-  }, DRAIN_INTERVAL_MS)
+  drainInBackground()
+  intervalHandle = setInterval(drainInBackground, DRAIN_INTERVAL_MS)
   intervalHandle.unref?.()
 }

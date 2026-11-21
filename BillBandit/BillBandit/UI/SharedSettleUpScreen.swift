@@ -15,6 +15,11 @@ struct SharedSettleUpScreen: View {
     @State private var isSubmitting = false
     @State private var actionError: String?
     @State private var reverseError: String?
+    /// A queued payment the server refused after the sheet had closed.
+    @State private var queuedSettlementError: String?
+    /// Set in the button action itself, before the Task starts, so a second
+    /// tap in the same frame cannot start a second reversal.
+    @State private var reversingSettlementID: String?
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -88,6 +93,16 @@ struct SharedSettleUpScreen: View {
         } message: {
             Text("\(reverseError ?? "Something went wrong.") The list now shows the latest payments. Check it, then try again if you still need to.")
         }
+        .onChange(of: store.writeFailureNotice) { _, notice in
+            guard let notice else { return }
+            let message = notice.message ?? "Something went wrong."
+            if notice.isReversal {
+                reverseError = message
+            } else {
+                queuedSettlementError = message
+            }
+            store.clearWriteFailureNotice()
+        }
         .accessibilityIdentifier("sharedSettleUpScreen")
     }
 
@@ -115,6 +130,19 @@ struct SharedSettleUpScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.horizontal, 18)
         .padding(.bottom, 10)
+        // Kept on this inner view: a second .alert on the screen root would
+        // compete with "Payment not reversed".
+        .alert(
+            "Payment not recorded",
+            isPresented: Binding(
+                get: { queuedSettlementError != nil },
+                set: { if !$0 { queuedSettlementError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("\(queuedSettlementError ?? "Something went wrong.") The list now shows the latest payments. Check it, then try again if you still need to.")
+        }
     }
 
     private var settleHero: some View {
@@ -394,9 +422,12 @@ struct SharedSettleUpScreen: View {
                                 Text("\(item.actorName.map { personName($0, start: true) } ?? "Unknown member") · \(settleFormattedDate(item.createdAt))")
                                     .font(BrandFont.type(11))
                                     .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
-                                if item.type == "settlement", store.writesEnabled {
+                                if item.type == "settlement", store.canReverse(settlementId: item.id) {
                                     Button("Reverse") {
+                                        guard reversingSettlementID == nil else { return }
+                                        reversingSettlementID = item.id
                                         Task {
+                                            defer { reversingSettlementID = nil }
                                             do {
                                                 try await store.reverse(settlementId: item.id)
                                             } catch {
@@ -489,8 +520,9 @@ struct SharedSettleUpScreen: View {
                                 .foregroundStyle(Color.red.opacity(0.82))
                         }
                         Button {
+                            guard !isSubmitting else { return }
+                            isSubmitting = true
                             Task {
-                                isSubmitting = true
                                 defer { isSubmitting = false }
                                 do {
                                     guard let paidMinorUnits = settlementAmountMinorUnits(for: transfer) else {

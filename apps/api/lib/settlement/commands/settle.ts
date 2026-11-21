@@ -1,7 +1,7 @@
 import { prisma } from '../../prisma'
 import { executeMutation } from '../../ledger/mutation'
 import type { PrismaClient } from '@prisma/client'
-import type { SettlementCommandResult } from './core'
+import { withOperationKeyReplay, type SettlementCommandResult } from './core'
 
 export type SettleCommandInput = {
   groupId: string
@@ -19,7 +19,7 @@ export type SettleCommandInput = {
 }
 
 export async function executeSettlement(input: SettleCommandInput): Promise<SettlementCommandResult> {
-  const result = await executeMutation({
+  const result = await withOperationKeyReplay(() => executeMutation({
     groupId: input.groupId,
     operationId: `settlement:${input.idempotencyKey}`,
     accountId: input.userId,
@@ -37,7 +37,7 @@ export async function executeSettlement(input: SettleCommandInput): Promise<Sett
       },
       note: input.note ?? null,
     },
-  }, { db: input.db })
+  }, { db: input.db }))
 
   const allocation = result.recordId
     ? await (input.db ?? prisma).settlementAllocation.findUnique({

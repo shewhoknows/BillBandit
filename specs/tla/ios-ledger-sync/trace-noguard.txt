@@ -1,0 +1,16 @@
+Invariant NoLostUpdate is violated.
+ 1. Initial predicate: srvRev=0; exp=<<0, 0, 0>>; cacheRev=0; token="A"; st=<<"none", "none", "none">>
+ 2. Create(1): st=<<"pending", "none", "none">>
+ 3. Create(2): exp=<<0, 1, 0>>; st=<<"pending", "pending", "none">>
+ 4. Create(3): exp=<<0, 1, 2>>; st=<<"pending", "pending", "pending">>
+ 5. PeerWrite: srvRev=1; writer=<<"peer", "none", "none", "none">>; peerWrites=1
+ 6. DrainStart("S"): drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<1, 2, 3>>, wait |-> FALSE ]
+ 7. DrainSend: net=[op |-> 1, tok |-> "A", e |-> 0, phase |-> "req", result |-> "none", rev |-> 0]; st=<<"inflight", "pending", "pending">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<1, 2, 3>>, wait |-> TRUE ]
+ 8. Server: net=[ op |-> 1, tok |-> "A", e |-> 0, phase |-> "resp", result |-> "conflict", rev |-> 1 ]
+ 9. Receive: net=[ op |-> 0, tok |-> "none", e |-> 0, phase |-> "none", result |-> "none", rev |-> 0 ]; cacheRev=1; st=<<"failed", "pending", "pending">>; drain=[ on |-> FALSE, owner |-> "L", acct |-> "none", g |-> 0, ep |-> 0, list |-> <<>>, wait |-> FALSE ]
+10. DrainStart("S"): drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<2, 3>>, wait |-> FALSE ]
+11. DrainSend: net=[op |-> 2, tok |-> "A", e |-> 1, phase |-> "req", result |-> "none", rev |-> 0]; st=<<"failed", "inflight", "pending">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<2, 3>>, wait |-> TRUE ]
+12. Server: srvRev=2; writer=<<"peer", "own", "none", "none">>; applied=<<0, 1, 0>>; receipt={<<"A", 2>>}; net=[op |-> 2, tok |-> "A", e |-> 1, phase |-> "resp", result |-> "ok", rev |-> 2]
+13. Receive: net=[ op |-> 0, tok |-> "none", e |-> 0, phase |-> "none", result |-> "none", rev |-> 0 ]; cacheRev=2; st=<<"failed", "succeeded", "pending">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<3>>, wait |-> FALSE ]
+14. DrainSend: net=[op |-> 3, tok |-> "A", e |-> 2, phase |-> "req", result |-> "none", rev |-> 0]; st=<<"failed", "succeeded", "inflight">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<3>>, wait |-> TRUE ]
+15. Server: srvRev=3; lostUpdate=TRUE; writer=<<"peer", "own", "own", "none">>; applied=<<0, 1, 1>>; receipt={<<"A", 2>>, <<"A", 3>>}; net=[op |-> 3, tok |-> "A", e |-> 2, phase |-> "resp", result |-> "ok", rev |-> 3]; seen=<<0, 0, 0>> 5169 states generated, 2338 distinct states found, 398 states left on queue. The depth of the complete state graph search is 15. Finished in 05s at (2026-11-21 06:16:32) Trace exploration spec path: ./LedgerQueueSync_TTrace_1795241786.tla
