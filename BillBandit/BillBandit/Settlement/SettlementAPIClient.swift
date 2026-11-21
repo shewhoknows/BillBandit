@@ -335,6 +335,39 @@ extension APIClient {
     }
 }
 
+/// Answer of PATCH /api/groups/{id}/settlement-settings (only the parts the
+/// app reads; `state` may be null).
+struct SettlementSettingsResponseDTO: Decodable {
+    struct Result: Decodable {
+        let version: Int
+        let noop: Bool?
+    }
+    let result: Result
+}
+
+extension APIClient {
+    /// Turns "simplify debts" on or off. Only a group owner may do it; the
+    /// server checks `expectedVersion` and replays the same key.
+    func patchSettlementSettings(
+        groupID: String,
+        body: UpdateSettlementSettingsRequest,
+        idempotencyKey: String
+    ) async throws -> SettlementSettingsResponseDTO {
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        let group = groupID.addingPercentEncoding(withAllowedCharacters: allowed) ?? groupID
+        do {
+            return try await request(
+                "/api/groups/\(group)/settlement-settings",
+                method: "PATCH",
+                body: body,
+                idempotencyKey: idempotencyKey
+            )
+        } catch let SettlementAPIError.structured(code, _, _) where code == "SETTLEMENT_VERSION_CONFLICT" || code == "REVISION_CONFLICT" {
+            throw SettlementClientError.versionConflict
+        }
+    }
+}
+
 extension JSONDecoder {
     static let settlement: JSONDecoder = {
         let decoder = JSONDecoder()

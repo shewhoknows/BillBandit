@@ -1,9 +1,9 @@
 # Ledger kernel E2E
-Revision: 241151d (+ uncommitted changes)
-Environment: API http://127.0.0.1:3200, database billbandit_int3 on localhost:5432, node v22.23.5
-Run at: 2026-11-21T14:42:07.789Z
-Replay: cd apps/api && DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_int3 DEV_API_BASE=http://127.0.0.1:3200 npx tsx scripts/ledger-kernel-e2e.ts
-Groups: 21 (first cmwqinqj3004e10omzon7nzbi)
+Revision: 2b4990a (+ uncommitted changes)
+Environment: API http://127.0.0.1:3200, database billbandit_int4 on localhost:5432, node v22.23.5
+Run at: 2026-11-21T15:06:03.765Z
+Replay: cd apps/api && DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_int4 DEV_API_BASE=http://127.0.0.1:3200 npx tsx scripts/ledger-kernel-e2e.ts
+Groups: 22 (first cmwqjiltb001411oby4tvw5b3)
 
 | Step | Check | Result |
 | --- | --- | --- |
@@ -22,6 +22,7 @@ Groups: 21 (first cmwqinqj3004e10omzon7nzbi)
 | B5b | Unrelated writes still work in a group with a departed member | PASS |
 | B5c | Reversing a payment of a member who has since left is allowed; the debt shows again | PASS |
 | B5d | A departed member with no debt still cannot record payments (403) | PASS |
+| B5e | Left with 0, then an old expense is deleted: the group stays hidden for them; added back, their debt shows | PASS |
 | B6 | A settled member removing themself through DELETE /members gets 200, not 500 | PASS |
 | R1 | Two phones edit one expense with the same stale revision: one 200, one REVISION_CONFLICT (no lost update) | PASS |
 | R2 | Same operationId with a different body is refused (IDEMPOTENCY_KEY_REUSED) and writes nothing | PASS |
@@ -30,4 +31,4 @@ Groups: 21 (first cmwqinqj3004e10omzon7nzbi)
 | R5 | An offline queue sent in order with a reserved revision chain (r, r+1, r+2) applies, and replays unchanged when sent again | PASS |
 | I1 | Every group used: balances sum to zero per currency; journal versions are exactly 1..revision; deleted expenses do not count | PASS |
 
-22 passed, 0 failed
+23 passed, 0 failed

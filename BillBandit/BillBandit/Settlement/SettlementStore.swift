@@ -512,6 +512,62 @@ final class SettlementStore {
         writeFailureNotice = nil
     }
 
+    /// True while the simplify-debts switch is saving.
+    private(set) var isChangingSimplify = false
+    /// Idempotency key per (group, version, new value): a retry of the same
+    /// change replays on the server instead of failing as a conflict.
+    private var settingKeys: [String: UUID] = [:]
+
+    /// The owner may change simplify debts while the screen has a fresh,
+    /// writable read and nothing else is saving. Online only: the change is
+    /// not queued, so it either happens now or the person is told why not.
+    var canChangeSimplify: Bool {
+        writeGatesOpen
+            && !isChangingSimplify
+            && snapshot?.permissions.canChangeSetting == true
+    }
+
+    /// Turns "simplify debts" on or off for this group.
+    /// Throws `SettlementSettingError`; the screen shows its message.
+    func setSimplifyDebts(_ simplify: Bool) async throws {
+        guard let scope = configuredScope, let snapshot else { throw SettlementSettingError.notAllowed }
+        // A second tap while the first is saving is not a failure.
+        guard !isChangingSimplify else { return }
+        guard snapshot.permissions.canChangeSetting else { throw SettlementSettingError.notOwner }
+        guard canChangeSimplify else { throw SettlementSettingError.notAllowed }
+        guard snapshot.simplifyDebts != simplify else { return }
+        // Same key for the same change from the same version, so a second
+        // tap or a retry replays instead of changing it twice.
+        let actionKey = "settings:\(scope.groupID):\(snapshot.version):\(simplify)"
+        let key = settingKeys[actionKey] ?? UUID()
+        settingKeys[actionKey] = key
+        // Never send account A's change with account B's token.
+        guard let token = legacyAPIClient.authorizationToken(),
+              URLSessionServerLedgerAPIClient.tokenSubject(token) == scope.accountID else {
+            throw SettlementSettingError.signedOut
+        }
+        isChangingSimplify = true
+        defer { isChangingSimplify = false }
+        do {
+            _ = try await legacyAPIClient.patchSettlementSettings(
+                groupID: scope.groupID,
+                body: UpdateSettlementSettingsRequest(
+                    expectedVersion: snapshot.version,
+                    simplifyDebts: simplify,
+                    operationId: key.uuidString
+                ),
+                idempotencyKey: key.uuidString
+            )
+        } catch {
+            // Keep the key: if the server did save it before the connection
+            // dropped, a retry replays that answer.
+            await refresh()
+            throw SettlementSettingError.from(error)
+        }
+        settingKeys[actionKey] = nil
+        await refresh()
+    }
+
     func applyRealtimeVersion(_ version: Int) {
         guard version > appliedVersion else { return }
         if isInteractionActive || isUpdating || isRefreshInFlight {
@@ -858,6 +914,45 @@ final class SettlementStore {
             return description
         }
         return String(describing: type(of: error))
+    }
+}
+
+/// Why the simplify-debts switch did not change. Every case has words for
+/// the person (no silent failures).
+enum SettlementSettingError: LocalizedError, Equatable {
+    case offline
+    case signedOut
+    case notOwner
+    case changed
+    case notAllowed
+    case server(String?)
+
+    static func from(_ error: Error) -> SettlementSettingError {
+        switch error {
+        case SettlementAPIError.offline, ServerLedgerAPIClientError.offline, ServerLedgerSyncError.offline:
+            return .offline
+        case SettlementAPIError.unauthorized:
+            return .signedOut
+        case SettlementClientError.versionConflict:
+            return .changed
+        case let SettlementAPIError.structured(code, status, _):
+            if status == 403 || code == "FORBIDDEN" { return .notOwner }
+            if code == "GROUP_ARCHIVED" { return .notAllowed }
+            return .server(nil)
+        default:
+            return .server(nil)
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .offline: "You are offline. The setting was not changed."
+        case .signedOut: "Your session expired. Sign in again, then try again."
+        case .notOwner: "Only the group owner can change this."
+        case .changed: "The group changed while you were changing this. Check it and try again."
+        case .notAllowed: "This can't be changed right now. Wait for the group to finish updating, then try again."
+        case .server: "The setting was not changed. Try again."
+        }
     }
 }
 

@@ -91,23 +91,30 @@ Security and realtime:
 
 ## Added 2026-11-21
 
+- **People who left (Bobby's decision):** the group stays hidden for them.
+  If an old expense changes while they are away, the other members see the
+  debt and can record the payment. If they are added back, their debt shows
+  for them again (E2E `B5e`, TLA+ `ReAddKeepsDebt`).
+
 - **Simplify debts on/off:** `PATCH /api/groups/{id}/settlement-settings`
   (owner only, revision-checked, idempotent, audited; same value = no
   change). See `docs/api-contracts.md`. E2E: `simplify-debts-e2e.ts`
-  (11 steps). The app does not have a switch for it yet; it only shows it.
+  (11 steps). In the app, the owner taps the "Debts simplified / Direct
+  payments" panel on Settle up to change it (online only; a failure shows
+  "Setting not changed" with the reason). Other members see "Only the
+  group owner can change this."
 - **No silent failures in the app:** see `ios-failure-notices.md`.
 
 ## Open items (not fixed — need a decision or UI work)
 
-- **A person who left a group does not see it in the app.** If an old
-  expense changes after they left, the other members see the new debt and
-  can record the payment, but the person who left is not told.
 - **CloudKit import:** it moves data from the old iCloud version of the app
   to the server. It needs a link between each old iCloud user and a server
   account, and nothing creates those links, so every real import stops as
   "needs repair". Also, if the iCloud data changes after the first upload,
   the import stays FAILED (`CloudKitImport-change-after` fails on purpose).
-  The app now tells the person once.
+  The app now tells the person once. New users are not affected: the
+  current app never makes the old iCloud group folders, so for them there is
+  nothing to move and the import ends at once with no message.
 - **Completion flags:** if the server crashes between a payment and the flag
   update, the flags stay stale until the next payment
   (`SettlementCompletion_after_crash` fails on purpose).

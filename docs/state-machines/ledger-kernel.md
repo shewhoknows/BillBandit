@@ -63,7 +63,7 @@ Invariants (TLC `GroupMembership.tla`): `HasAdmin`, `BalancesSumToZero`, `Member
 
 The leave guard (`assertLeaverIsSettled`) runs after `membership.remove`, in the same transaction, so a refusal rolls back.
 
-**Rule change 2026-11-21 (Bobby):** the first version of this work refused every write that moved a departed person's balance (`DEPARTED_MEMBER_BALANCE`). That blocked edits and deletes of old expenses, so it was removed. Now such writes are allowed. The debt shows in the group's balances and plan, and the other member, or the departed person, records the payment. The settle routes answer `state: null` when a payment ends the departed person's read access (it was a 500 after commit). Open question: the departed person does not see the group in the app.
+**Rule change 2026-11-21 (Bobby):** the first version of this work refused every write that moved a departed person's balance (`DEPARTED_MEMBER_BALANCE`). That blocked edits and deletes of old expenses, so it was removed. Now such writes are allowed. The debt shows in the group's balances and plan, and the other member, or the departed person, records the payment. The settle routes answer `state: null` when a payment ends the departed person's read access (it was a 500 after commit). The departed person does not see the group (decision, 2026-11-21). If they are added back, their debt shows again: re-adding reactivates the same participant row, so their balance is unchanged (`ReAddKeepsDebt`, E2E `B5e`).
 
 ## 4. LedgerOperation (idempotency receipt)
 

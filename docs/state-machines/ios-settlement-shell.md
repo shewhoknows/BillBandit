@@ -125,3 +125,20 @@ NoRootWhileChecking.
   by 401 (`invalidateUnauthorizedSession`, keeps queue). Sign in with Apple →
   existing handle or `claimAutomaticHandle` (tries candidates on 409).
 - `NewGroupRouter.pendingGroupID` → RootTabView `onChange` → `selectTab(.groups)`.
+
+## Simplify-debts switch (added 2026-11-21)
+
+`SettlementStore.setSimplifyDebts(_:)` → `PATCH /api/groups/{id}/settlement-settings`.
+
+```
+idle ──owner taps (online, writes open)──▶ saving ──200──▶ refresh ──▶ idle
+                                            │ error ──▶ refresh ──▶ "Setting not changed" alert ──▶ idle
+```
+
+- Only the owner can tap it (`permissions.canChangeSetting` = can write and role `owner`). Others see "Only the group owner can change this."
+- Not queued offline: it changes now, or the person is told why not (offline, session expired, not owner, group changed, server).
+- A second tap while saving does nothing (`pendingSimplify` is set before the Task; the store also ignores a call while `isChangingSimplify`).
+- The idempotency key is kept per (group, version, value) until it succeeds, so a retry after a dropped connection replays on the server.
+- Never sent with another account's token (same check as payments).
+
+Mac checks: as the owner, tap the panel and see the plan change from 1 payment to 2 (or back) on both phones; as a member, the panel does not react and shows the owner line; in airplane mode, tap it and see "You are offline. The setting was not changed."

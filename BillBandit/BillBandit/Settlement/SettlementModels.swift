@@ -835,7 +835,8 @@ extension SettlementCanonicalLedgerGroup {
             canReadPlan: canRead,
             canReadHistory: canRead,
             canSettleOrReverse: canMutate,
-            canChangeSetting: false,
+            // The server lets only a group owner (ADMIN) change simplify debts.
+            canChangeSetting: canMutate && currentMember?.role == "owner",
             canAuthorizeRealtime: realtimeAvailable,
             readScope: "full",
             callerParticipantId: currentMemberID

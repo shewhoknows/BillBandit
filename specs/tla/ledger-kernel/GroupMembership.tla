@@ -188,6 +188,12 @@ DepartedCanSettle ==
      /\ Bal(PFrom(s)) <= -1 /\ Bal(PTo(s)) >= 1)
       => ENABLED Pay(x, s)
 
+\* Bobby (2026-11-21): a departed person does not see the group, but when
+\* they are added back, their debt (which may have changed while they were
+\* away) is theirs again, unchanged by the re-add.
+ReAddKeepsDebt ==
+  [][\A y \in People : (part[y] = "departed" /\ part'[y] = "active") => Bal(y)' = Bal(y)]_vars
+
 \* Old intent, no longer wanted (kept to show the new rule allows it):
 \* a departed person's balance is always zero.
 DepartedAreSettled == \A x \in People : part[x] = "departed" => Bal(x) = 0

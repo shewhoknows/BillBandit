@@ -56,7 +56,8 @@ directly; regenerate them from sources (see §5).
 - TLA+ models: `specs/tla/<part>/`; re-run all with `sh specs/tla/check-all.sh`. Each model has a "before" config that shows the old bug.
 - New server E2E scripts: `settlement-e2e.ts`, `ledger-kernel-e2e.ts`, `identity-friends-import-e2e.ts`. Run the dev server with `MOBILE_AUTH_MOCK_APPLE_SUBJECT=ifi-e2e-apple-subject MOBILE_AUTH_MOCK_APPLE_EMAIL=ifi-e2e@dev.billbandit.local`, or the identity script deletes `dev_you` (it now refuses).
 - New rules: a member must have a zero balance to leave or be removed; the last owner cannot leave or step down. Old expenses that include someone who left can still be edited or deleted (Bobby, 2026-11-21); the person who left can then record or reverse their own payment.
-- New route: `PATCH /api/groups/{id}/settlement-settings` turns simplify debts on or off (owner only). The app has no switch for it yet.
+- New route: `PATCH /api/groups/{id}/settlement-settings` turns simplify debts on or off (owner only). In the app the owner taps the simplify panel on Settle up.
+- A person who left does not see the group; if they are added back, their debt shows again.
 - No silent failures: `AppFailureCenter` shows every queued change the server refused after its screen closed, plus stopped background work (`docs/state-machines/ios-failure-notices.md`).
 - SwiftData: `PendingLedgerOperation` gains the optional attributes `basedOnRevision` and `failureAcknowledgedAt` (automatic migration; check it once over an existing store).
 - **Swift was not compiled.** Build in Xcode and follow the Mac checks in `docs/state-machines/ios-ledger-sync.md`, `ios-settlement-shell.md` and `ios-failure-notices.md` before TestFlight.

@@ -296,6 +296,42 @@ async function main() {
     })
   }
 
+  // Bobby's rule (2026-11-21): a person who left does not see the group,
+  // but if they are added back, a debt that changed while they were away
+  // shows for them again.
+  {
+    const g = await newGroup('departed-readd', [kabir])
+    await addExpense(g, you, [[you, 500], [kabir, 500]], 'Taxi')
+    const dinner = await addExpense(g, kabir, [[you, 500], [kabir, 500]], 'Dinner')
+    await step('B5e', 'Left with 0, then an old expense is deleted: the group stays hidden for them; added back, their debt shows', async () => {
+      assert.equal(balanceOf(await read(g), kabir), '0')
+      const left = await request(T(kabir), `/api/mobile/groups/${g}/leave`, 'POST', undefined, { 'Idempotency-Key': randomUUID() })
+      assert.equal(left.status, 200, `leave: ${brief(left)}`)
+      const del = await request(T(you), `/api/mobile/expenses/${dinner.expenseId}`, 'DELETE',
+        { operationId: randomUUID(), expectedRevision: (await read(g)).revision })
+      assert.equal(del.status, 200, brief(del))
+      assert.equal(balanceOf(await read(g), kabir), '-500', 'kabir owes 500 now')
+      // Hidden while away: not in their group list, and the group read is refused.
+      const list = await request(T(kabir), '/api/mobile/groups')
+      assert.equal(list.status, 200, brief(list))
+      assert.ok(!(list.data.groups as Json[]).some((x) => x.id === g), 'the group is not in their list while they are away')
+      const away = await request(T(kabir), `/api/mobile/ledger/groups/${g}`)
+      assert.notEqual(away.status, 200, `away read: ${brief(away)}`)
+      // Added back by the owner.
+      const back = await request(T(you), `/api/mobile/groups/${g}/members`, 'POST',
+        { userId: kabir.id, operationId: randomUUID(), expectedRevision: (await read(g)).revision })
+      assert.equal(back.status, 201, `re-add: ${brief(back)}`)
+      const listBack = await request(T(kabir), '/api/mobile/groups')
+      assert.ok((listBack.data.groups as Json[]).some((x) => x.id === g), 'the group is in their list again')
+      const theirs = await read(g, kabir)
+      assert.equal(memberOf(theirs, kabir).status, 'active')
+      assert.equal(balanceOf(theirs, kabir), '-500', 'their own read shows the debt')
+      const t = theirs.settlementPlan.transfers.find((x: Json) => x.payerMemberId === memberOf(theirs, kabir).memberId)
+      assert.ok(t, 'their settle-up plan has the payment to make')
+      assert.equal(t.amount.minorUnits, '500')
+    })
+  }
+
   // Bug 6: a self-removal through DELETE /members committed but answered 500 (phone retries forever).
   {
     const g = await newGroup('self-remove', [zoya])
