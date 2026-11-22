@@ -162,5 +162,6 @@ Allowed == {<<"none", "RUNNING">>, <<"none", "FAILED">>, <<"RUNNING", "RUNNING">
             <<"FAILED", "RUNNING">>, <<"FAILED", "FAILED">>}
 LegalTransitions == [][imp # imp' => <<imp, imp'>> \in Allowed]_imp
 
-EventuallyCompleted == <>(imp = "COMPLETED" \/ (imp = "FAILED" /\ \E r \in RecSet : rec[r] = "IMPORTED" /\ recSum[r] # RecVer(r, exportVer)))
+EventuallyCompleted == <>(imp = "COMPLETED")
+EventuallyCompletedOrReportedConflict == <>(imp = "COMPLETED" \/ (imp = "FAILED" /\ \E r \in RecSet : rec[r] = "IMPORTED" /\ recSum[r] # RecVer(r, exportVer)))
 =============================================================================
