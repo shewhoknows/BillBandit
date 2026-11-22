@@ -86,11 +86,14 @@ private enum AppleSignInSupport {
 }
 
 struct OnboardingScreen: View {
-    let onComplete: () -> Void
+    let onComplete: (Bool) -> Void
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
     @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
@@ -104,10 +107,17 @@ struct OnboardingScreen: View {
     @State private var hasUsernameSession = UsernameIdentityService.hasStoredSession
     @State private var currentAppleNonce: String?
     @State private var isAuthorizingWithApple = false
+    @State private var reviewCodeEnabled = false
+    @State private var showReviewCode = false
+    @State private var reviewCode = ""
+    @State private var reviewCodeError = false
+    @State private var isReviewSigningIn = false
+    @FocusState private var reviewCodeFocused: Bool
     @State private var appleAuthorizationAttemptID = UUID()
     /// A returning Apple account already has a server-owned handle. Keep that
     /// value so we do not POST a second claim for it.
     @State private var authenticatedRemoteUsername: String?
+    @State private var authenticatedCurrencyIsMissing = false
 
     private static let lastPage = 2
 
@@ -143,7 +153,7 @@ struct OnboardingScreen: View {
         return name
     }
 
-    init(startAtSignIn: Bool = false, onComplete: @escaping () -> Void) {
+    init(startAtSignIn: Bool = false, onComplete: @escaping (Bool) -> Void) {
         self.onComplete = onComplete
         let args = ProcessInfo.processInfo.arguments
         if args.contains("-onboardingAuthBusyPreview") {
@@ -179,36 +189,109 @@ struct OnboardingScreen: View {
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 10)
+                .environment(\.dynamicTypeSize, dynamicTypeSize.isAccessibilitySize ? .xxxLarge : dynamicTypeSize)
 
-                HStack {
-                    Text("BillBandit")
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                        .font(BrandFont.display(44, weight: .bold))
-                    Spacer()
-                }
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
-
-                TabView(selection: $page) {
-                    ForEach(0...Self.lastPage, id: \.self) { index in
-                        onboardingPage(index)
-                            .tag(index)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    HStack {
+                        Text("BillBandit")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .font(BrandFont.display(44, weight: .bold))
+                        Spacer()
                     }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 10)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
 
-                // One fixed control area for all pages: "Next" on pages 1–2,
-                // Apple sign-in on page 3. The pages above never change size.
-                bottomControls
+                if dynamicTypeSize.isAccessibilitySize {
+                    TabView(selection: $page) {
+                        ForEach(0...Self.lastPage, id: \.self) { index in
+                            onboardingPage(index)
+                                .tag(index)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .clipped()
 
-                pageIndicator
+                    VStack(spacing: 0) {
+                        Color.Brand.creamSoft.opacity(0.45)
+                            .frame(height: 1)
+                            .padding(.horizontal, 22)
+                        bottomControls
+                        pageIndicator
+                    }
+                    .background(Color.Brand.cobalt)
+                    .environment(\.dynamicTypeSize, .xxxLarge)
+                } else {
+                    TabView(selection: $page) {
+                        ForEach(0...Self.lastPage, id: \.self) { index in
+                            onboardingPage(index)
+                                .tag(index)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+
+                    bottomControls
+                    pageIndicator
+                }
             }
             .foregroundStyle(Color.Brand.creamSoft)
         }
         .onAppear {
             hasUsernameSession = UsernameIdentityService.hasStoredSession
             startMascotMotion()
+        }
+        .task(id: "\(page)-\(scenePhase)") {
+            reviewCodeEnabled = false
+            guard page == Self.lastPage, scenePhase == .active, needsAppleSignIn else { return }
+            let enabled = await UsernameIdentityService.reviewCodeIsEnabled()
+            guard !Task.isCancelled else { return }
+            reviewCodeEnabled = enabled
+        }
+        .sheet(isPresented: $showReviewCode) {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Review code")
+                            .font(BrandFont.display(28, weight: .bold))
+                        TextField("Review code", text: $reviewCode)
+                            .font(BrandFont.body(16, weight: .semibold))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($reviewCodeFocused)
+                            .accessibilityIdentifier("reviewCodeField")
+                            .padding(14)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                        if reviewCodeError {
+                            Text("That code did not work.")
+                                .font(BrandFont.body(14, weight: .semibold))
+                                .accessibilityIdentifier("reviewCodeError")
+                        }
+                        Button(isReviewSigningIn ? "Signing in…" : "Sign in") {
+                            reviewCodeFocused = false
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            Task { await signInWithReviewCode() }
+                        }
+                        .font(BrandFont.display(16, weight: .bold))
+                        .foregroundStyle(Color.Brand.creamSoft)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.Brand.cobalt, in: Capsule())
+                        .disabled(isReviewSigningIn)
+                        .accessibilityIdentifier("reviewCodeSubmit")
+                    }
+                    .foregroundStyle(Color.Brand.cobalt)
+                    .padding(24)
+                }
+                .background(Color.Brand.creamSoft.ignoresSafeArea())
+                .toolbarBackground(Color.Brand.creamSoft, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showReviewCode = false }
+                    }
+                }
+                .onAppear { reviewCodeFocused = true }
+            }
         }
         .onChange(of: reduceMotion) {
             startMascotMotion()
@@ -234,7 +317,52 @@ struct OnboardingScreen: View {
         }
     }
 
+    @ViewBuilder
     private func onboardingPage(_ index: Int) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 10) {
+                        Text("BillBandit")
+                            .font(BrandFont.display(20, weight: .bold))
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 22)
+                            .id("onboardingTop-\(index)")
+                        Text(BrandFont.handText(pages[index].1))
+                            .font(BrandFont.hand(28, weight: .bold))
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 20)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("onboardingTitle-\(index)")
+                        Text("Scroll for more ↓")
+                            .font(BrandFont.body(12, weight: .semibold))
+                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        Text(pages[index].2)
+                            .font(BrandFont.body(15, weight: .semibold))
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 32)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("onboardingDescription-\(index)")
+                    }
+                    .padding(.vertical, 10)
+                }
+                .onChange(of: page) { _, selected in
+                    if selected == index {
+                        proxy.scrollTo("onboardingTop-\(index)", anchor: .top)
+                    }
+                }
+            }
+        } else {
+            onboardingStandardPage(index)
+        }
+    }
+
+    private func onboardingStandardPage(_ index: Int) -> some View {
         GeometryReader { geometry in
             // Small phones (and very large text) get a smaller raccoon so the
             // copy always fits. The same size is used on all three pages.
@@ -283,6 +411,23 @@ struct OnboardingScreen: View {
                 nextButton
             } else {
                 onboardingPrimaryAction
+                if needsAppleSignIn {
+                    ZStack {
+                        Text("Have a review code?")
+                            .hidden()
+                            .accessibilityHidden(true)
+                        if reviewCodeEnabled {
+                            Button("Have a review code?") {
+                                reviewCode = ""
+                                reviewCodeError = false
+                                showReviewCode = true
+                            }
+                            .accessibilityIdentifier("reviewCodeLink")
+                        }
+                    }
+                    .font(BrandFont.body(12, weight: .semibold))
+                    .foregroundStyle(Color.Brand.creamSoft)
+                }
             }
         }
         .padding(.horizontal, 22)
@@ -366,6 +511,35 @@ struct OnboardingScreen: View {
         reduceMotion ? .easeOut(duration: 0.16) : .easeInOut(duration: 0.46)
     }
 
+    @MainActor
+    private func signInWithReviewCode() async {
+        guard !isReviewSigningIn else { return }
+        isReviewSigningIn = true
+        defer { isReviewSigningIn = false }
+        do {
+            let user = try await UsernameIdentityService.authenticateWithReviewCode(reviewCode)
+            guard user.id == "billbandit-review-account-v1",
+                  let username = user.username else { throw UsernameIdentityService.ServiceError.missingSession }
+            ServerLedgerSurfaceStore.shared.accountDidAuthenticate(user.id)
+            let current = AccountProfileIntegrity.canonicalize(
+                appleUserIdentifier: nil, cloudUserRecordName: nil, context: context
+            )
+            current.name = username
+            current.appleSessionStateRaw = "active"
+            try context.save()
+            appleUserIdentifier = ""
+            applePrivateEmail = ""
+            reviewAccountID = user.id
+            CloudCollaborationService.shared.beginReviewSession()
+            usernameHandleVerified = true
+            hasUsernameSession = true
+            showReviewCode = false
+            onComplete(user.defaultCurrency == nil)
+        } catch {
+            reviewCodeError = true
+        }
+    }
+
     /// Finishes setup and opens Home. A returning account keeps its handle.
     /// A new account gets an automatic handle (from its name, or "bandit"
     /// plus digits); the person can change it later in Profile.
@@ -416,7 +590,7 @@ struct OnboardingScreen: View {
             authMessage = nil
             Task { await CloudCollaborationService.shared.accountDidChange() }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            onComplete()
+            onComplete(authenticatedCurrencyIsMissing)
         } catch {
             authMessage = error.localizedDescription
         }
@@ -458,8 +632,10 @@ struct OnboardingScreen: View {
                     name: fullName,
                     email: credential.email
                 )
+                authenticatedCurrencyIsMissing = remoteUser.defaultCurrency == nil
                 AppleSignInSupport.logBackendExchangeSucceeded()
                 ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
+                reviewAccountID = ""
                 deferNextAppleCredentialStateCheck = true
                 appleUserIdentifier = credential.user
                 if let email = credential.email { applePrivateEmail = email }
@@ -515,9 +691,11 @@ struct HomeScreen: View {
     @Query(sort: \ActivityItem.timestamp, order: .reverse) private var activity: [ActivityItem]
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject private var serverLedger = ServerLedgerSurfaceStore.shared
     @State private var showAddGroup = false
     @AppStorage("showNewHandleNote") private var showNewHandleNote = false
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
 
     init(onSeeAllGroups: @escaping () -> Void = {},
          onOpenActivity: @escaping () -> Void = {},
@@ -604,10 +782,13 @@ struct HomeScreen: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(BrandFont.handText("you're @\(handle)."))
                         .font(BrandFont.hand(22, weight: .bold))
-                        .lineLimit(1)
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                         .minimumScaleFactor(0.6)
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
                     Text("Tap to change your handle in Profile.")
                         .font(BrandFont.body(13, weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -621,7 +802,8 @@ struct HomeScreen: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
-                    .frame(width: 30, height: 30)
+                    .frame(width: dynamicTypeSize.isAccessibilitySize ? 44 : 30,
+                           height: dynamicTypeSize.isAccessibilitySize ? 44 : 30)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
@@ -754,7 +936,9 @@ struct HomeScreen: View {
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .frame(width: 122, height: 12)
 
-            HStack(spacing: 8) {
+            let pillLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+            pillLayout {
                 BalancePill(
                     text: "you owe \(summary.owe.absoluteDisplayText)",
                     filled: false,
@@ -816,7 +1000,9 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func groupCards(for sourceGroups: [Group]) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+        LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize
+                  ? [GridItem(.flexible())]
+                  : [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
             ForEach(sourceGroups.prefix(3), id: \.id) { group in
                 groupCard(for: group)
             }
@@ -843,6 +1029,9 @@ struct HomeScreen: View {
     @ViewBuilder
     private func groupCard(for group: Group) -> some View {
         let serverGroupID = group.serverLedgerGroupID
+        let reviewNames = group.members.filter { !$0.isCurrentUser }.map(\.name).sorted()
+        let memberLabel = !reviewAccountID.isEmpty && !reviewNames.isEmpty
+            ? reviewNames.joined(separator: ", ") : GroupCopy.memberCount(group.members.count)
         let presentation = serverGroupID == nil ? nil : serverLedger.groupBalancePresentation(for: group)
         let localNet: Decimal? = serverGroupID == nil
             ? currentUsers.first.map { BalanceMath.nets(in: group)[$0.id] ?? 0 }
@@ -854,7 +1043,7 @@ struct HomeScreen: View {
                     ? localNet.map { $0 >= 0 ? "owed \(Money.currency($0, currencyCode: group.resolvedCurrencyCode))" : "owe \(Money.currency(-$0, currencyCode: group.resolvedCurrencyCode))" }
                     : nil),
                 balanceIsPositive: presentation?.isPositive ?? ((localNet ?? 0) >= 0),
-                sourceLabel: GroupCopy.memberCount(group.members.count),
+                sourceLabel: memberLabel,
                 balanceIsLoading: serverGroupID != nil
                     && presentation == nil
                     && serverLedger.status.phase == .loading
@@ -1037,6 +1226,7 @@ struct ProfileScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
@@ -1323,7 +1513,7 @@ struct ProfileScreen: View {
 
     private var appleAccountSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if appleUserIdentifier.isEmpty || !hasUsernameSession {
+            if (appleUserIdentifier.isEmpty && reviewAccountID.isEmpty) || !hasUsernameSession {
                 if !appleUserIdentifier.isEmpty {
                     Text("Reconnect Apple to verify your unique handle.")
                         .font(BrandFont.type(11, bold: true))
@@ -1343,17 +1533,23 @@ struct ProfileScreen: View {
                 .allowsHitTesting(!isSavingUsername)
             } else {
                 HStack(spacing: 12) {
-                    Text("")
-                        .font(.system(size: 22, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .foregroundStyle(Color.Brand.creamSoft)
-                        .background(Color.Brand.cobalt, in: Circle())
+                    SwiftUI.Group {
+                        if reviewAccountID.isEmpty {
+                            Text("")
+                        } else {
+                            Image(systemName: "person.fill")
+                        }
+                    }
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 38, height: 38)
+                    .foregroundStyle(Color.Brand.creamSoft)
+                    .background(Color.Brand.cobalt, in: Circle())
                     // One line only, also with large text sizes. No email.
-                    Text("Signed in with Apple")
+                    Text(reviewAccountID.isEmpty ? "Signed in with Apple" : "Signed in as App Reviewer")
                         .font(BrandFont.body(13.5, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .accessibilityIdentifier("profileSignedInWithApple")
+                        .accessibilityIdentifier(reviewAccountID.isEmpty ? "profileSignedInWithApple" : "profileSignedInAsReviewer")
                     Spacer(minLength: 8)
                     Button("Sign out") { showSignOutConfirmation = true }
                     .font(BrandFont.type(11, bold: true))
@@ -1577,6 +1773,7 @@ struct ProfileScreen: View {
                 ServerLedgerSurfaceStore.shared.accountDidAuthenticate(remoteUser.id)
                 deferNextAppleCredentialStateCheck = true
                 appleUserIdentifier = credential.user
+                reviewAccountID = ""
                 accountOnboardingComplete = true
                 hasUsernameSession = true
                 if let email = credential.email { applePrivateEmail = email }
@@ -1632,6 +1829,7 @@ struct ProfileScreen: View {
         }
         try? context.save()
         appleUserIdentifier = ""
+        reviewAccountID = ""
         applePrivateEmail = ""
         accountOnboardingComplete = false
         usernameHandleVerified = false
@@ -1653,6 +1851,7 @@ struct ProfileScreen: View {
                 CloudCollaborationService.shared.accountDidSignOut()
                 try LocalAccountDataCleanup.deleteAll(context: context)
                 appleUserIdentifier = ""
+                reviewAccountID = ""
                 applePrivateEmail = ""
                 accountOnboardingComplete = false
                 usernameHandleVerified = false
@@ -1760,6 +1959,7 @@ private struct GroupCard: View {
     let balanceIsPositive: Bool
     let sourceLabel: String
     var balanceIsLoading = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1770,17 +1970,19 @@ private struct GroupCard: View {
                     .foregroundStyle(Color.Brand.creamSoft))
             Text(group.name)
                 .font(BrandFont.display(13.5, weight: .semibold))
-                .lineLimit(2)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
             Spacer(minLength: 2)
             if let balanceText {
                 BalancePill(
                     text: balanceText,
-                    filled: balanceIsPositive
+                    filled: balanceIsPositive,
+                    allowsWrapping: dynamicTypeSize.isAccessibilitySize
                 )
             } else {
                 ServerLedgerUnavailableChip(onLight: true, isLoading: balanceIsLoading)
             }
             Text(sourceLabel)
+                .accessibilityIdentifier("groupMembers-\(group.name)")
                 .font(BrandFont.type(11, bold: true))
                 .opacity(0.9)
         }
@@ -1794,29 +1996,56 @@ private struct GroupCard: View {
 struct ServerLedgerActivityRow: View {
     let item: ServerLedgerSurfaceActivityItem
     var compact = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var summary: String { item.displaySummary }
 
     var body: some View {
-        HStack(spacing: 9) {
-            Circle()
-                .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
-                .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary)
-                    .font(BrandFont.type(compact ? 11 : 12, bold: true))
-                    .fixedSize(horizontal: false, vertical: true)
-                if !compact {
-                    Text(item.at.formatted(date: .omitted, time: .shortened))
-                        .font(BrandFont.type(11))
-                        .opacity(0.9)
+        SwiftUI.Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                HStack(alignment: .top, spacing: 9) {
+                    Circle()
+                        .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
+                        .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary)
+                            .font(BrandFont.type(compact ? 11 : 12, bold: true))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !compact {
+                            Text(item.at.formatted(date: .omitted, time: .shortened))
+                                .font(BrandFont.type(11))
+                                .opacity(0.9)
+                        }
+                        if item.showsAmount && item.type != "expense" {
+                            Text(item.amount.absoluteDisplayText)
+                                .font(BrandFont.type(11, bold: true))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            Spacer(minLength: 4)
-            if item.showsAmount && item.type != "expense" {
-                Text(item.amount.absoluteDisplayText)
-                    .font(BrandFont.type(compact ? 11 : 11, bold: true))
-                    .lineLimit(1)
+            } else {
+                HStack(spacing: 9) {
+                    Circle()
+                        .fill(compact ? Color.Brand.cobalt : Color.Brand.creamSoft)
+                        .frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary)
+                            .font(BrandFont.type(compact ? 11 : 12, bold: true))
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !compact {
+                            Text(item.at.formatted(date: .omitted, time: .shortened))
+                                .font(BrandFont.type(11))
+                                .opacity(0.9)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if item.showsAmount && item.type != "expense" {
+                        Text(item.amount.absoluteDisplayText)
+                            .font(BrandFont.type(compact ? 11 : 11, bold: true))
+                            .lineLimit(1)
+                    }
+                }
             }
         }
         .padding(.vertical, compact ? 6 : 10)
@@ -2170,13 +2399,14 @@ struct BalancePill: View {
     let filled: Bool
     var onDark = false
     var animationValue: Decimal? = nil
+    var allowsWrapping = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Text(text)
             .font(BrandFont.type(11, bold: true))
-            .lineLimit(1)
+            .lineLimit(allowsWrapping ? nil : 1)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .foregroundStyle(filled || onDark ? Color.Brand.creamSoft : Color.Brand.cobalt)

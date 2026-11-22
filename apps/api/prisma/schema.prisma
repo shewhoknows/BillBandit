@@ -590,6 +590,16 @@ model FriendClaimRateLimit {
   @@index([blockedUntil])
 }
 
+model ReviewCodeRateLimit {
+  key             String   @id
+  windowStartedAt DateTime
+  failureCount    Int      @default(0)
+  blockedUntil    DateTime?
+  updatedAt       DateTime @updatedAt
+
+  @@index([blockedUntil])
+}
+
 model Friendship {
   id     String           @id @default(cuid())
   fromId String

@@ -1445,12 +1445,14 @@ struct AppRootView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("accountOnboardingComplete") private var accountOnboardingComplete = false
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
+    @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
     @AppStorage("usernameHandleVerified") private var usernameHandleVerified = false
     @AppStorage("deferNextAppleCredentialStateCheck") private var deferNextAppleCredentialStateCheck = false
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var accountGateState: AccountGateState = .checking
+    @State private var firstSignInNeedsCurrency = false
 
     private var bypassOnboarding: Bool {
         let args = ProcessInfo.processInfo.arguments
@@ -1482,17 +1484,18 @@ struct AppRootView: View {
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             } else if accountGateState == .authorized &&
                         AccountOnboardingAccessPolicy.mayEnterApp(
-                            hasAppleIdentifier: !appleUserIdentifier.isEmpty,
+                            hasAppleIdentifier: !appleUserIdentifier.isEmpty || !reviewAccountID.isEmpty,
                             accountOnboardingComplete: accountOnboardingComplete
                         ) && usernameHandleVerified {
-                RootTabView()
+                RootTabView(forceCurrencyPrompt: firstSignInNeedsCurrency)
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             } else if accountGateState == .checking {
                 accountCheckView
                     .transition(.opacity)
             } else {
-                OnboardingScreen(startAtSignIn: hasCompletedOnboarding) {
+                OnboardingScreen(startAtSignIn: hasCompletedOnboarding) { needsCurrency in
                     withAnimation(BrandMotion.page(reduceMotion: reduceMotion)) {
+                        firstSignInNeedsCurrency = needsCurrency
                         hasCompletedOnboarding = true
                         accountOnboardingComplete = true
                         accountGateState = .authorized
@@ -1502,6 +1505,12 @@ struct AppRootView: View {
             }
         }
         .task { await prepareAccountGate() }
+        .onReceive(NotificationCenter.default.publisher(for: .reviewerSessionRejected)) { _ in
+            guard !reviewAccountID.isEmpty else { return }
+            reviewAccountID = ""
+            usernameHandleVerified = false
+            accountGateState = .signedOut
+        }
     }
 
     private var accountCheckView: some View {
@@ -1544,6 +1553,29 @@ struct AppRootView: View {
         if forceSignedOutOnboarding {
             ServerLedgerSurfaceStore.shared.accountDidSignOut()
             verifyAppleCredential()
+            return
+        }
+        if !reviewAccountID.isEmpty {
+            guard UsernameIdentityService.hasStoredSession, accountOnboardingComplete else {
+                reviewAccountID = ""
+                accountGateState = .signedOut
+                return
+            }
+            do {
+                let user = try await UsernameIdentityService.authenticatedUserForLedger()
+                guard user.id == reviewAccountID, user.id == "billbandit-review-account-v1",
+                      user.username != nil else {
+                    reviewAccountID = ""
+                    UsernameIdentityService.signOut()
+                    accountGateState = .signedOut
+                    return
+                }
+                ServerLedgerSurfaceStore.shared.accountDidAuthenticate(user.id)
+                usernameHandleVerified = true
+                accountGateState = .authorized
+            } catch {
+                accountGateState = .signedOut
+            }
             return
         }
         if bypassOnboarding {
@@ -1730,6 +1762,7 @@ private extension String {
 
 /// App shell — cobalt tab bar with a raised cream FAB, mirroring the mockup board.
 struct RootTabView: View {
+    let forceCurrencyPrompt: Bool
     enum Tab: Int, CaseIterable {
         case home, groups, activity, profile
 
@@ -1771,9 +1804,11 @@ struct RootTabView: View {
     @AppStorage("activityLastReadTimestamp") private var activityLastReadTimestamp = 0.0
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Screenshot support: `-tab N` selects the initial tab, `-showAdd` opens the add sheet.
-    init() {
+    init(forceCurrencyPrompt: Bool = false) {
+        self.forceCurrencyPrompt = forceCurrencyPrompt
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-tab"), i + 1 < args.count,
            let n = Int(args[i + 1]), let t = Tab(rawValue: n) {
@@ -1805,7 +1840,7 @@ struct RootTabView: View {
             .environment(\.groupContextChange) { dockGroup = $0 }
             .transition(tabTransition)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.bottom, 76) // keep content clear of the floating dock
+            .padding(.bottom, dynamicTypeSize.isAccessibilitySize ? 86 : 76)
 
             tabBar
 
@@ -1865,7 +1900,14 @@ struct RootTabView: View {
         .sheet(isPresented: $showCurrencyPrompt) {
             DefaultCurrencyPromptSheet { showCurrencyPrompt = false }
         }
-        .task { await askForDefaultCurrencyIfNeeded() }
+        .task {
+            if forceCurrencyPrompt && !BaseCurrencyEstimateStore.shared.isDefaultConfirmed &&
+                !ProcessInfo.processInfo.arguments.contains("-skipCurrencyPrompt") {
+                showCurrencyPrompt = true
+            } else {
+                await askForDefaultCurrencyIfNeeded()
+            }
+        }
         .fullScreenCover(isPresented: $friendInvitations.shouldPresentInviteSheet) {
             FriendInvitationSheet(initialCode: friendInvitations.incomingCode)
         }
@@ -1909,9 +1951,9 @@ struct RootTabView: View {
             tabButton(.profile)
         }
         .padding(.horizontal, 12)
-        .frame(height: 66)
+        .frame(height: dynamicTypeSize.isAccessibilitySize ? 76 : 66)
         .background(
-            Color.Brand.cobaltDeep.opacity(0.90),
+            Color.Brand.cobaltDeep.opacity(dynamicTypeSize.isAccessibilitySize ? 1 : 0.90),
             in: RoundedRectangle(cornerRadius: 27, style: .continuous)
         )
         .shadow(color: Color.Brand.cobaltDeep.opacity(0.34), radius: 12, y: 6)
@@ -1936,7 +1978,11 @@ struct RootTabView: View {
                     BrandIconView(icon: t.icon, size: 22)
                 }
                 Text(t.title)
-                    .font(BrandFont.body(11, weight: .extraBold))
+                    .font(BrandFont.body(dynamicTypeSize.isAccessibilitySize ? 9.5 : 11, weight: .extraBold))
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .frame(maxWidth: .infinity)
             }
             .foregroundStyle(Color.Brand.creamSoft.opacity(t == tab ? 1 : 0.9))
             .frame(maxWidth: .infinity)

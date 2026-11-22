@@ -308,6 +308,10 @@ final class CloudCollaborationService: ObservableObject {
     private var friendProfileRefreshTaskToken: UUID?
     private var accountGeneration = 0
 
+    private var isReviewSession: Bool {
+        !(UserDefaults.standard.string(forKey: "reviewAccountID") ?? "").isEmpty
+    }
+
     private init() {
         self.container = CKContainer(identifier: Self.containerIdentifier)
     }
@@ -441,9 +445,14 @@ final class CloudCollaborationService: ObservableObject {
         state = .idle
     }
 
+    func beginReviewSession() {
+        resetAccountScopedState()
+    }
+
     /// Best-effort removal of the signed-in user's public profile before the
     /// API account is anonymized. Shared ledger records are not stored here.
     func deleteAccountData() async {
+        guard !isReviewSession else { return }
         let cloudUser = currentUserRecordName
         if let cloudUser {
             _ = try? await container.publicCloudDatabase.deleteRecord(
@@ -455,11 +464,13 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     func currentPersonDidChange() {
+        guard !isReviewSession else { return }
         linkCurrentPerson()
         Task { await publishFriendProfile() }
     }
 
     func refreshFriendProfiles() async {
+        guard !isReviewSession else { return }
         if currentUserRecordName == nil {
             guard UsernameIdentityService.hasStoredSession,
                   (try? await container.accountStatus()) == .available,
@@ -546,6 +557,7 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     private func prepareNonLedgerCloudIdentity() async -> Bool {
+        guard !isReviewSession else { return false }
         let generation = accountGeneration
         do {
             let accountStatus = try await container.accountStatus()
@@ -605,6 +617,7 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     private func publishFriendProfile() async {
+        guard !isReviewSession else { return }
         guard let cloudUser = currentUserRecordName else { return }
         let generation = accountGeneration
         let context = AppStore.container.mainContext
@@ -843,6 +856,7 @@ private extension CloudCollaborationService {
     var legacyImportContext: ModelContext { AppStore.container.mainContext }
 
     func runLegacyCloudKitImportIfNeeded() async {
+        guard !isReviewSession else { return }
         guard let accountID = ServerLedgerAccountLifecycle.shared.activeAccountID,
               let ownerCloudUser = currentUserRecordName else { return }
         guard UsernameIdentityService.hasStoredSession else { return }

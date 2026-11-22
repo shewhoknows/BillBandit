@@ -2,11 +2,40 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-21, state machines + TLA+ on `fix/state-machines-tla` (see 2026-11-21 entry). Before that: 2026-11-18, App Store QA fixes on `fix/launch-blockers`. Before that: 2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-21, state machines and reviewer-login Part 5. See both entries below. Build 32 is the current TestFlight build; two-phone checks remain open.**
 
 ---
 
 ## 1. What this is
+
+### 2026-11-21 — Reviewer login, Part 5 (partial)
+
+- Accessibility fixes are committed on `feat/reviewer-login`: `ae3d33a` onboarding, `0a3ad4f` review sheet, `b4482b3` currency prompt, and `008d73b` Home. The signed Debug simulator build passed with the two existing warnings. TesterArmy evidence, screenshot mapping, exact replay and limits are in `.scratch/reviewer-login/REPORT-part5.md`.
+- The three-device contact sheets and the unscrolled Air before/after image are on the Tailscale review page. Its URL returned 200; browser rendering could not be checked because the in-app browser access host was unavailable.
+- Part 5 remains open: the simulators have no signed-in Apple Account; actual Apple authorization and post-Apple first run were not exercised. The signed-out iPhone system prompt clips text at the largest size. Some final Home states, conditional invitation/claim paths and the Pro default wrong-code accessibility assertion still need review. `DONE5.txt` was not created.
+
+### 2026-11-20 — Reviewer access switch, Part 4
+
+- The unauthenticated review-code GET returns a non-cached enabled flag. The flag requires a code of at least 16 characters. Removing the variable also rejects reviewer tokens with 401. Apple accounts keep their existing path.
+- The sign-in screen checks the flag on entry and foreground return. It hides the link on failure and keeps the Apple button in place. A rejected reviewer session returns to sign-in. Reviewer Home group cards show the demo member names.
+- `npm run review:teardown -- --confirm` shares the reset safety checks and removes the demo accounts and groups. The local round trip refused a non-demo friendship and mixed group, preserved a separate account, and rebuilt the demo.
+- The normal Debug simulator build and API typecheck and lint passed. TesterArmy passed the iPhone flow. On iPad, the main run reached sign-in, Home, and return to sign-in; it then failed because its frame comparison depended on object key order. The numeric frames matched. A separate continuation passed the foreground and offline checks. See `.scratch/reviewer-login/REPORT-part4.md` for the traces and exact replay commands.
+- No production, deployment, upload, submission, or push action was taken. Physical devices and a real Apple sign-in were not tested. Reviewer tokens issued before teardown can become usable again if review access is later enabled and the same account is recreated before token expiry.
+
+### 2026-11-20 — Reviewer demo data, Part 0
+
+- Reviewer demo friends use their display names on shared surfaces. Their reserved handles are `aarav_bb`, `kabir_bb`, and `ira_bb`; other accounts keep the existing naming rule.
+- For the reviewer account, the mobile friends response lets the existing client use those display names in the expense form and Profile. Profile labels this session as App Reviewer; Apple sessions keep their existing label. The API e2e check and the iPhone demo flow passed with this response.
+- Goa Trip starts with a partial payment to Aarav and both incoming and outgoing transfers. Flat 4B also has a partial payment so Home shows an amount owed in each direction. The local API check confirmed an Aarav payment remains after the planned ₹2,400 expense.
+- The local App Review demo and iPad comparison are on the Tailscale review page. The video uses local reset data and masks the temporary review code. See `.scratch/reviewer-login/REPORT-part2.md` for replay steps and proof limits.
+- TesterArmy e2e passed Home, Goa Trip, and Activity on iPhone 17 Pro and iPad Air 11-inch M4 with iOS 26.5. The iPad review-code sheet and keyboard were visible. The iPad run entered a temporary local code using screen points because the driver could not locate the compatibility window for `fill`. Evidence is in `.scratch/reviewer-login/evidence/part0/20261120T125414Z.2IRPLb/` and the matching e2e result folders. The iPad-fix matrix passed on the dedicated iPhone 17 Pro, iPad Air 11-inch M4, and iPad Pro 13-inch M5 simulators. The largest-text onboarding, long payer label, and cobalt date title were checked with TesterArmy e2e. Default-size layout was not separately compared pixel by pixel.
+
+### 2026-11-20 — Reviewer-code login (local simulator verification)
+
+- Work on `feat/reviewer-login` adds a review-code API, an iOS sign-in sheet, a dedicated reviewer session, and a demo reset command. A migration adds the durable IP failure limit.
+- The local API e2e checks passed for authentication, failed-code limiting, feature-off 404, demo balances, expense and payment creation, reset, the confirmation guard, and refusal to alter a non-demo friendship. The iOS Debug build, API typecheck, and lint passed; the build had the two existing warnings.
+- A normal automatically signed Debug simulator build passed. TesterArmy verified the iPhone reviewer flow, including wrong and correct codes, both groups, expense creation, payment, and reset. The same reviewer flow passed on the dedicated iPad in compatibility mode; the review sheet and feature-off message were also checked with the software keyboard open. Apple sign-in regression and physical-device behavior remain unverified. Do not ship without the owner approval and production checks in the report.
+- Evidence and replay steps are in `.scratch/reviewer-login/REPORT.md`. No production settings, production database, deployment, upload, or submission was changed.
 
 **BillBandit** — an iOS expense-splitting app (Splitwise-style) with a hand-drawn
 raccoon mascot, cobalt `#1F3FC3` + cream `#EFEFD7` palette, and an illustrated,
