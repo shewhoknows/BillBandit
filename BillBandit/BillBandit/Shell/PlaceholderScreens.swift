@@ -1228,6 +1228,7 @@ struct ProfileScreen: View {
     @Query private var achievementUnlocks: [AchievementUnlock]
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("appleUserIdentifier") private var appleUserIdentifier = ""
     @AppStorage("reviewAccountID") private var reviewAccountID = ""
     @AppStorage("applePrivateEmail") private var applePrivateEmail = ""
@@ -1445,6 +1446,9 @@ struct ProfileScreen: View {
                             ForEach(StarterAchievement.allCases) { achievement in
                                 StarterPinView(achievement: achievement,
                                                isUnlocked: hasUnlocked(achievement))
+                                    .containerRelativeFrame(.horizontal) { width, _ in
+                                        dynamicTypeSize.isAccessibilitySize ? max(width - 4, 0) : 116
+                                    }
                             }
                         }
                         .padding(.horizontal, 2)
