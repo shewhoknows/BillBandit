@@ -282,7 +282,12 @@ struct SharedSettleUpScreen: View {
             Button {
                 // Set before the Task starts, so a second tap in the same
                 // frame cannot send a second change.
-                guard pendingSimplify == nil, store.canChangeSimplify else { return }
+                guard pendingSimplify == nil else { return }
+                if store.isOffline {
+                    settingError = SettlementSettingError.offline.localizedDescription
+                    return
+                }
+                guard store.canChangeSimplify else { return }
                 let newValue = !snapshot.simplifyDebts
                 pendingSimplify = newValue
                 Task {
@@ -330,7 +335,7 @@ struct SharedSettleUpScreen: View {
                 .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(!isOwner || (!store.canChangeSimplify && pendingSimplify == nil))
+            .disabled(!isOwner || (!store.canChangeSimplify && !store.isOffline && pendingSimplify == nil))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Simplify debts")
             .accessibilityValue(isOn ? "On" : "Off")
