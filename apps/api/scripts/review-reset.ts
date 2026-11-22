@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
-import { createMobileToken } from '../lib/mobile-auth'
+import { createMobileToken, createReviewResetToken } from '../lib/mobile-auth'
 import { executeMutation } from '../lib/ledger/mutation/kernel'
 import { REVIEW_ACCOUNT_EMAIL, REVIEW_ACCOUNT_ID, REVIEW_ACCOUNT_USERNAME } from '../lib/review-account'
 
@@ -34,6 +34,18 @@ async function main() {
   const ids = definitions.map(({ id }) => id)
   const allowed = new Set(ids)
   try {
+    if (!teardown && apiURL) {
+      const health = await fetch(new URL('/api/health', apiURL), { signal: AbortSignal.timeout(10000) })
+      if (!health.ok) throw new Error(`Review API health check failed with HTTP ${health.status}; reset refused`)
+      const current = await db.user.findUnique({ where: { id: REVIEW_ACCOUNT_ID }, select: { deletedAt: true } })
+      if (current && !current.deletedAt) {
+        const authorization = await fetch(new URL('/api/mobile/auth/me', apiURL), {
+          headers: { Authorization: `Bearer ${createReviewResetToken(definitions[0])}` },
+          signal: AbortSignal.timeout(10000),
+        })
+        if (!authorization.ok) throw new Error(`Review API reset authorization failed with HTTP ${authorization.status}; reset refused`)
+      }
+    }
     await db.$transaction(async (tx) => {
       const existing = await tx.user.findMany({ where: { OR: [{ id: { in: ids } }, { email: { in: definitions.map((d) => d.email) } }, { username: { in: definitions.map((d) => d.username) } }] } })
       for (const user of existing) {
@@ -144,7 +156,9 @@ async function main() {
     }
     if (!apiURL) throw new Error('REVIEW_API_BASE_URL is required')
     const resetAPIURL = apiURL
-    const people: Person[] = definitions.map((person) => ({ ...person, token: createMobileToken(person) }))
+    const people: Person[] = definitions.map((person) => ({
+      ...person, token: person.id === REVIEW_ACCOUNT_ID ? createReviewResetToken(person) : createMobileToken(person),
+    }))
     const [reviewer, aarav, kabir, ira] = people
     async function api(path: string, person: Person, method = 'GET', body?: unknown, headers: Record<string, string> = {}): Promise<Json> {
       const response = await fetch(new URL(path, resetAPIURL), {

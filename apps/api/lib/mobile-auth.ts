@@ -11,6 +11,7 @@ type MobileTokenPayload = {
   name?: string | null
   iat: number
   exp: number
+  purpose?: 'review-reset'
 }
 
 export type MobileSession = {
@@ -60,11 +61,11 @@ function timingSafeEqual(a: string, b: string) {
   return left.length === right.length && crypto.timingSafeEqual(left, right)
 }
 
-export function createMobileToken(user: {
+function createToken(user: {
   id: string
   email: string
   name: string | null
-}) {
+}, purpose?: 'review-reset') {
   const now = Math.floor(Date.now() / 1000)
   const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
   const payload: MobileTokenPayload = {
@@ -72,11 +73,21 @@ export function createMobileToken(user: {
     email: user.email,
     name: user.name,
     iat: now,
-    exp: now + TOKEN_TTL_SECONDS,
+    exp: now + (purpose ? 300 : TOKEN_TTL_SECONDS),
+    ...(purpose ? { purpose } : {}),
   }
   const encodedPayload = base64Url(JSON.stringify(payload))
   const unsignedToken = `${header}.${encodedPayload}`
   return `${unsignedToken}.${sign(unsignedToken)}`
+}
+
+export function createMobileToken(user: { id: string; email: string; name: string | null }) {
+  return createToken(user)
+}
+
+export function createReviewResetToken(user: { id: string; email: string; name: string | null }) {
+  if (user.id !== REVIEW_ACCOUNT_ID) throw new Error('Reset tokens are restricted to the reviewer account')
+  return createToken(user, 'review-reset')
 }
 
 export function verifyMobileToken(token: string): MobileTokenPayload | null {
@@ -104,7 +115,13 @@ export async function getMobileSession(req: NextRequest): Promise<MobileSession 
 
   const payload = verifyMobileToken(match[1])
   if (!payload) return null
-  if (payload.sub === REVIEW_ACCOUNT_ID && !reviewCodeEnabled()) return null
+  const now = Math.floor(Date.now() / 1000)
+  const resetToken = payload.sub === REVIEW_ACCOUNT_ID && payload.purpose === 'review-reset'
+    && Number.isInteger(payload.iat) && Number.isInteger(payload.exp)
+    && payload.iat <= now + 30 && payload.exp > now
+    && payload.exp > payload.iat && payload.exp - payload.iat <= 300
+  if (payload.purpose !== undefined && !resetToken) return null
+  if (payload.sub === REVIEW_ACCOUNT_ID && !reviewCodeEnabled() && !resetToken) return null
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
