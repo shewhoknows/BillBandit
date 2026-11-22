@@ -2,7 +2,7 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-18, App Store QA fixes on `fix/launch-blockers` (see 2026-11-18 entry). Before that: 2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-21, state machines + TLA+ on `fix/state-machines-tla` (see 2026-11-21 entry). Before that: 2026-11-18, App Store QA fixes on `fix/launch-blockers`. Before that: 2026-11-10, review follow-ups on branch `cleanup/2026-11-10-audit` (test data tool, fake Apple sign-in blocked live, dead code removed). Build 32 is the current TestFlight build; two-phone checks still open.**
 
 ---
 
@@ -49,6 +49,18 @@ directly; regenerate them from sources (see §5).
 - **Palette:** cobalt and cream only for app chrome. Red stays for error text and the Delete account button (user decision 2026-10-22). The app accent colour is cobalt (`AccentColor` asset), so alerts, menus and pickers no longer show system blue.
 - Form text auto-capitalizes its first letter (names use word capitalization).
 - Group names carry **no emoji** (icons only).
+
+### 2026-11-21 — Explicit state machines, TLA+ models, 20 bug fixes (branch `fix/state-machines-tla`)
+
+- Every hidden state machine (server: expenses/groups/members, settle up/outbox, account deletion/Apple sign-in/friend codes/CloudKit import; iOS: offline queue/sync, settle-up screen/account gate) is written down in `docs/state-machines/` and named in code. Start with `docs/state-machines/README.md`: bug list, open items, how to re-check.
+- TLA+ models: `specs/tla/<part>/`; re-run all with `sh specs/tla/check-all.sh`. Each model has a "before" config that shows the old bug.
+- New server E2E scripts: `settlement-e2e.ts`, `ledger-kernel-e2e.ts`, `identity-friends-import-e2e.ts`. Run the dev server with `MOBILE_AUTH_MOCK_APPLE_SUBJECT=ifi-e2e-apple-subject MOBILE_AUTH_MOCK_APPLE_EMAIL=ifi-e2e@dev.billbandit.local`, or the identity script deletes `dev_you` (it now refuses).
+- New rules: a member must have a zero balance to leave or be removed; the last owner cannot leave or step down. Old expenses that include someone who left can still be edited or deleted (Bobby, 2026-11-21); the person who left can then record or reverse their own payment.
+- New route: `PATCH /api/groups/{id}/settlement-settings` turns simplify debts on or off (owner only). In the app the owner taps the simplify panel on Settle up.
+- A person who left does not see the group; if they are added back, their debt shows again.
+- No silent failures: `AppFailureCenter` shows every queued change the server refused after its screen closed, plus stopped background work (`docs/state-machines/ios-failure-notices.md`).
+- SwiftData: `PendingLedgerOperation` gains the optional attributes `basedOnRevision` and `failureAcknowledgedAt` (automatic migration; check it once over an existing store).
+- **Swift was not compiled.** Build in Xcode and follow the Mac checks in `docs/state-machines/ios-ledger-sync.md`, `ios-settlement-shell.md` and `ios-failure-notices.md` before TestFlight.
 
 ### 2026-11-18 — App Store QA fixes (branch `fix/launch-blockers`, merged into `main`)
 

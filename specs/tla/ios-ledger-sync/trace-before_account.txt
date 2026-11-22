@@ -1,0 +1,7 @@
+Invariant NoCrossAccount is violated.
+ 1. Initial predicate: srvRev=0; exp=<<0, 0>>; cacheRev=0; token="A"; st=<<"none", "none">>
+ 2. Create(1): st=<<"pending", "none">>
+ 3. DrainStart("S"): drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<1>>, wait |-> FALSE ]
+ 4. SessionLost: token="none"
+ 5. SignInBToken: token="B"; switched=TRUE
+ 6. DrainSend: crossSent=TRUE; net=[op |-> 1, tok |-> "B", e |-> 0, phase |-> "req", result |-> "none", rev |-> 0]; st=<<"inflight", "none">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<1>>, wait |-> TRUE ]; seen=<<0, 0>> 173 states generated, 105 distinct states found, 55 states left on queue. The depth of the complete state graph search is 6. Finished in 03s at (2026-11-21 06:16:26) Trace exploration spec path: ./LedgerQueueSync_TTrace_1795241782.tla

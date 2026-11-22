@@ -1,0 +1,14 @@
+# Regression E2E runs on the fixed code (2026-11-21T06:18:56Z)
+
+## any-member-delete-e2e.ts (dev server :3101, billbandit_a1)
+8/8 PASS (see run log in report)
+
+## polish-e2e.ts (own server :3111, TEST_DATABASE_URL billbandit_a1 schema)
+- Base commit: 372c5b3 (plus uncommitted changes)
+- API: http://127.0.0.1:3111
+- Result: 10 passed, 0 failed
+- PASS Capabilities list SGD and AED with exponent 2
+- PASS Default currency is stored, validated and returned
+
+## vietnam-trip-qa.ts (own server :31301, billbandit_a1_vietnam_test)
+Vietnam trip backend QA passed: 10 checks; API http://127.0.0.1:31301; group cmwq0omcl0005nu6u2tgh8wbq; evidence /tmp/a1-vietnam/backend-trip-qa.md

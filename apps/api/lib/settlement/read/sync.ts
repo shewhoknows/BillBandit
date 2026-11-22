@@ -337,3 +337,23 @@ async function buildSnapshot(
 }
 
 export { decodeHistoryCursor, encodeHistoryCursor }
+
+/**
+ * The state to send back after a settle, reverse or setting change has
+ * COMMITTED. The write may itself end the caller's read access: a person who
+ * left the group can read it only while they still owe or are owed money, so
+ * paying their last debt ends that. Answering 500 then would make the phone
+ * retry a write that is already saved, so the answer is the write's result
+ * with `state: null` instead.
+ */
+export async function getSettleUpStateAfterCommit(
+  groupId: string,
+  userId: string
+): Promise<Awaited<ReturnType<typeof getSettleUpState>> | null> {
+  try {
+    return await getSettleUpState(groupId, userId)
+  } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN') return null
+    throw error
+  }
+}

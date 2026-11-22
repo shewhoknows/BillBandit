@@ -1,0 +1,28 @@
+# identity-friends-import E2E
+revision: 372c5b3ad4d29752f7cfb8f1e7d83e4acd28906f (base) app code + E2E script from 61cd341 (old lib/route files checked out from 372c5b3)
+environment: api=http://127.0.0.1:3103 db=postgresql://postgres@localhost:5432/billbandit_a3 node=v22.23.5 health=200 run=mwq0oakj5xe at=2026-11-21T06:18:25.405Z
+replay: cd apps/api && DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_a3 DEV_API_BASE=http://127.0.0.1:3103 npx tsx scripts/identity-friends-import-e2e.ts
+replay-old-code: git checkout 372c5b3 -- apps/api/lib/account-deletion.ts apps/api/lib/friends.ts apps/api/lib/migrations/cloudkit/service.ts apps/api/app/api/mobile/auth/apple/route.ts (dev server hot-reloads), run the replay command, then git checkout HEAD -- apps/api
+| Step | Result | Evidence |
+| --- | --- | --- |
+| Deletion: friends via code (setup) | PASS |  |
+| Deletion: a reversed payment stays reversed for the other member | FAIL: deleting Alice changed Bob's balances + actual - expected  + '{"byMember":[{"memberId":"cmwq0ob9b0151quzgm6o2ejcp","byCurrency":[{"minorUnits":"0","currencyCode":"INR","currencyExponent":2}]},{"memberId":"cmwq0ob9h0153quzgqh7c80yg","byCurrency":[{"minorUnits":"0","currencyCode":"INR","currencyExponent":2}]}],"transfers":[]}' - '{"byMember":[{"memberId":"cmwq0ob9b0151quzgm6o2ejcp","byCurrency":[{"minorUnits":"5000","currencyCode":"INR","currencyExponent":2}]},{"memberId":"cmwq0ob9h0153quzgqh7c80yg","byCurrency":[{"minorUnits":"-5000","currencyCode":"INR","currencyExponent":2}]}],"transfers":[{"from":"cmwq0ob9h0153quzgqh7c80yg","to":"cmwq0ob9b0151quzgm6o2ejcp","amount":"5000"}]}'  | before={"byMember":[{"memberId":"cmwq0ob9b0151quzgm6o2ejcp","byCurrency":[{"minorUnits":"5000","currencyCode":"INR","currencyExponent":2}]},{"memberId":"cmwq0ob9h0153quzgqh7c80yg","byCurrency":[{"minorUnits":"-5000","currencyCode":"INR","currencyExponent":2}]}],"transfers":[{"from":"cmwq0ob9h0153quzgqh7c80yg","to":"cmwq0ob9b0151quzgm6o2ejcp","amount":"5000"}]}; after={"byMember":[{"memberId":"cmwq0ob9b0151quzgm6o2ejcp","byCurrency":[{"minorUnits":"0","currencyCode":"INR","currencyExponent":2}]},{"memberId":"cmwq0ob9h0153quzgqh7c80yg","byCurrency":[{"minorUnits":"0","currencyCode":"INR","currencyExponent":2}]}],"transfers":[]} |
+| Deletion: old token refused everywhere | PASS | 401,401,401,401 |
+| Deletion: friend list and invitation of deleted user are gone | PASS |  |
+| Friends: own code refused (409), no row | PASS |  |
+| Friends: expired code refused (410), inviter gets a new code, old code dead | PASS | old=8QBQF new=MFY79 oldAfterRotate=404 |
+| Friends: claim again is 200, unfriend, re-claim is 201; one row | PASS |  |
+| Friends: both people claim each other at the same moment (5 pairs) -> one row each, no 5xx | PASS | statuses=201,200,201,201,201,201,201,201,201,201 rows=1,1,1,1,1 |
+| Friends: two phones of one account claim the same code at once (5 tries) -> no 5xx, one row | PASS | statuses=201,201,201,201,201,201,201,201,201,201,201,201,201,200,200 |
+| Friends: deleted inviter's code is refused (404) | PASS |  |
+| Rate limit: a successful claim does not reset the failure count | FAIL: the 10th wrong code in the window must be blocked  404 !== 429  | statuses=404,404,404,404,404,404,404,404,404,200,404,404 |
+| Rate limit: 60 wrong codes in parallel -> at most 10 are looked up | PASS | 404=9 429=51 other=0 |
+| Apple: first sign-in from two devices at once -> one account, no 401 (5 rounds) | FAIL: round 0: 200,401,401 ["","Apple sign-in failed","Apple sign-in failed"] |  |
+| Apple: re-sign-in after deletion gives a fresh account; old token stays dead | PASS | old=cmwq0oelu018oquzgf841kzqo new=cmwq0oeo5018tquzguydpw3uh |
+| Username: two accounts claim one handle at once -> exactly one wins | PASS | 200,409 |
+| CloudKit: import completes with exact money | PASS | expenses=2/30999 splits=4/30999 payments=1/2000 |
+| CloudKit: same export again is a no-op (completed, same money) | PASS | expenses=2/30999 splits=4/30999 payments=1/2000 |
+| CloudKit: crash mid-import, then resume -> completes once | PASS | expenses=2/30999 splits=4/30999 payments=1/2000 |
+| CloudKit: three runs of a new export at once -> no 5xx, no double money | FAIL: parallel runs answered 500,500,200 | statuses=500,500,200; expenses=2/30999 splits=4/30999 payments=1/2000 |
+
+15/19 PASS

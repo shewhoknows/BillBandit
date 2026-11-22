@@ -101,6 +101,9 @@ enum AppStore {
 @MainActor
 enum LocalAccountDataCleanup {
     static func deleteAll(context: ModelContext) throws {
+        // Stops any drain or refresh still running for the deleted account
+        // before its rows disappear (same fence as ServerLedgerStore.clear).
+        AppStore.serverLedgerStore.invalidateAllAccounts()
         for row in try context.fetch(FetchDescriptor<PendingLedgerOperation>()) {
             context.delete(row)
         }
@@ -910,3 +913,132 @@ enum SeedData {
     }
 }
 #endif
+
+/// One message the person must see once: something they did, or something
+/// the app did for them, did not work. The person dismisses it with OK.
+struct AppFailureNotice: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let message: String
+}
+
+/// The app-wide place for failures that no screen shows by itself:
+///
+/// * a queued change (expense, delete, member, group, payment) that the
+///   server refused after the screen that made it had closed;
+/// * background work that stopped (the old CloudKit data move, iCloud
+///   profile sync).
+///
+/// A screen that waits for its own change owns that change's outcome
+/// (`beginOwning` / `endOwning`); the settle-up screen owns the payment rows
+/// it queued while it is visible. A failed row is shown once:
+/// `PendingLedgerOperation.failureAcknowledgedAt` is set when the person
+/// presses OK here or when the owning screen shows it.
+/// docs/state-machines/README.md ("No silent failures").
+@MainActor
+final class AppFailureCenter: ObservableObject {
+    static let shared = AppFailureCenter()
+
+    @Published private(set) var current: AppFailureNotice?
+
+    private var queue: [AppFailureNotice] = []
+    private var acknowledgers: [String: () -> Void] = [:]
+    private var ownedOperationIDs: Set<UUID> = []
+    private var observers: [NSObjectProtocol] = []
+    private var pendingCheck: Task<Void, Never>?
+
+    private init() {}
+
+    /// Starts listening. Safe to call more than once.
+    func start() {
+        guard observers.isEmpty else { return }
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .serverLedgerOperationFailed, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let center = self else { return }
+            Task { @MainActor in center.scheduleLedgerCheck() }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .serverLedgerAccountCleared, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let center = self else { return }
+            Task { @MainActor in center.reset() }
+        })
+        scheduleLedgerCheck()
+    }
+
+    /// Shows the notice unless the same one is already shown or waiting.
+    func report(_ notice: AppFailureNotice, onAcknowledge: @escaping () -> Void = {}) {
+        guard current?.id != notice.id, !queue.contains(where: { $0.id == notice.id }) else { return }
+        acknowledgers[notice.id] = onAcknowledge
+        if current == nil {
+            current = notice
+        } else {
+            queue.append(notice)
+        }
+    }
+
+    /// True while a notice for this failed row is on screen or waiting. The
+    /// settle-up screen then does not show it again
+    /// (specs/tla/ios-failure-notices, ShownAtMostOnce).
+    func isPending(_ operationID: UUID) -> Bool {
+        let id = "ledger-\(operationID.uuidString)"
+        return current?.id == id || queue.contains(where: { $0.id == id })
+    }
+
+    /// The person pressed OK.
+    func dismissCurrent() {
+        guard let notice = current else { return }
+        acknowledgers.removeValue(forKey: notice.id)?()
+        current = queue.isEmpty ? nil : queue.removeFirst()
+    }
+
+    /// A screen is waiting for this change and shows its outcome itself.
+    func beginOwning(_ operationID: UUID) {
+        ownedOperationIDs.insert(operationID)
+    }
+
+    /// The screen stopped waiting. If the change fails later, this center
+    /// tells the person.
+    func endOwning(_ operationID: UUID) {
+        ownedOperationIDs.remove(operationID)
+        scheduleLedgerCheck()
+    }
+
+    /// Looks for failed rows nobody has shown, a moment after a failure, so
+    /// the screen that sent the change can show and acknowledge it first.
+    func scheduleLedgerCheck() {
+        pendingCheck?.cancel()
+        pendingCheck = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.checkLedgerFailures()
+        }
+    }
+
+    /// Account switch or sign-out: notices of the old account are dropped.
+    func reset() {
+        pendingCheck?.cancel()
+        queue.removeAll()
+        acknowledgers.removeAll()
+        ownedOperationIDs.removeAll()
+        current = nil
+    }
+
+    private func checkLedgerFailures() {
+        guard let accountID = ServerLedgerAccountLifecycle.shared.activeAccountID,
+              let rows = try? AppStore.serverLedgerStore.unacknowledgedFailures(for: accountID) else { return }
+        for row in rows {
+            let operationID = row.operationID
+            if ownedOperationIDs.contains(operationID) { continue }
+            let copy = LedgerFailureCopy.notice(for: row)
+            report(
+                AppFailureNotice(id: "ledger-\(operationID.uuidString)", title: copy.title, message: copy.message)
+            ) {
+                // If this save fails, the notice can come back later; it is
+                // never lost.
+                try? AppStore.serverLedgerStore.acknowledgeFailure(operationID: operationID)
+            }
+        }
+    }
+}

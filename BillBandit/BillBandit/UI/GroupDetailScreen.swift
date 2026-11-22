@@ -78,7 +78,11 @@ struct GroupDetailScreen: View {
     }
 
     private var pendingExpensePreviews: [PendingExpensePreview] {
-        pendingLedgerOperations.map(PendingExpensePreview.init)
+        // A failed change stays here until the person has seen the notice
+        // about it (AppFailureCenter or this screen's own alert).
+        pendingLedgerOperations
+            .filter { !($0.retryState == .failed && $0.failureAcknowledgedAt != nil) }
+            .map(PendingExpensePreview.init)
     }
 
     private var total: Decimal {
@@ -903,7 +907,7 @@ private struct PendingExpensePreview: Identifiable {
 
         switch operation.retryState {
         case .failed:
-            status = operation.lastError.map { "sync failed · \($0)" } ?? "sync failed · refresh to retry"
+            status = "not saved · \(LedgerFailureCopy.reason(for: operation.lastError))"
         case .inFlight:
             status = "syncing…"
         case .retrying:
@@ -1317,7 +1321,7 @@ struct SharedExpenseDeleteControl: View {
                                            kind: "expense.delete", method: "DELETE",
                                            path: "/api/mobile/expenses/\(expenseID)", body: body)
                 queued = true
-                let updated = try await runtime.reconcile(scope: scope)
+                let updated = try await runtime.reconcile(scope: scope, owning: id)
                 let updatedGroup = try runtime.validatedGroup(from: updated, scope: scope)
                 guard !updatedGroup.expenses.contains(where: { $0.expenseID == expenseID && $0.status == "active" }) else {
                     throw T15LedgerUIError.canonicalSnapshotUnavailable
@@ -1384,6 +1388,7 @@ struct RecordPaymentSheet: View {
     @State private var amount = ""
     @State private var fromID: UUID?
     @State private var toID: UUID?
+    @State private var saveError: String?
 
     private var isLocalOnlyGroup: Bool {
         SettlementAPIConfiguration.serverGroupId(for: group) == nil
@@ -1483,6 +1488,13 @@ struct RecordPaymentSheet: View {
                         Text("Maximum outstanding payment: \(Money.currency(suggestedAmount, currencyCode: group.resolvedCurrencyCode)).")
                             .font(BrandFont.type(11, bold: true))
                             .foregroundStyle(Color.red.opacity(0.8))
+                    }
+
+                    if let saveError {
+                        Text(saveError)
+                            .font(BrandFont.type(11, bold: true))
+                            .foregroundStyle(Color.red.opacity(0.8))
+                            .accessibilityIdentifier("recordPaymentSaveError")
                     }
 
                     Button(action: save) {
@@ -1591,7 +1603,12 @@ struct RecordPaymentSheet: View {
         }
         do {
             try context.save()
+            saveError = nil
         } catch {
+            // Undo the unsaved payment and say so; the sheet stays open.
+            context.rollback()
+            saveError = "The payment was not saved. Try again."
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
             return
         }
         CloudCollaborationService.shared.groupDidChange(group)
@@ -1879,7 +1896,7 @@ private struct GroupAddMembersSheet: View {
                     )
                     queued = true
                     statusMessage = "Adding member to the shared group…"
-                    let after = try await runtime.reconcile(scope: scope)
+                    let after = try await runtime.reconcile(scope: scope, owning: operationID)
                     let updated = try runtime.validatedGroup(from: after, scope: scope)
                     guard updated.members.contains(where: {
                         $0.accountID == accountID && $0.status == "active"

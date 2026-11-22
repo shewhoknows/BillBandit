@@ -17,6 +17,18 @@ import {
 } from '../../settlement/ledger/projections'
 import { wakeOutboxDispatcher } from '../../settlement/outbox/dispatcher'
 import type { GroupLedgerInput, SettlementRecord } from '../../settlement/ledger/types'
+import {
+  OperationKeyRaceError,
+  assertLeaverIsSettled,
+  hasUnsettledPosition,
+  assertExpenseEvent,
+  assertGroupEvent,
+  assertKeepsAnAdmin,
+  decideOperation,
+  deriveExpenseState,
+  deriveGroupLifecycle,
+  isOperationKeyUniqueViolation,
+} from './state-machines'
 import type {
   ExpenseMutationInput,
   ExpenseSplitMutationInput,
@@ -238,7 +250,7 @@ function assertExpectedRevision(request: NormalizedRequest, group: GroupSnapshot
   if (group.settlementVersion !== request.expectedRevision) {
     throw revisionConflict(request, group)
   }
-  if (group.isArchived) throw new LedgerMutationError('GROUP_ARCHIVED', 403, 'Group is archived')
+  assertGroupEvent(deriveGroupLifecycle(group), 'ledger.write')
 }
 
 async function ensureActiveMember(
@@ -257,13 +269,52 @@ async function ensureActiveMember(
   return member as { id: string; role: 'ADMIN' | 'MEMBER'; userId: string }
 }
 
-function assertNotFinalized(group: GroupSnapshot): void {
-  if (group.finalizedAt) {
-    throw new LedgerMutationError('GROUP_FINALIZED', 409, 'Group is finalized')
+/**
+ * Who may record or reverse a payment: an active member, or a person who
+ * left the group while they still owe or are owed money (an old expense they
+ * shared changed after they left). This is the access matrix's "departed
+ * with unsettled position" (lib/settlement/access/matrix.ts). The callers
+ * then also require the actor to be the payer or the recipient.
+ */
+async function ensureSettlementActor(tx: MutationTransaction, request: NormalizedRequest): Promise<void> {
+  const member = await tx.groupMember.findUnique({
+    where: { groupId_userId: { groupId: request.groupId, userId: request.actorUserId } },
+    select: { id: true },
+  })
+  if (member) return
+  const participant = await tx.groupParticipant.findUnique({
+    where: { groupId_userId: { groupId: request.groupId, userId: request.actorUserId } },
+    select: { id: true, status: true },
+  })
+  if (
+    participant?.status === 'DEPARTED' &&
+    hasUnsettledPosition(await loadMutationLedger(request.groupId, tx), participant.id)
+  ) {
+    return
   }
+  throw new LedgerMutationError('FORBIDDEN', 403, 'Actor is not a group member')
+}
+
+/** Expense writes are allowed only while the group is open (not finalized or archived). */
+function assertNotFinalized(group: GroupSnapshot): void {
+  assertGroupEvent(deriveGroupLifecycle(group), 'expense.write')
 }
 
 async function upsertOperation(
+  tx: MutationTransaction,
+  request: NormalizedRequest
+): Promise<LedgerOperationRow> {
+  try {
+    return await insertOrReadOperation(tx, request)
+  } catch (error) {
+    // A concurrent attempt with the same key committed between Prisma's read
+    // and insert. Retry the transaction; it then replays that attempt's result.
+    if (isOperationKeyUniqueViolation(error)) throw new OperationKeyRaceError()
+    throw error
+  }
+}
+
+async function insertOrReadOperation(
   tx: MutationTransaction,
   request: NormalizedRequest
 ): Promise<LedgerOperationRow> {
@@ -566,13 +617,9 @@ async function prepareExpense(
         isDeleted: true,
       },
     })
-    if (!existing || existing.groupId !== request.groupId) {
-      throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
-    }
-    if (existing.isDeleted) {
-      throw new LedgerMutationError('NOT_FOUND', 404, 'Expense is already deleted')
-    }
+    assertExpenseEvent(deriveExpenseState(existing, request.groupId), 'delete')
     assertNotFinalized(group)
+    if (!existing) throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
     return {
       kind: 'expense.delete',
       recordId: existing.id,
@@ -718,10 +765,9 @@ async function prepareExpense(
       recurringEndDate: true,
     },
   })
-  if (!existing || existing.groupId !== request.groupId || existing.isDeleted) {
-    throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
-  }
+  assertExpenseEvent(deriveExpenseState(existing, request.groupId), 'edit')
   assertNotFinalized(group)
+  if (!existing) throw new LedgerMutationError('NOT_FOUND', 404, 'Expense not found')
   return {
     kind: 'expense.edit',
     recordId: existing.id,
@@ -761,6 +807,10 @@ async function prepareExpense(
       },
     },
   }
+}
+
+async function adminCount(tx: MutationTransaction, groupId: string): Promise<number> {
+  return tx.groupMember.count({ where: { groupId, role: 'ADMIN' } })
 }
 
 function membershipPayload(payload: MutationPayload): MembershipMutationInput {
@@ -838,6 +888,12 @@ async function prepareMembership(
     throw new LedgerMutationError('MEMBER_NOT_FOUND', 404, 'Membership not found')
   }
   if (request.kind === 'membership.remove') {
+    // The balance-is-zero guard runs after the write (assertLeaverIsSettled).
+    assertKeepsAnAdmin({
+      targetRole: existing.role,
+      nextRole: null,
+      adminCount: await adminCount(tx, request.groupId),
+    })
     return {
       kind: 'membership.remove',
       recordId: existing.id,
@@ -858,6 +914,11 @@ async function prepareMembership(
   if (payload.role !== 'ADMIN' && payload.role !== 'MEMBER') {
     throw new LedgerMutationError('INVALID_MEMBERSHIP', 400, 'role is required')
   }
+  assertKeepsAnAdmin({
+    targetRole: existing.role,
+    nextRole: payload.role,
+    adminCount: await adminCount(tx, request.groupId),
+  })
   return {
     kind: 'membership.update',
     recordId: existing.id,
@@ -907,7 +968,7 @@ async function prepareSettlement(
   request: NormalizedRequest,
   group: GroupSnapshot
 ): Promise<PreparedMutation> {
-  await ensureActiveMember(tx, request)
+  await ensureSettlementActor(tx, request)
   const payload = settlementPayload(request.payload)
   const payerParticipantId = requiredString(payload.payerParticipantId, 'payerParticipantId')
   const recipientParticipantId = requiredString(
@@ -1067,7 +1128,7 @@ async function prepareReversal(
   tx: MutationTransaction,
   request: NormalizedRequest
 ): Promise<PreparedMutation> {
-  await ensureActiveMember(tx, request)
+  await ensureSettlementActor(tx, request)
   const payload = reversalPayload(request.payload)
   const settlementId = requiredString(payload.settlementId, 'settlementId')
   const transaction = await tx.transaction.findUnique({
@@ -1406,18 +1467,19 @@ async function executeInTransaction(
   options: Required<Pick<MutationKernelOptions, 'now' | 'retentionDays'>>
 ): Promise<LedgerMutationResult> {
   const operation = await upsertOperation(tx, request)
-  if (operation.requestHash !== request.requestHash || operation.groupId !== request.groupId) {
-    throw await idempotencyConflict(tx, request, operation)
-  }
-  if (operation.state === 'COMMITTED') {
-    return resultFromOperation(request, operation, options.now(), options.retentionDays)
-  }
-  if (operation.state === 'FAILED') {
-    throw new LedgerMutationError(
-      operation.failureCode ?? 'MUTATION_FAILED',
-      409,
-      'The operation previously failed'
-    )
+  switch (decideOperation(operation, request)) {
+    case 'reused-key':
+      throw await idempotencyConflict(tx, request, operation)
+    case 'replay':
+      return resultFromOperation(request, operation, options.now(), options.retentionDays)
+    case 'failed':
+      throw new LedgerMutationError(
+        operation.failureCode ?? 'MUTATION_FAILED',
+        409,
+        'The operation previously failed'
+      )
+    case 'execute':
+      break
   }
 
   const group = await readGroup(tx, request.groupId)
@@ -1456,6 +1518,9 @@ async function executeInTransaction(
 
   const revision = await reserveRevision(tx, request)
   await commitPreparedMutation(tx, prepared)
+  if (prepared.kind === 'membership.remove' && prepared.participantUserId) {
+    assertLeaverIsSettled(await loadMutationLedger(request.groupId, tx), prepared.participantUserId)
+  }
   const committedAt = options.now()
   await recordMutationActivity(tx, request, prepared, operation.id, committedAt)
   const mutationResult: MutationResult = {
@@ -1484,6 +1549,7 @@ async function executeInTransaction(
 }
 
 function isTransientTransactionError(error: unknown): boolean {
+  if (error instanceof OperationKeyRaceError) return true
   if (error instanceof LedgerMutationError) return false
   if (!error || typeof error !== 'object') return false
   const value = error as { code?: unknown; message?: unknown }

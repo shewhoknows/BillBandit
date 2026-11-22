@@ -1,0 +1,11 @@
+Group: cmwqio7yc00kf10omk7riupik
+| Check | Result |
+| --- | --- |
+| Non-payer deletes; activity identifies actor and payer | PASS |
+| Both members see the same balances | PASS |
+| Non-member is refused and the expense stays | PASS |
+| Concurrent deletes produce one success and one activity | PASS |
+| Edit after deletion is refused | PASS |
+| Payment survives deletion and balances recompute | PASS |
+| Removed member is refused and the expense stays | PASS |
+| Archived group refuses deletion | PASS |

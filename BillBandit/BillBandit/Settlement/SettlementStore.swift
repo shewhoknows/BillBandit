@@ -29,7 +29,6 @@ enum SettlementRealtimeRefreshPolicy {
 final class SettlementStore {
     private(set) var snapshot: SettlementSnapshotDTO?
     private(set) var isLoading = false
-    private(set) var isUpdating = false
     private(set) var isOffline = false
     private(set) var lastError: String?
     private(set) var appliedVersion = 0
@@ -60,17 +59,37 @@ final class SettlementStore {
     private var pendingRefreshVersion: Int?
     private var currentUserLabel = "You"
     private var operationIDsByActionKey: [String: UUID] = [:]
+    /// Number of settle()/reverse() calls between enqueue and their end.
+    /// Owned only by those two functions (docs/state-machines/ios-settlement-shell.md).
+    private var mutationsInFlight = 0
+    /// A refresh started with forceWritesDisabled while a snapshot is shown.
+    /// Owned only by refresh().
+    private var isVisibleRefreshInFlight = false
+    /// Failed queue rows of this screen that the person was already told about.
+    private var reportedFailedOperationIDs: Set<UUID> = []
+    /// A queued write of this screen that the server refused during a
+    /// background refresh (the call that queued it had already returned).
+    /// The screen shows it once and then calls clearWriteFailureNotice().
+    private(set) var writeFailureNotice: SettlementWriteFailureNotice?
 
-    var writesEnabled: Bool {
+    /// One flag for the spinner and the write gates. It is derived, so a
+    /// refresh that ends cannot clear it while a payment is still saving.
+    var isUpdating: Bool { mutationsInFlight > 0 || isVisibleRefreshInFlight }
+
+    /// Every write gate except requiresReconfirmation.
+    private var writeGatesOpen: Bool {
         guard let snapshot, let canonicalSnapshot else { return false }
         return !isUpdating
             && !isRefreshInFlight
             && !isOffline
-            && !requiresReconfirmation
             && !isMigrationBlocked
             && !canonicalSnapshot.isStale
             && snapshot.lifecycle.isArchived == false
             && snapshot.permissions.canSettleOrReverse
+    }
+
+    var writesEnabled: Bool {
+        writeGatesOpen && !requiresReconfirmation
     }
 
     /// T-12 supplies an account-scoped durable queue. Offline settlement is
@@ -216,7 +235,13 @@ final class SettlementStore {
             callerParticipantId = nil
             isMigrationBlocked = false
             requiresReconfirmation = false
+            // The old group's payments go back to AppFailureCenter.
+            for operationID in operationIDsByActionKey.values {
+                AppFailureCenter.shared.endOwning(operationID)
+            }
             operationIDsByActionKey.removeAll()
+            reportedFailedOperationIDs.removeAll()
+            writeFailureNotice = nil
         }
 
         do {
@@ -237,6 +262,16 @@ final class SettlementStore {
 
     func setVisible(_ visible: Bool) {
         isVisible = visible
+        // While this screen is on screen it tells the person about the
+        // payments it queued (publishNewWriteFailures); afterwards the
+        // app-wide AppFailureCenter does.
+        for operationID in operationIDsByActionKey.values {
+            if visible {
+                AppFailureCenter.shared.beginOwning(operationID)
+            } else {
+                AppFailureCenter.shared.endOwning(operationID)
+            }
+        }
         if visible {
             Task { await refresh(forceWritesDisabled: true) }
         } else {
@@ -280,12 +315,12 @@ final class SettlementStore {
         if snapshot == nil {
             isLoading = true
         } else if showsVisibleActivity {
-            isUpdating = true
+            isVisibleRefreshInFlight = true
         }
         defer {
             isLoading = false
             if showsVisibleActivity {
-                isUpdating = false
+                isVisibleRefreshInFlight = false
             }
             isRefreshInFlight = false
             if refreshRequestedWhileInFlight {
@@ -310,6 +345,9 @@ final class SettlementStore {
             hasFreshCanonicalRead = true
             isOffline = false
             lastError = nil
+            // Another sync owner (the app-wide reconcile) may have sent and
+            // lost one of this screen's queued writes.
+            publishNewWriteFailures(scope: scope)
             await subscribeRealtimeIfNeeded()
             startPollingIfNeeded()
         } catch {
@@ -320,12 +358,18 @@ final class SettlementStore {
             if case ServerLedgerSyncError.conflictRequiresReconfirmation = error {
                 requiresReconfirmation = true
             }
+            // A write this screen queued earlier may have been refused just
+            // now by the drain inside onForeground. Its own call has already
+            // returned, so nobody else will tell the person.
+            publishNewWriteFailures(scope: scope)
         }
     }
 
     func canStartSettlement(_ transfer: SettlementPlanTransferDTO) -> Bool {
         guard isCurrentTransfer(transfer), canSettle(transfer) else { return false }
-        return writesEnabled || canQueueSettlement || requiresReconfirmation
+        // requiresReconfirmation lifts only its own gate; every other gate
+        // (saving, refreshing, offline without queue, read only) still holds.
+        return writesEnabled || canQueueSettlement || (requiresReconfirmation && writeGatesOpen)
     }
 
     func canDisplaySettlementAction(_ transfer: SettlementPlanTransferDTO) -> Bool {
@@ -359,7 +403,7 @@ final class SettlementStore {
               SettlementMoneyFormatting.compare(minorUnits, transfer.minorUnits) != .orderedDescending else {
             throw SettlementClientError.requiresReconfirmation
         }
-        guard writesEnabled || canQueueSettlement || requiresReconfirmation else {
+        guard writesEnabled || canQueueSettlement || (requiresReconfirmation && writeGatesOpen) else {
             throw SettlementClientError.writeDisabled
         }
 
@@ -395,8 +439,8 @@ final class SettlementStore {
         )
         try enqueueIfNeeded(mutation, actionKey: actionKey)
         requiresReconfirmation = false
-        isUpdating = true
-        defer { isUpdating = false }
+        mutationsInFlight += 1
+        defer { mutationsInFlight -= 1 }
         do {
             try await reconcileAfterMutation(scope: scope)
         } catch let error as SettlementClientError where error == .offline {
@@ -405,6 +449,8 @@ final class SettlementStore {
             // next foreground/reconnect cycle.
             return nil
         } catch {
+            // The caller shows this error; do not report it again later.
+            markWriteFailuresReported(scope: scope)
             throw error
         }
         return canonicalSnapshot?.group.settlementHistory.first(where: { item in
@@ -434,15 +480,92 @@ final class SettlementStore {
             body: body
         )
         try enqueueIfNeeded(mutation, actionKey: actionKey)
-        isUpdating = true
-        defer { isUpdating = false }
+        mutationsInFlight += 1
+        defer { mutationsInFlight -= 1 }
         do {
             try await reconcileAfterMutation(scope: scope)
         } catch let error as SettlementClientError where error == .offline {
             // Keep the queued reversal durable and show the cached history.
         } catch {
+            // The caller shows this error; do not report it again later.
+            markWriteFailuresReported(scope: scope)
             throw error
         }
+    }
+
+    /// "Reverse" is offered only where the server can accept it: an active
+    /// payment that the signed-in member paid or received (the kernel refuses
+    /// others with ALREADY_REVERSED 409 or FORBIDDEN 403).
+    func canReverse(settlementId: String) -> Bool {
+        guard writesEnabled,
+              let group = canonicalSnapshot?.group,
+              let memberID = group.currentMemberID,
+              let item = group.settlementHistory.first(where: {
+                  $0.type == "settlement" && $0.settlementID == settlementId
+              }) else { return false }
+        return item.status != "reversed"
+            && item.reversalID == nil
+            && (item.payerMemberID == memberID || item.recipientMemberID == memberID)
+    }
+
+    func clearWriteFailureNotice() {
+        writeFailureNotice = nil
+    }
+
+    /// True while the simplify-debts switch is saving.
+    private(set) var isChangingSimplify = false
+    /// Idempotency key per (group, version, new value): a retry of the same
+    /// change replays on the server instead of failing as a conflict.
+    private var settingKeys: [String: UUID] = [:]
+
+    /// The owner may change simplify debts while the screen has a fresh,
+    /// writable read and nothing else is saving. Online only: the change is
+    /// not queued, so it either happens now or the person is told why not.
+    var canChangeSimplify: Bool {
+        writeGatesOpen
+            && !isChangingSimplify
+            && snapshot?.permissions.canChangeSetting == true
+    }
+
+    /// Turns "simplify debts" on or off for this group.
+    /// Throws `SettlementSettingError`; the screen shows its message.
+    func setSimplifyDebts(_ simplify: Bool) async throws {
+        guard let scope = configuredScope, let snapshot else { throw SettlementSettingError.notAllowed }
+        // A second tap while the first is saving is not a failure.
+        guard !isChangingSimplify else { return }
+        guard snapshot.permissions.canChangeSetting else { throw SettlementSettingError.notOwner }
+        guard canChangeSimplify else { throw SettlementSettingError.notAllowed }
+        guard snapshot.simplifyDebts != simplify else { return }
+        // Same key for the same change from the same version, so a second
+        // tap or a retry replays instead of changing it twice.
+        let actionKey = "settings:\(scope.groupID):\(snapshot.version):\(simplify)"
+        let key = settingKeys[actionKey] ?? UUID()
+        settingKeys[actionKey] = key
+        // Never send account A's change with account B's token.
+        guard let token = legacyAPIClient.authorizationToken(),
+              URLSessionServerLedgerAPIClient.tokenSubject(token) == scope.accountID else {
+            throw SettlementSettingError.signedOut
+        }
+        isChangingSimplify = true
+        defer { isChangingSimplify = false }
+        do {
+            _ = try await legacyAPIClient.patchSettlementSettings(
+                groupID: scope.groupID,
+                body: UpdateSettlementSettingsRequest(
+                    expectedVersion: snapshot.version,
+                    simplifyDebts: simplify,
+                    operationId: key.uuidString
+                ),
+                idempotencyKey: key.uuidString
+            )
+        } catch {
+            // Keep the key: if the server did save it before the connection
+            // dropped, a retry replays that answer.
+            await refresh()
+            throw SettlementSettingError.from(error)
+        }
+        settingKeys[actionKey] = nil
+        await refresh()
     }
 
     func applyRealtimeVersion(_ version: Int) {
@@ -602,6 +725,7 @@ final class SettlementStore {
         }
         _ = try serverLedgerStore.enqueue(mutation)
         operationIDsByActionKey[actionKey] = mutation.operationID
+        if isVisible { AppFailureCenter.shared.beginOwning(mutation.operationID) }
     }
 
     private func reconcileAfterMutation(scope: ServerBackedLedgerScope) async throws {
@@ -627,6 +751,60 @@ final class SettlementStore {
             }
             lastError = errorDescription(error)
             throw mapClientError(error)
+        }
+    }
+
+    /// Failed queue rows that this store enqueued, by operation ID, with
+    /// whether each one was a reversal.
+    private func ownFailedOperations(
+        scope: ServerBackedLedgerScope
+    ) -> [(operation: PendingLedgerOperation, isReversal: Bool)] {
+        guard !operationIDsByActionKey.isEmpty,
+              let rows = try? serverLedgerStore.pendingOperations(
+                for: .serverBacked(accountID: scope.accountID, groupID: scope.groupID),
+                includingCompleted: false
+              ) else { return [] }
+        var keyByID: [UUID: String] = [:]
+        for (key, id) in operationIDsByActionKey { keyByID[id] = key }
+        return rows.compactMap { row in
+            guard row.retryState == .failed,
+                  row.failureAcknowledgedAt == nil,
+                  !AppFailureCenter.shared.isPending(row.operationID),
+                  !reportedFailedOperationIDs.contains(row.operationID),
+                  let key = keyByID[row.operationID] else { return nil }
+            return (row, key.hasPrefix("reversal:"))
+        }
+    }
+
+    private func markWriteFailuresReported(scope: ServerBackedLedgerScope) {
+        for failed in ownFailedOperations(scope: scope) {
+            reportedFailedOperationIDs.insert(failed.operation.operationID)
+            try? serverLedgerStore.acknowledgeFailure(operationID: failed.operation.operationID)
+        }
+    }
+
+    /// Tells the screen once about a queued write the server refused. A
+    /// revision conflict is shown by the "Settlement changed" banner
+    /// (requiresReconfirmation) instead of an alert.
+    private func publishNewWriteFailures(scope: ServerBackedLedgerScope) {
+        for failed in ownFailedOperations(scope: scope) {
+            reportedFailedOperationIDs.insert(failed.operation.operationID)
+            try? serverLedgerStore.acknowledgeFailure(operationID: failed.operation.operationID)
+            let reason = failed.operation.lastError
+            if reason == "revision_conflict_requires_reconfirmation" {
+                // Shown by the "Settlement changed. Confirm again." banner,
+                // also when another sync owner sent the row.
+                requiresReconfirmation = true
+                continue
+            }
+            // Machine codes (snake_case) are not shown; the alert has its own
+            // fallback sentence.
+            let isMachineCode = reason.map { $0.contains("_") && !$0.contains(" ") } ?? true
+            writeFailureNotice = SettlementWriteFailureNotice(
+                operationID: failed.operation.operationID,
+                isReversal: failed.isReversal,
+                message: isMachineCode ? nil : reason
+            )
         }
     }
 
@@ -739,6 +917,53 @@ final class SettlementStore {
     }
 }
 
+/// Why the simplify-debts switch did not change. Every case has words for
+/// the person (no silent failures).
+enum SettlementSettingError: LocalizedError, Equatable {
+    case offline
+    case signedOut
+    case notOwner
+    case changed
+    case notAllowed
+    case server(String?)
+
+    static func from(_ error: Error) -> SettlementSettingError {
+        switch error {
+        case SettlementAPIError.offline, ServerLedgerAPIClientError.offline, ServerLedgerSyncError.offline:
+            return .offline
+        case SettlementAPIError.unauthorized:
+            return .signedOut
+        case SettlementClientError.versionConflict:
+            return .changed
+        case let SettlementAPIError.structured(code, status, _):
+            if status == 403 || code == "FORBIDDEN" { return .notOwner }
+            if code == "GROUP_ARCHIVED" { return .notAllowed }
+            return .server(nil)
+        default:
+            return .server(nil)
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .offline: "You are offline. The setting was not changed."
+        case .signedOut: "Your session expired. Sign in again, then try again."
+        case .notOwner: "Only the group owner can change this."
+        case .changed: "The group changed while you were changing this. Check it and try again."
+        case .notAllowed: "This can't be changed right now. Wait for the group to finish updating, then try again."
+        case .server: "The setting was not changed. Try again."
+        }
+    }
+}
+
+/// A queued write that the server refused after its call had returned.
+struct SettlementWriteFailureNotice: Equatable {
+    let operationID: UUID
+    let isReversal: Bool
+    /// User-facing reason, or nil to use the alert's fallback sentence.
+    let message: String?
+}
+
 @MainActor
 private enum SettlementLedgerRuntime {
     static let store = AppStore.serverLedgerStore
@@ -760,8 +985,18 @@ private final class SettlementServerLedgerTransport: ServerLedgerAPIClient, @unc
             throw ServerLedgerAPIClientError.invalidRequest
         }
         let scope = ServerBackedLedgerScope(accountID: accountID, groupID: groupID)
+        let kind = request.kind.lowercased()
+        if kind == "settlement.create" || kind == "settlement.reverse" {
+            // The legacy client does not check the account itself. A row
+            // queued by account A must never be sent with account B's token
+            // (docs/state-machines/ios-ledger-sync.md, account fence).
+            guard let token = legacy.authorizationToken(),
+                  URLSessionServerLedgerAPIClient.tokenSubject(token) == accountID else {
+                throw ServerLedgerAPIClientError.unauthorized
+            }
+        }
         do {
-            switch request.kind.lowercased() {
+            switch kind {
             case "settlement.create":
                 let body = try JSONDecoder.serverLedger.decode(
                     CreateSettlementRequest.self,
@@ -813,6 +1048,11 @@ private final class SettlementServerLedgerTransport: ServerLedgerAPIClient, @unc
                     currentRevision: nil,
                     snapshot: try? await canonical.fetchSnapshot(for: scope)
                 )
+            case let .structured(code, status, _):
+                // Keep the real status. ServerLedgerSync stops retrying a
+                // 4xx refusal (403 FORBIDDEN, 404 SETTLEMENT_NOT_FOUND, 400 …);
+                // reporting every refusal as 500 retried it forever.
+                throw ServerLedgerAPIClientError.server(status: status, code: code)
             default:
                 throw ServerLedgerAPIClientError.server(status: 500, code: error.localizedDescription)
             }

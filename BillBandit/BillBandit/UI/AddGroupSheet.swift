@@ -679,9 +679,27 @@ final class T15CanonicalLedgerRuntime {
         }
     }
 
-    func reconcile(scope: ServerBackedLedgerScope) async throws -> ServerLedgerSnapshot {
+    /// Sends the queue and reads the group. `operationID` is the change the
+    /// calling screen just queued: while this call runs the screen owns its
+    /// outcome, and when the call fails (not offline, not signed out) the
+    /// screen shows the error itself, so the failed row is marked as shown.
+    /// Without this, AppFailureCenter would tell the person a second time.
+    func reconcile(
+        scope: ServerBackedLedgerScope,
+        owning operationID: UUID? = nil
+    ) async throws -> ServerLedgerSnapshot {
         sync.markReconnected()
-        return try await sync.onForeground(scope: scope)
+        guard let operationID else { return try await sync.onForeground(scope: scope) }
+        AppFailureCenter.shared.beginOwning(operationID)
+        defer { AppFailureCenter.shared.endOwning(operationID) }
+        do {
+            return try await sync.onForeground(scope: scope)
+        } catch {
+            if !T15LedgerUIError.isOffline(error), !T15LedgerUIError.isUnauthorized(error) {
+                try? store.acknowledgeFailure(operationID: operationID)
+            }
+            throw error
+        }
     }
 
     func validatedGroup(

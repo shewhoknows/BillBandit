@@ -1195,7 +1195,7 @@ struct ProfileScreen: View {
             Button("Cancel", role: .cancel) {}
             Button("Sign out", role: .destructive) { signOut() }
         } message: {
-            Text("You will need to sign in with Apple again before using the app.")
+            Text(signOutWarning)
         }
         .alert("Delete your BillBandit account?", isPresented: $showDeleteAccountConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -1612,6 +1612,17 @@ struct ProfileScreen: View {
                 authMessage = "Apple sign-in could not be completed. Reference \(reference)."
             }
         }
+    }
+
+    /// Sign-out deletes this account's queued changes on this phone, so say
+    /// how many are not on the server yet.
+    private var signOutWarning: String {
+        let base = "You will need to sign in with Apple again before using the app."
+        guard let accountID = ServerLedgerAccountLifecycle.shared.activeAccountID else { return base }
+        let unsent = AppStore.serverLedgerStore.unsentOperationCount(for: accountID)
+        guard unsent > 0 else { return base }
+        let changes = unsent == 1 ? "1 change on this phone is" : "\(unsent) changes on this phone are"
+        return "\(changes) not on the server yet. Signing out deletes \(unsent == 1 ? "it" : "them"). \(base)"
     }
 
     private func signOut() {

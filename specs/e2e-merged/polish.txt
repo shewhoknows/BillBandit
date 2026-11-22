@@ -1,0 +1,25 @@
+# App Store polish: server end-to-end check
+
+- Base commit: 241151d (plus uncommitted changes)
+- API: http://127.0.0.1:31401
+- Result: 10 passed, 0 failed
+
+## Checks
+
+- PASS Capabilities list SGD and AED with exponent 2
+- PASS Default currency is stored, validated and returned
+- PASS Avatar choice is valid and saved
+- PASS Odd paise split exactly and read back with notes, category and date
+- PASS Summary carries members, role, totals and newest-first groups
+- PASS A one-person group has a real zero balance, not a missing one
+- PASS A partial payment lowers the plan, and an overpayment is refused
+- PASS Leave explains each refusal and succeeds when settled
+- PASS Delete explains each refusal and archives a settled group
+- PASS Rates come back for the default currency (live Frankfurter)
+
+## Run it again
+
+```sh
+node --import tsx apps/api/scripts/polish-e2e.ts
+```
+

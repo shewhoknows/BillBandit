@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct SharedSettleUpScreen: View {
     @Bindable var group: Group
@@ -15,6 +16,15 @@ struct SharedSettleUpScreen: View {
     @State private var isSubmitting = false
     @State private var actionError: String?
     @State private var reverseError: String?
+    /// A queued payment the server refused after the sheet had closed.
+    @State private var queuedSettlementError: String?
+    /// The simplify-debts value being saved (nil when nothing is saving).
+    @State private var pendingSimplify: Bool?
+    /// Why the simplify-debts switch did not change.
+    @State private var settingError: String?
+    /// Set in the button action itself, before the Task starts, so a second
+    /// tap in the same frame cannot start a second reversal.
+    @State private var reversingSettlementID: String?
     @Query(filter: #Predicate<Person> { $0.isCurrentUser }) private var currentUsers: [Person]
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -88,6 +98,16 @@ struct SharedSettleUpScreen: View {
         } message: {
             Text("\(reverseError ?? "Something went wrong.") The list now shows the latest payments. Check it, then try again if you still need to.")
         }
+        .onChange(of: store.writeFailureNotice) { _, notice in
+            guard let notice else { return }
+            let message = notice.message ?? "Something went wrong."
+            if notice.isReversal {
+                reverseError = message
+            } else {
+                queuedSettlementError = message
+            }
+            store.clearWriteFailureNotice()
+        }
         .accessibilityIdentifier("sharedSettleUpScreen")
     }
 
@@ -115,6 +135,19 @@ struct SharedSettleUpScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.horizontal, 18)
         .padding(.bottom, 10)
+        // Kept on this inner view: a second .alert on the screen root would
+        // compete with "Payment not reversed".
+        .alert(
+            "Payment not recorded",
+            isPresented: Binding(
+                get: { queuedSettlementError != nil },
+                set: { if !$0 { queuedSettlementError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("\(queuedSettlementError ?? "Something went wrong.") The list now shows the latest payments. Check it, then try again if you still need to.")
+        }
     }
 
     private var settleHero: some View {
@@ -243,28 +276,79 @@ struct SharedSettleUpScreen: View {
     @ViewBuilder
     private var simplificationPanel: some View {
         if let snapshot = store.snapshot {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(snapshot.simplifyDebts ? "Debts simplified" : "Direct payments")
-                        .font(BrandFont.display(15, weight: .semibold))
-                    Text(snapshot.simplifyDebts
-                         ? "Fewer payments between members"
-                         : "Payments follow each original balance")
-                        .font(BrandFont.type(11, bold: true))
-                        .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
+            let isOwner = snapshot.permissions.canChangeSetting
+            let isOn = pendingSimplify ?? snapshot.simplifyDebts
+            Button {
+                // Set before the Task starts, so a second tap in the same
+                // frame cannot send a second change.
+                guard pendingSimplify == nil, store.canChangeSimplify else { return }
+                let newValue = !snapshot.simplifyDebts
+                pendingSimplify = newValue
+                Task {
+                    defer { pendingSimplify = nil }
+                    do {
+                        try await store.setSimplifyDebts(newValue)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } catch {
+                        settingError = error.localizedDescription
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    }
                 }
-                Spacer()
-                BrandCheckmark(isOn: snapshot.simplifyDebts)
+            } label: {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(isOn ? "Debts simplified" : "Direct payments")
+                            .font(BrandFont.display(15, weight: .semibold))
+                        Text(isOn
+                             ? "Fewer payments between members"
+                             : "Payments follow each original balance")
+                            .font(BrandFont.type(11, bold: true))
+                            .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
+                        if !isOwner {
+                            Text("Only the group owner can change this.")
+                                .font(BrandFont.type(10, bold: true))
+                                .foregroundStyle(Color.Brand.cobalt.opacity(0.55))
+                        }
+                    }
+                    Spacer()
+                    if pendingSimplify != nil {
+                        ProgressView()
+                            .tint(Color.Brand.cobalt)
+                    } else {
+                        BrandCheckmark(isOn: isOn)
+                    }
+                }
+                .foregroundStyle(Color.Brand.cobalt)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 66)
+                .background(Color.Brand.creamSoft)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-            .foregroundStyle(Color.Brand.cobalt)
-            .padding(.horizontal, 16)
-            .frame(minHeight: 66)
-            .background(Color.Brand.creamSoft)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(Color.Brand.cobalt, lineWidth: BrandOutline.control)
-            )
-            .accessibilityElement(children: .combine)
+            .buttonStyle(.plain)
+            .disabled(!isOwner || (!store.canChangeSimplify && pendingSimplify == nil))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Simplify debts")
+            .accessibilityValue(isOn ? "On" : "Off")
+            .accessibilityHint(isOwner ? "Turns simplify debts on or off for everyone in this group" : "Only the group owner can change this")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("settleSimplifyDebtsToggle")
+            // Kept on this view: a second .alert on the screen root would
+            // compete with the payment alerts.
+            .alert(
+                "Setting not changed",
+                isPresented: Binding(
+                    get: { settingError != nil },
+                    set: { if !$0 { settingError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(settingError ?? "Try again.")
+            }
         }
     }
 
@@ -394,9 +478,12 @@ struct SharedSettleUpScreen: View {
                                 Text("\(item.actorName.map { personName($0, start: true) } ?? "Unknown member") · \(settleFormattedDate(item.createdAt))")
                                     .font(BrandFont.type(11))
                                     .foregroundStyle(Color.Brand.cobalt.opacity(0.7))
-                                if item.type == "settlement", store.writesEnabled {
+                                if item.type == "settlement", store.canReverse(settlementId: item.id) {
                                     Button("Reverse") {
+                                        guard reversingSettlementID == nil else { return }
+                                        reversingSettlementID = item.id
                                         Task {
+                                            defer { reversingSettlementID = nil }
                                             do {
                                                 try await store.reverse(settlementId: item.id)
                                             } catch {
@@ -489,8 +576,9 @@ struct SharedSettleUpScreen: View {
                                 .foregroundStyle(Color.red.opacity(0.82))
                         }
                         Button {
+                            guard !isSubmitting else { return }
+                            isSubmitting = true
                             Task {
-                                isSubmitting = true
                                 defer { isSubmitting = false }
                                 do {
                                     guard let paidMinorUnits = settlementAmountMinorUnits(for: transfer) else {

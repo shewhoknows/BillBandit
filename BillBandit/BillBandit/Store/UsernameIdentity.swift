@@ -544,6 +544,10 @@ enum UsernameIdentityService {
         Task { @MainActor in
             ServerLedgerAccountLifecycle.shared.markUnauthorized(accountID: accountID)
             T15CanonicalLedgerRuntime.shared.accountDidLoseAuthorization(accountID: accountID)
+            // Home, Groups and Friends drop the balances read with the
+            // rejected token. Without this their last status stayed "ready"
+            // ("Balances are current") with no session. Queued rows are kept.
+            ServerLedgerSurfaceStore.shared.accountDidLoseAuthorization()
         }
     }
 

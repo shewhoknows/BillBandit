@@ -32,6 +32,19 @@ enum ServerLedgerSyncError: LocalizedError, Equatable, Sendable {
     }
 }
 
+/// Per-instance status (several `ServerLedgerSync` instances share one store;
+/// the store's drain gate and account epoch are the cross-instance truth).
+///
+///     idle ─refresh─▶ refreshing ─done/stale/mismatch─▶ idle
+///     idle ─drain──▶ draining ───all sent────────────▶ idle
+///     refreshing/draining ─offline─▶ offline ─markReconnected─▶ idle
+///     refreshing/draining ─401────▶ unauthorized ─markReconnected─▶ idle
+///     draining ─409/broken reservation─▶ conflictRequiresReconfirmation
+///     any ─activate/signOut─▶ idle
+///
+/// `offline` and `unauthorized` block new refreshes and drains until
+/// `markReconnected()`. Every caller calls it before reconciling, so they are
+/// short pauses, not a hold. docs/state-machines/ios-ledger-sync.md
 enum ServerLedgerSyncState: Equatable, Sendable {
     case idle
     case refreshing
@@ -147,11 +160,12 @@ final class ServerLedgerSync {
             throw ServerLedgerSyncError.unauthorized
         }
         let generation = accountGeneration
+        let epoch = store.accountEpoch(scope.accountID)
         state = .refreshing
 
         do {
             let snapshot = try await apiClient.fetchSnapshot(for: scope)
-            try ensureGeneration(generation, accountID: scope.accountID)
+            try ensureGeneration(generation, epoch: epoch, accountID: scope.accountID)
             guard snapshot.accountID == scope.accountID, snapshot.groupID == scope.groupID else {
                 state = .idle
                 throw ServerLedgerSyncError.snapshotScopeMismatch
@@ -210,15 +224,12 @@ final class ServerLedgerSync {
             throw ServerLedgerSyncError.unauthorized
         }
         let generation = accountGeneration
+        let epoch = store.accountEpoch(accountID)
         guard store.beginDrain(accountID: accountID) else { return [] }
         defer { store.endDrain(accountID: accountID) }
 
-        let operations = try store.pendingOperations(
-            for: accountID,
-            includingCompleted: false,
-            includingFailed: false,
-            dueAt: now()
-        )
+        // Creation order, and a group never skips a row still in backoff.
+        let operations = try store.drainableOperations(for: accountID, dueAt: now())
         var snapshots: [ServerLedgerSnapshot] = []
         state = .draining
         defer {
@@ -228,14 +239,26 @@ final class ServerLedgerSync {
         }
 
         for operation in operations {
-            try ensureGeneration(generation, accountID: accountID)
+            // Checked before touching the row: clear(accountID:) may have
+            // deleted it while an earlier request of this loop was out.
+            try ensureGeneration(generation, epoch: epoch, accountID: accountID)
+            if let kind = try? operation.makeRequest().kind,
+               try store.reservationIsIntact(operation, kind: kind) == false {
+                // An earlier row of this chain failed, so the reserved
+                // revision may now belong to a peer's change. Sending it
+                // could overwrite that change; ask the person instead.
+                let conflict = ServerLedgerSyncError.conflictRequiresReconfirmation
+                try recordFailure(conflict, operation: operation)
+                handle(conflict)
+                throw conflict
+            }
             operation.markInFlight()
             try store.markPending(operation)
 
             do {
                 let request = try operation.makeRequest()
                 let snapshot = try await apiClient.submit(request)
-                try ensureGeneration(generation, accountID: accountID)
+                try ensureGeneration(generation, epoch: epoch, accountID: accountID)
                 guard snapshot.accountID == accountID else {
                     throw ServerLedgerSyncError.snapshotScopeMismatch
                 }
@@ -254,18 +277,33 @@ final class ServerLedgerSync {
                 try store.markPending(operation)
                 snapshots.append(canonical)
             } catch {
-                if let syncError = error as? ServerLedgerSyncError,
-                   syncError == .accountChanged {
+                if (error as? ServerLedgerSyncError) == .accountChanged
+                    || !isCurrent(generation, epoch: epoch, accountID: accountID) {
+                    // The account changed while the request was out. The row
+                    // may be deleted; leave it alone (inFlight replays with
+                    // the same operation ID if it still exists).
                     state = .idle
                     lastError = nil
-                    throw syncError
+                    throw ServerLedgerSyncError.accountChanged
+                }
+                if operation.retryState == .succeeded {
+                    // Only the final save failed. The server applied the
+                    // operation; a replay of the inFlight row is idempotent.
+                    handle(error)
+                    throw map(error)
                 }
                 await refreshAfterRevisionConflict(
                     error,
                     operation: operation,
                     generation: generation,
+                    epoch: epoch,
                     accountID: accountID
                 )
+                guard isCurrent(generation, epoch: epoch, accountID: accountID) else {
+                    state = .idle
+                    lastError = nil
+                    throw ServerLedgerSyncError.accountChanged
+                }
                 try recordFailure(error, operation: operation)
                 handle(error)
                 throw map(error)
@@ -315,8 +353,16 @@ final class ServerLedgerSync {
         }
     }
 
-    private func ensureGeneration(_ generation: Int, accountID: String) throws {
-        guard generation == accountGeneration, activeAccountID == accountID else {
+    private func isCurrent(_ generation: Int, epoch: Int, accountID: String) -> Bool {
+        generation == accountGeneration
+            && activeAccountID == accountID
+            && store.accountEpoch(accountID) == epoch
+    }
+
+    /// This instance's generation covers its own activate/signOut; the shared
+    /// store epoch covers a clear done through any other instance.
+    private func ensureGeneration(_ generation: Int, epoch: Int, accountID: String) throws {
+        guard isCurrent(generation, epoch: epoch, accountID: accountID) else {
             throw ServerLedgerSyncError.accountChanged
         }
     }
@@ -373,6 +419,7 @@ final class ServerLedgerSync {
         _ error: Error,
         operation: PendingLedgerOperation,
         generation: Int,
+        epoch: Int,
         accountID: String
     ) async {
         guard case let ServerLedgerAPIClientError.revisionConflict(_, _, snapshot) = error,
@@ -380,10 +427,10 @@ final class ServerLedgerSync {
               let scope = try? operation.makeMutationScope(),
               case let .serverBacked(_, groupID) = scope else { return }
         do {
-            try ensureGeneration(generation, accountID: accountID)
+            try ensureGeneration(generation, epoch: epoch, accountID: accountID)
             let serverScope = ServerBackedLedgerScope(accountID: accountID, groupID: groupID)
             let refreshed = try await apiClient.fetchSnapshot(for: serverScope)
-            try ensureGeneration(generation, accountID: accountID)
+            try ensureGeneration(generation, epoch: epoch, accountID: accountID)
             guard refreshed.accountID == accountID, refreshed.groupID == groupID else { return }
             _ = try store.replaceWithCanonical(snapshot: refreshed)
         } catch {

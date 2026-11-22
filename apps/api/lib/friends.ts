@@ -2,6 +2,13 @@ import { randomInt } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { prisma } from './prisma'
 import { profileDisplayName } from './profile-display-name'
+import {
+  assertFriendshipTransition,
+  deriveAccountState,
+  deriveClaimLimitState,
+  deriveFriendshipState,
+  deriveInvitationState,
+} from './identity-friends-state'
 
 type FriendDb = PrismaClient | Prisma.TransactionClient
 
@@ -82,22 +89,12 @@ function rateLimitError(blockedUntil: Date, now: Date): FriendServiceError {
   )
 }
 
-async function assertFriendClaimAllowed(
-  accountId: string,
-  now: Date,
-  db: FriendDb
-): Promise<void> {
-  const rateLimit = await db.friendClaimRateLimit.findUnique({ where: { accountId } })
-  if (rateLimit?.blockedUntil && rateLimit.blockedUntil > now) {
-    throw rateLimitError(rateLimit.blockedUntil, now)
-  }
-}
-
+/** Count one wrong code. Returns the rate-limit error when this failure blocks. */
 async function recordFriendClaimFailure(
   accountId: string,
   now: Date,
   db: FriendDb
-): Promise<void> {
+): Promise<FriendServiceError | null> {
   const windowCutoff = new Date(now.getTime() - FRIEND_CLAIM_WINDOW_SECONDS * 1000)
   const blockedUntil = new Date(now.getTime() + FRIEND_CLAIM_WINDOW_SECONDS * 1000)
   const nowEpochMilliseconds = now.getTime()
@@ -148,8 +145,9 @@ async function recordFriendClaimFailure(
   if (rateLimit?.blocked) {
     // Use the JavaScript value here. Raw timestamp-without-time-zone results
     // otherwise depend on the API process timezone.
-    throw rateLimitError(blockedUntil, now)
+    return rateLimitError(blockedUntil, now)
   }
+  return null
 }
 
 function publicProfile(user: {
@@ -292,6 +290,16 @@ export async function createFriendInvitation(
   )
 }
 
+/**
+ * Claim a friend code. State machine: docs/state-machines/identity-friends-import.md.
+ *
+ * One transaction per claim, serialized per claiming account by an advisory
+ * lock, so parallel wrong guesses cannot all pass the failure-limit check
+ * before any of them is counted. Both accounts are locked FOR SHARE, so an
+ * account deletion (which locks the row FOR UPDATE first) either removes the
+ * new friendship or makes this claim see deletedAt. A wrong code's failure is
+ * committed before the error is returned.
+ */
 export async function claimFriendInvitation(
   acceptingAccountId: string,
   rawCode: string,
@@ -299,70 +307,94 @@ export async function claimFriendInvitation(
 ): Promise<FriendClaimResult> {
   const db = options.db ?? prisma
   const now = options.now ?? new Date()
-  const acceptingAccount = await db.user.findUnique({
-    where: { id: acceptingAccountId },
-    select: { id: true, deletedAt: true },
-  })
-  if (!acceptingAccount || acceptingAccount.deletedAt) {
-    throw new FriendServiceError('friend_account_not_found', 404, 'Account not found.')
+  const outcome = '$transaction' in db
+    ? await db.$transaction((tx) => claimInTransaction(tx, acceptingAccountId, rawCode, now))
+    : await claimInTransaction(db, acceptingAccountId, rawCode, now)
+  if (outcome instanceof FriendServiceError) throw outcome
+  return outcome
+}
+
+async function lockAccountsForShare(db: FriendDb, accountIds: string[]) {
+  return db.$queryRaw<Array<{ id: string; deletedAt: Date | null }>>`
+    SELECT "id", "deletedAt" FROM "User" WHERE "id" IN (${Prisma.join(accountIds)}) ORDER BY "id" FOR SHARE
+  `
+}
+
+async function claimInTransaction(
+  db: FriendDb,
+  acceptingAccountId: string,
+  rawCode: string,
+  now: Date
+): Promise<FriendClaimResult | FriendServiceError> {
+  await db.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtextextended(${`friend-claim:${acceptingAccountId}`}, 0))`
+  const [acceptingAccount] = await lockAccountsForShare(db, [acceptingAccountId])
+  if (!acceptingAccount || deriveAccountState(acceptingAccount) === 'deleted') {
+    return new FriendServiceError('friend_account_not_found', 404, 'Account not found.')
   }
-  await assertFriendClaimAllowed(acceptingAccountId, now, db)
+  const rateLimit = await db.friendClaimRateLimit.findUnique({ where: { accountId: acceptingAccountId } })
+  if (deriveClaimLimitState(rateLimit, now, FRIEND_CLAIM_WINDOW_SECONDS) === 'blocked') {
+    return rateLimitError(rateLimit!.blockedUntil!, now)
+  }
+  const fail = async (error: FriendServiceError) =>
+    (await recordFriendClaimFailure(acceptingAccountId, now, db)) ?? error
 
   const code = normalizeFriendInviteCode(rawCode)
   if (!isValidFriendInviteCode(code)) {
-    const error = new FriendServiceError(
+    return fail(new FriendServiceError(
       'friend_invitation_invalid',
       400,
       'Enter a complete 5-character invitation code.'
-    )
-    await recordFriendClaimFailure(acceptingAccountId, now, db)
-    throw error
+    ))
   }
 
   const invitation = await db.friendInvitation.findUnique({
     where: { code },
     include: { inviter: { select: friendProfileSelect } },
   })
-  if (!invitation || invitation.inviter.deletedAt) {
-    const error = new FriendServiceError(
-      'friend_invitation_not_found',
-      404,
-      'That invitation was not found.'
-    )
-    await recordFriendClaimFailure(acceptingAccountId, now, db)
-    throw error
+  const inviterLock = invitation && invitation.inviterId !== acceptingAccountId
+    ? (await lockAccountsForShare(db, [invitation.inviterId]))[0]
+    : null
+  const notFound = () => new FriendServiceError(
+    'friend_invitation_not_found',
+    404,
+    'That invitation was not found.'
+  )
+  if (!invitation || invitation.inviter.deletedAt) return fail(notFound())
+  if (invitation.inviterId !== acceptingAccountId && (!inviterLock || inviterLock.deletedAt)) {
+    return fail(notFound())
   }
-  if (invitation.expiresAt <= now) {
-    const error = new FriendServiceError(
+  if (deriveInvitationState(invitation, now) === 'expired') {
+    return fail(new FriendServiceError(
       'friend_invitation_expired',
       410,
       'That invitation has expired. Ask your friend for a new code.'
-    )
-    await recordFriendClaimFailure(acceptingAccountId, now, db)
-    throw error
+    ))
   }
   if (invitation.inviterId === acceptingAccountId) {
-    const error = new FriendServiceError(
+    return fail(new FriendServiceError(
       'friend_invitation_own_code',
       409,
       'You cannot use your own friend invitation.'
-    )
-    await recordFriendClaimFailure(acceptingAccountId, now, db)
-    throw error
+    ))
   }
 
   const pair = normalizedFriendPair(acceptingAccountId, invitation.inviterId)
   const existing = await db.friendship.findUnique({ where: { fromId_toId: pair } })
+  const from = deriveFriendshipState(existing)
+  assertFriendshipTransition(from, 'accepted')
+  // Prisma runs this as INSERT ... ON CONFLICT on the (fromId, toId) key, so
+  // two claims of the same pair at once still leave one row.
   await db.friendship.upsert({
     where: { fromId_toId: pair },
     create: { ...pair, status: 'ACCEPTED' },
     update: { ...pair, status: 'ACCEPTED' },
   })
-  await db.friendClaimRateLimit.deleteMany({ where: { accountId: acceptingAccountId } })
+  // The failure counter is not reset here: a success must not reopen the
+  // window, or one known-good code buys unlimited guesses.
 
   return {
     friend: publicProfile(invitation.inviter),
-    created: existing?.status !== 'ACCEPTED',
+    created: from !== 'accepted',
   }
 }
 
@@ -394,7 +426,10 @@ export async function listAcceptedFriends(
     })
 }
 
-/** Delete only the social edge. Group members, participants, and history stay. */
+/**
+ * Delete only the social edge (accepted -> none; none stays none). Group
+ * members, participants, and history stay. A later claim makes a new row.
+ */
 export async function removeFriend(
   accountId: string,
   friendAccountId: string,

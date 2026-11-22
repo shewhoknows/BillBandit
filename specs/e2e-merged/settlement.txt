@@ -1,0 +1,20 @@
+# Settlement E2E
+Revision: 241151d3573b5809f6960a86929664b840c065b8 (+ uncommitted changes)
+Environment: API http://127.0.0.1:3200, DB postgresql://localhost:5432/billbandit_int3, node v22.23.5, 2026-11-21T14:41:45.123Z
+Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... npx tsx scripts/settlement-e2e.ts
+Group: cmwqinjvk001410omywp7q7g2
+| Step | Result |
+| --- | --- |
+| 1. Pay more than owed is refused and records nothing | PASS |
+| 2. Same payment sent 4 times at once with one Idempotency-Key (offline replay racing the original) is applied once | PASS |
+| 3. Paying the rest settles everyone and sets the completion date | PASS |
+| 4. New expense, then settled again: completion date is the new payment, not the old one | PASS |
+| 5. Two phones reverse the same payment at once: one reversal, one 409, debt returns once | PASS |
+| 6. Retrying the loser with a fresh version is refused: ALREADY_REVERSED | PASS |
+| 7. A reversal cannot be reversed | PASS |
+| 8. Stale plan (version moved) is refused with requiresReconfirmation | PASS |
+| 9. Two phones pay the same transfer at once: one payment, no overpay | PASS |
+| 10. Finalized group still accepts a reversal and a payment (api-contracts.md) | PASS |
+| 11. Outbox: a slow worker whose lease expired cannot undo a newer worker's PUBLISHED row | PASS |
+
+11 PASS, 0 FAIL

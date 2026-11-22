@@ -37,10 +37,15 @@ final class ServerLedgerMutationCoordinator {
     @discardableResult
     func enqueue(
         _ request: ServerLedgerMutationRequest,
-        optimisticSnapshot: ServerLedgerSnapshot? = nil
+        optimisticSnapshot: ServerLedgerSnapshot? = nil,
+        basedOnRevision: Int64? = nil
     ) throws -> PendingLedgerOperation {
         try ensureActiveAccount(request.accountID)
-        return try store.enqueue(request, optimisticSnapshot: optimisticSnapshot)
+        return try store.enqueue(
+            request,
+            optimisticSnapshot: optimisticSnapshot,
+            basedOnRevision: basedOnRevision
+        )
     }
 
     @discardableResult
@@ -86,6 +91,12 @@ final class ServerLedgerMutationCoordinator {
     /// settlement actions. The operation ID is created here, before any retry
     /// or network attempt, and the queue stores the route metadata with the
     /// body so a later process can reconstruct the same request.
+    ///
+    /// `expectedRevision` is the revision the person saw. When this device
+    /// still has earlier rows waiting for the same group, the row expects the
+    /// revision after them (as creates always did), so the person's own queued
+    /// change does not make their next edit conflict. The drain sends such a
+    /// row only while that chain is intact (`ServerLedgerQueueOrder`).
     @discardableResult
     func enqueueServerMutation(
         operationID: UUID = UUID(),
@@ -97,17 +108,26 @@ final class ServerLedgerMutationCoordinator {
         body: Data,
         optimisticSnapshot: ServerLedgerSnapshot? = nil
     ) throws -> PendingLedgerOperation {
-        try enqueue(
+        try ensureActiveAccount(scope.accountID)
+        // Idempotent: a create the caller already reserved keeps its value,
+        // and a known operation ID keeps its stored revision.
+        let queuedRevision = try store.nextQueuedExpenseRevision(
+            scope: scope,
+            canonicalRevision: expectedRevision,
+            operationID: operationID
+        )
+        return try enqueue(
             ServerLedgerMutationRequest(
                 operationID: operationID,
                 scope: scope,
-                expectedRevision: expectedRevision,
+                expectedRevision: queuedRevision,
                 kind: kind,
                 method: method,
                 path: path,
                 body: body
             ),
-            optimisticSnapshot: optimisticSnapshot
+            optimisticSnapshot: optimisticSnapshot,
+            basedOnRevision: expectedRevision
         )
     }
 

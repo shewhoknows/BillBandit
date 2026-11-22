@@ -1,6 +1,6 @@
 import { executeMutation } from '../../ledger/mutation'
 import type { PrismaClient } from '@prisma/client'
-import type { SettlementCommandResult } from './core'
+import { withOperationKeyReplay, type SettlementCommandResult } from './core'
 
 export type ReverseCommandInput = {
   groupId: string
@@ -12,7 +12,7 @@ export type ReverseCommandInput = {
 }
 
 export async function executeReversal(input: ReverseCommandInput): Promise<SettlementCommandResult> {
-  const result = await executeMutation({
+  const result = await withOperationKeyReplay(() => executeMutation({
     groupId: input.groupId,
     operationId: `reversal:${input.idempotencyKey}`,
     accountId: input.userId,
@@ -20,7 +20,7 @@ export async function executeReversal(input: ReverseCommandInput): Promise<Settl
     kind: 'settlement.reverse',
     expectedRevision: input.expectedVersion,
     payload: { settlementId: input.settlementId },
-  }, { db: input.db })
+  }, { db: input.db }))
 
   return {
     version: result.revision,

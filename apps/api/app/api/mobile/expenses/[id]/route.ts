@@ -22,11 +22,21 @@ import {
   toKernelExpensePayload,
 } from '@/lib/mobile-expenses'
 
-async function findExpenseGroup(accountId: string, expenseId: string) {
+/**
+ * Find the group of an expense the caller can see. Writes also find a
+ * deleted expense, so the kernel decides: a retry of the operation that
+ * deleted (or last edited) it replays its first answer, and any other write
+ * gets the kernel's own 404 ("Expense is already deleted" / "not found").
+ */
+async function findExpenseGroup(
+  accountId: string,
+  expenseId: string,
+  options: { includeDeleted?: boolean } = {}
+) {
   const account = await loadAccountReadModel(accountId)
   for (const projection of account.groups) {
     const expense = findLedgerExpense(projection.model, expenseId)
-    if (expense && expense.status === 'active') {
+    if (expense && (expense.status === 'active' || options.includeDeleted)) {
       return { model: projection.model, expense }
     }
   }
@@ -80,7 +90,7 @@ export async function PUT(
   }
 
   try {
-    const found = await findExpenseGroup(session.user.id, params.id)
+    const found = await findExpenseGroup(session.user.id, params.id, { includeDeleted: true })
     if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const body = {
       ...initialBody,
@@ -162,7 +172,7 @@ export async function DELETE(
   if ('response' in metadataResult) return metadataResult.response
 
   try {
-    const found = await findExpenseGroup(session.user.id, params.id)
+    const found = await findExpenseGroup(session.user.id, params.id, { includeDeleted: true })
     if (!found) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     if (canonicalGroupIsReadOnly(found.model)) return migrationReadOnlyResponse(found.model)
     const groupRead = await loadGroupReadModel(found.model.groupId, session.user.id)

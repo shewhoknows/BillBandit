@@ -835,7 +835,8 @@ extension SettlementCanonicalLedgerGroup {
             canReadPlan: canRead,
             canReadHistory: canRead,
             canSettleOrReverse: canMutate,
-            canChangeSetting: false,
+            // The server lets only a group owner (ADMIN) change simplify debts.
+            canChangeSetting: canMutate && currentMember?.role == "owner",
             canAuthorizeRealtime: realtimeAvailable,
             readScope: "full",
             callerParticipantId: currentMemberID
@@ -919,7 +920,9 @@ struct UpdateSettlementSettingsRequest: Codable {
 
 struct SettlementMutationResponseDTO: Codable {
     let result: SettlementMutationResultDTO
-    let state: SettlementSnapshotDTO
+    /// nil when the write ended the caller's read access (a person who left the
+    /// group paid their last debt). The write itself is saved.
+    let state: SettlementSnapshotDTO?
 }
 
 struct SettlementMutationResultDTO: Codable {

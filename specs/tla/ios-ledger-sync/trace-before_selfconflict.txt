@@ -1,0 +1,11 @@
+Invariant NoSelfConflict is violated.
+ 1. Initial predicate: srvRev=0; exp=<<0, 0>>; cacheRev=0; token="A"; st=<<"none", "none">>
+ 2. Create(1): st=<<"pending", "none">>
+ 3. Create(2): st=<<"pending", "pending">>
+ 4. DrainStart("S"): drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<1, 2>>, wait |-> FALSE ]
+ 5. DrainSend: net=[op |-> 1, tok |-> "A", e |-> 0, phase |-> "req", result |-> "none", rev |-> 0]; st=<<"inflight", "pending">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<1, 2>>, wait |-> TRUE ]
+ 6. Server: srvRev=1; writer=<<"own", "none">>; applied=<<1, 0>>; receipt={<<"A", 1>>}; net=[op |-> 1, tok |-> "A", e |-> 0, phase |-> "resp", result |-> "ok", rev |-> 1]
+ 7. Receive: net=[ op |-> 0, tok |-> "none", e |-> 0, phase |-> "none", result |-> "none", rev |-> 0 ]; cacheRev=1; st=<<"succeeded", "pending">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<2>>, wait |-> FALSE ]
+ 8. DrainSend: net=[op |-> 2, tok |-> "A", e |-> 0, phase |-> "req", result |-> "none", rev |-> 0]; st=<<"succeeded", "inflight">>; drain=[ on |-> TRUE, owner |-> "S", acct |-> "A", g |-> 0, ep |-> 0, list |-> <<2>>, wait |-> TRUE ]
+ 9. Server: net=[ op |-> 2, tok |-> "A", e |-> 0, phase |-> "resp", result |-> "conflict", rev |-> 1 ]
+10. Receive: net=[ op |-> 0, tok |-> "none", e |-> 0, phase |-> "none", result |-> "none", rev |-> 0 ]; selfFail=TRUE; st=<<"succeeded", "failed">>; drain=[ on |-> FALSE, owner |-> "L", acct |-> "none", g |-> 0, ep |-> 0, list |-> <<>>, wait |-> FALSE ]; seen=<<0, 0>> 221 states generated, 111 distinct states found, 16 states left on queue. The depth of the complete state graph search is 10. Finished in 05s at (2026-11-21 06:16:22) Trace exploration spec path: ./LedgerQueueSync_TTrace_1795241777.tla

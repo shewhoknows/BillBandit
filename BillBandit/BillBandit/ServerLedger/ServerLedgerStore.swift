@@ -1,6 +1,14 @@
 import Foundation
 import SwiftData
 
+extension Notification.Name {
+    /// Posted on the main actor when a queued change becomes failed and has
+    /// not been shown to the person. userInfo["operationID"]: UUID.
+    static let serverLedgerOperationFailed = Notification.Name("BillBandit.serverLedgerOperationFailed")
+    /// Posted when `clear(accountID:)` removed an account's queue and cache.
+    static let serverLedgerAccountCleared = Notification.Name("BillBandit.serverLedgerAccountCleared")
+}
+
 enum ServerLedgerStoreError: Error, Equatable, Sendable {
     case operationIDCollision
     case accountScopeRequired
@@ -18,6 +26,12 @@ enum ServerLedgerStoreError: Error, Equatable, Sendable {
 final class ServerLedgerStore {
     let context: ModelContext
     private var drainingAccountIDs = Set<String>()
+    /// Bumped by every `clear(accountID:)`. All `ServerLedgerSync` instances
+    /// share this store, so a drain or refresh that started before a sign-out
+    /// or account switch sees the change even when its own instance was never
+    /// told about it, and stops before it sends or caches anything.
+    private var accountEpochs: [String: Int] = [:]
+    private var allAccountsEpoch = 0
 
     init(context: ModelContext) {
         self.context = context
@@ -96,7 +110,10 @@ final class ServerLedgerStore {
     /// Insert an operation once. A retry or duplicate enqueue with the same
     /// operation ID returns the durable row only when its request is identical.
     @discardableResult
-    func enqueue(_ request: ServerLedgerMutationRequest) throws -> PendingLedgerOperation {
+    func enqueue(
+        _ request: ServerLedgerMutationRequest,
+        basedOnRevision: Int64? = nil
+    ) throws -> PendingLedgerOperation {
         try requireAccount(request.accountID)
         guard request.scope.accountID == request.accountID else {
             throw ServerLedgerStoreError.accountScopeRequired
@@ -121,6 +138,7 @@ final class ServerLedgerStore {
             operationID: request.operationID,
             scope: request.scope,
             expectedRevision: request.expectedRevision,
+            basedOnRevision: basedOnRevision,
             requestPayload: request.requestPayload
         )
         context.insert(operation)
@@ -131,7 +149,8 @@ final class ServerLedgerStore {
     @discardableResult
     func enqueue(
         _ request: ServerLedgerMutationRequest,
-        optimisticSnapshot: ServerLedgerSnapshot?
+        optimisticSnapshot: ServerLedgerSnapshot?,
+        basedOnRevision: Int64? = nil
     ) throws -> PendingLedgerOperation {
         if let optimisticSnapshot {
             guard optimisticSnapshot.accountID == request.accountID else {
@@ -142,7 +161,7 @@ final class ServerLedgerStore {
             }
             _ = try cache(snapshot: optimisticSnapshot)
         }
-        return try enqueue(request)
+        return try enqueue(request, basedOnRevision: basedOnRevision)
     }
 
     @discardableResult
@@ -205,6 +224,23 @@ final class ServerLedgerStore {
         }
     }
 
+    /// The rows one drain may send now, in send order: waiting rows that are
+    /// due, except that a group stops at its first row still in backoff.
+    func drainableOperations(for accountID: String, dueAt: Date) throws -> [PendingLedgerOperation] {
+        ServerLedgerQueueOrder.drainable(
+            try pendingOperations(for: accountID, includingCompleted: false, includingFailed: false, dueAt: nil),
+            dueAt: dueAt
+        )
+    }
+
+    /// See `ServerLedgerQueueOrder.reservationIsIntact`.
+    func reservationIsIntact(_ operation: PendingLedgerOperation, kind: String) throws -> Bool {
+        let key = ServerLedgerQueueOrder.scopeKey(operation)
+        let scopeRows = try pendingOperations(for: operation.accountID, includingCompleted: true)
+            .filter { ServerLedgerQueueOrder.scopeKey($0) == key }
+        return ServerLedgerQueueOrder.reservationIsIntact(operation, kind: kind, scopeRows: scopeRows)
+    }
+
     func pendingOperations(
         for scope: ServerLedgerMutationScope,
         includingCompleted: Bool = false
@@ -221,6 +257,7 @@ final class ServerLedgerStore {
     /// touched.
     func clear(accountID: String) throws {
         try requireAccount(accountID)
+        accountEpochs[accountID, default: 0] &+= 1
         let cacheAccountID = accountID
         let cacheDescriptor = FetchDescriptor<CachedLedgerSnapshot>(
             predicate: #Predicate { row in row.accountID == cacheAccountID }
@@ -237,6 +274,19 @@ final class ServerLedgerStore {
             context.delete(row)
         }
         try context.save()
+        NotificationCenter.default.post(
+            name: .serverLedgerAccountCleared,
+            object: nil,
+            userInfo: ["accountID": accountID]
+        )
+    }
+
+    /// Changes of this account that are not on the server yet (waiting or
+    /// sending). Sign-out deletes them, so the person is asked first.
+    func unsentOperationCount(for accountID: String) -> Int {
+        ((try? pendingOperations(for: accountID, includingCompleted: false)) ?? [])
+            .filter { $0.retryState.isWaiting }
+            .count
     }
 
     /// Consecutive offline creates reserve consecutive group revisions.
@@ -258,10 +308,50 @@ final class ServerLedgerStore {
         return next.partialValue
     }
 
+    /// Token for "this account's rows have not been cleared since".
+    func accountEpoch(_ accountID: String) -> Int {
+        accountEpochs[accountID, default: 0] &+ allAccountsEpoch
+    }
+
+    /// Called when rows are deleted outside `clear(accountID:)`, such as by
+    /// `LocalAccountDataCleanup` after account deletion.
+    func invalidateAllAccounts() {
+        allAccountsEpoch &+= 1
+    }
+
     func markPending(_ operation: PendingLedgerOperation) throws {
         guard operation.accountID.isEmpty == false else {
             throw ServerLedgerStoreError.accountScopeRequired
         }
+        try context.save()
+        if operation.retryState == .failed, operation.failureAcknowledgedAt == nil {
+            // AppFailureCenter tells the person unless the screen that sent
+            // the change already does.
+            NotificationCenter.default.post(
+                name: .serverLedgerOperationFailed,
+                object: nil,
+                userInfo: ["operationID": operation.operationID]
+            )
+        }
+    }
+
+    /// Failed rows of this account that nobody has shown to the person yet.
+    func unacknowledgedFailures(for accountID: String) throws -> [PendingLedgerOperation] {
+        try pendingOperations(for: accountID, includingCompleted: false)
+            .filter { $0.retryState == .failed && $0.failureAcknowledgedAt == nil }
+    }
+
+    /// Records that the person has been told about this failed row, so no
+    /// other screen tells them again.
+    func acknowledgeFailure(operationID: UUID) throws {
+        let id = operationID
+        let descriptor = FetchDescriptor<PendingLedgerOperation>(
+            predicate: #Predicate { row in row.operationID == id }
+        )
+        guard let row = try context.fetch(descriptor).first,
+              row.retryState == .failed,
+              row.failureAcknowledgedAt == nil else { return }
+        row.failureAcknowledgedAt = .now
         try context.save()
     }
 
