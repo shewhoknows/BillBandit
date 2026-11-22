@@ -391,7 +391,7 @@ async function main() {
       assert.equal(blocked.length, 1, 'first upload did not reach the blocked payment')
       const row = await tx.ledgerImport.findUniqueOrThrow({ where: { accountId_sourceSystem_sourceKey: { accountId: ck.owner.id, sourceSystem: 'cloudkit', sourceKey: normalized.sourceKey } } })
       importId = row.id
-      controller.abort()
+      setTimeout(() => controller.abort(), 250)
       await pending
       await tx.$queryRaw`SELECT pg_terminate_backend(${blocked[0].pid}::integer)`
     }, { timeout: 90000 })
