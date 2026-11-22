@@ -777,6 +777,7 @@ final class SettlementStore {
     }
 
     private func markWriteFailuresReported(scope: ServerBackedLedgerScope) {
+        guard isVisible else { return }
         for failed in ownFailedOperations(scope: scope) {
             reportedFailedOperationIDs.insert(failed.operation.operationID)
             try? serverLedgerStore.acknowledgeFailure(operationID: failed.operation.operationID)
@@ -787,6 +788,7 @@ final class SettlementStore {
     /// revision conflict is shown by the "Settlement changed" banner
     /// (requiresReconfirmation) instead of an alert.
     private func publishNewWriteFailures(scope: ServerBackedLedgerScope) {
+        guard isVisible else { return }
         for failed in ownFailedOperations(scope: scope) {
             reportedFailedOperationIDs.insert(failed.operation.operationID)
             try? serverLedgerStore.acknowledgeFailure(operationID: failed.operation.operationID)
