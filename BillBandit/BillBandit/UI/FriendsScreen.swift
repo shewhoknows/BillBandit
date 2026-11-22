@@ -215,6 +215,7 @@ struct FriendInvitationSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var invitations = FriendInvitationService.shared
     @State private var mode: Mode
     @State private var code: String
@@ -236,8 +237,10 @@ struct FriendInvitationSheet: View {
                     Text(BrandFont.handText("add a partner in crime"))
                         .font(BrandFont.hand(25.5, weight: .bold))
                         .foregroundStyle(Color.Brand.cobalt)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                         .minimumScaleFactor(0.68)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 4)
 

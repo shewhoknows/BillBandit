@@ -2117,10 +2117,49 @@ private struct MemberClaimView: View {
 
 /// One failure the person must see. Stays until OK.
 private struct FailureNoticeView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let notice: AppFailureNotice
     let onDismiss: () -> Void
 
     var body: some View {
+        SwiftUI.Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 12) {
+                        MascotView(mascot: .confused, size: 40, idle: false)
+                            .accessibilityHidden(true)
+                        Text(notice.title)
+                            .font(BrandFont.display(14, weight: .bold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 4)
+                        dismissButton
+                    }
+                    ScrollView {
+                        Text(notice.message)
+                            .font(BrandFont.type(11, bold: true))
+                            .opacity(0.8)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 220)
+                    .scrollIndicators(.visible)
+                }
+            } else {
+                standardNotice
+            }
+        }
+        .foregroundStyle(Color.Brand.cobalt)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .stroke(Color.Brand.cobalt, lineWidth: 2.5))
+        .shadow(color: Color.black.opacity(0.22), radius: 12, y: 5)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("failureNotice")
+    }
+
+    private var standardNotice: some View {
         HStack(alignment: .top, spacing: 12) {
             MascotView(mascot: .confused, size: 40, idle: false)
                 .accessibilityHidden(true)
@@ -2133,24 +2172,19 @@ private struct FailureNoticeView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Button("OK", action: onDismiss)
-                .font(BrandFont.display(14, weight: .bold))
-                .foregroundStyle(Color.Brand.creamSoft)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 36)
-                .background(Color.Brand.cobalt, in: Capsule())
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("failureNoticeOK")
+            dismissButton
         }
-        .foregroundStyle(Color.Brand.cobalt)
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18)
-            .stroke(Color.Brand.cobalt, lineWidth: 2.5))
-        .shadow(color: Color.black.opacity(0.22), radius: 12, y: 5)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("failureNotice")
+    }
+
+    private var dismissButton: some View {
+        Button("OK", action: onDismiss)
+            .font(BrandFont.display(14, weight: .bold))
+            .foregroundStyle(Color.Brand.creamSoft)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .background(Color.Brand.cobalt, in: Capsule())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("failureNoticeOK")
     }
 }
 

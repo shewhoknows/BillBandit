@@ -254,7 +254,7 @@ struct OnboardingScreen: View {
                     VStack(alignment: .leading, spacing: 20) {
                         Text("Review code")
                             .font(BrandFont.display(28, weight: .bold))
-                        TextField("Review code", text: $reviewCode)
+                        SecureField("Review code", text: $reviewCode)
                             .font(BrandFont.body(16, weight: .semibold))
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -1062,6 +1062,8 @@ struct HomeScreen: View {
                 Text("Recent activity")
                     .font(BrandFont.display(14, weight: .semibold))
                     .padding(.bottom, 4)
+                    .padding(.trailing, 58)
+                    .fixedSize(horizontal: false, vertical: true)
                 let merged = UnifiedActivity.merged(shared: sharedActivity, local: localActivity)
                 if merged.isEmpty, !sharedGroups.isEmpty {
                     if serverLedger.snapshot == nil {
@@ -1092,6 +1094,7 @@ struct HomeScreen: View {
             .foregroundStyle(Color.Brand.cobalt)
             .padding(13)
             .padding(.top, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.Brand.creamSoft, in: RoundedRectangle(cornerRadius: 15))
             .padding(.top, 22)
 
@@ -1481,11 +1484,13 @@ struct ProfileScreen: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Level \(level.rawValue) · \(level.title)")
                         .font(BrandFont.display(15, weight: .bold))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(next.map { "\(lifetimeXP) / \($0) XP" } ?? "\(lifetimeXP) XP · top early level")
                         .font(BrandFont.type(11, bold: true))
                         .opacity(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
@@ -1874,25 +1879,29 @@ struct ProfileScreen: View {
 private struct StarterPinView: View {
     let achievement: StarterAchievement
     let isUnlocked: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(spacing: 5) {
             AchievementBadgeView(achievement: achievement, isUnlocked: isUnlocked)
             Text(achievement.title)
                 .font(BrandFont.body(11, weight: .extraBold))
-                .lineLimit(2)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             // The colored badge already shows "unlocked"; only locked pins need a hint.
             if !isUnlocked {
                 Text(achievement.requirement)
                     .font(BrandFont.type(11, bold: true))
-                    .lineLimit(3)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .opacity(0.7)
             }
         }
         .foregroundStyle(Color.Brand.cobalt)
-        .frame(width: 116, height: 142, alignment: .top)
+        .frame(width: dynamicTypeSize.isAccessibilitySize ? 220 : 116,
+               height: dynamicTypeSize.isAccessibilitySize ? nil : 142, alignment: .top)
         .padding(.vertical, 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(achievement.title), \(isUnlocked ? "unlocked" : achievement.requirement)")
@@ -2621,6 +2630,7 @@ struct ActivityLineRow: View {
     let date: Date
     let amount: String?
     var isDeleted = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var timeText: String {
         let days = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: date),
@@ -2637,21 +2647,28 @@ struct ActivityLineRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        layout {
             VStack(alignment: .leading, spacing: 3) {
                 Text(line)
                     .fixedSize(horizontal: false, vertical: true)
                 contextText
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .truncationMode(.middle)
                     .opacity(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 8)
+            }
             if let amount {
                 Text(amount)
                     .font(BrandFont.type(15, bold: true))
                     .monospacedDigit()
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 10)

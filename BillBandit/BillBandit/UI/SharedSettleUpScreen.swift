@@ -29,6 +29,7 @@ struct SharedSettleUpScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(
         group: Group,
@@ -156,8 +157,8 @@ struct SharedSettleUpScreen: View {
                 Text(BrandFont.handText("settle the score"))
                     .font(BrandFont.hand(30, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: true)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
                 Text(group.name.uppercased())
                     .font(BrandFont.type(11, bold: true))
                     .tracking(1.5)
@@ -360,9 +361,9 @@ struct SharedSettleUpScreen: View {
                 Text(BrandFont.handText("everyone is settled"))
                     .font(BrandFont.hand(28, weight: .bold))
                     .foregroundStyle(Color.Brand.cobalt)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     .minimumScaleFactor(0.82)
-                    .fixedSize(horizontal: true, vertical: true)
+                    .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
                     .padding(.horizontal, 12)
                 if let completedAt = snapshot.settlementCompletedAt {
                     Text(settleFormattedDate(completedAt))
@@ -521,8 +522,8 @@ struct SharedSettleUpScreen: View {
                             Text(BrandFont.handText("payment ready"))
                                 .font(BrandFont.hand(29, weight: .bold))
                                 .foregroundStyle(Color.Brand.cobalt)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: true)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                                .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
                             Text(group.name.uppercased())
                                 .font(BrandFont.type(11, bold: true))
                                 .tracking(1.5)

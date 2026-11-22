@@ -985,30 +985,47 @@ private struct InvoiceLeaderRow: View {
     var animationValue: Decimal? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(label)
-                .lineLimit(1)
-                .layoutPriority(1)
-            Text(String(repeating: ".", count: 38))
-                .lineLimit(1)
-                .opacity(0.35)
+        SwiftUI.Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .fixedSize(horizontal: false, vertical: true)
+                    amountText
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .clipped()
-                .layoutPriority(-1)
-            Text(amount)
-                .font(BrandFont.type(strong ? 13 : 11.5, bold: true))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-                .frame(width: 76, alignment: .trailing)
-                .contentTransition(.numericText(
-                    value: NSDecimalNumber(decimal: animationValue ?? 0).doubleValue
-                ))
-                .animation(reduceMotion ? nil : BrandMotion.counter, value: amount)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(label)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Text(String(repeating: ".", count: 38))
+                        .lineLimit(1)
+                        .opacity(0.35)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .clipped()
+                        .layoutPriority(-1)
+                    amountText
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                        .frame(width: 76, alignment: .trailing)
+                }
+            }
         }
         .font(BrandFont.type(strong ? 13 : 11.5, bold: strong))
+    }
+
+    private var amountText: some View {
+        Text(amount)
+            .font(BrandFont.type(strong ? 13 : 11.5, bold: true))
+            .monospacedDigit()
+            .contentTransition(.numericText(
+                value: NSDecimalNumber(decimal: animationValue ?? 0).doubleValue
+            ))
+            .animation(reduceMotion ? nil : BrandMotion.counter, value: amount)
     }
 }
 
