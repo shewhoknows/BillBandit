@@ -2,20 +2,21 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-21, state machines and reviewer-login Part 5. See both entries below. Build 32 is the current TestFlight build; two-phone checks remain open.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-22, build 34 release preparation. See the current evidence report for production and App Store Connect state.**
 
 ---
 
 ## 1. What this is
 
-### 2026-11-22 — Build 34 release preparation (incomplete)
+### 2026-11-22 — Build 34 release preparation
 
-- `release/1.0-33` combines `fix/state-machines-tla` and `feat/reviewer-login`. The app build number is 34 because the acceptance fixes changed Swift. No push, production deployment, production reset, archive, upload, or submission has been made.
-- The release source masks review-code entry, lets the largest-text failure notice scroll, preserves room around the empty Home activity heading, wraps the incoming-invitation heading, stacks large receipt and activity amounts, and wraps the Settle up and Profile content. The signed Debug simulator build passed with the two existing warnings. The iPhone and iPad flows and screenshots are recorded in the evidence directory; the final iPhone rerun is in progress.
-- The approved iPad Air M4 simulator ran iPadOS 26.5. Its connected onboarding preview and the page controls no longer show Apple's cropped 26.6 layout. The old manual-handle screen in Apple's image no longer exists in the redesign. TesterArmy exercised portrait and landscape at default and largest text; its landscape accessibility tree was incomplete, so the landscape review used the saved screenshots. BillBandit was uninstalled from that iPad and the simulator was shut down.
-- On iPhone, a build 32 SwiftData store opened under build 34, the simplify switch changed and returned, a member with a non-zero balance was refused when leaving, and a locally queued stale expense produced a failure notice after the API restarted. The stale revision was simulated in the local database; it was not a second-phone edit. Other documented state-machine scenarios still need verification.
-- The CloudKit changed-source and settlement completion crash fixes are implemented. The prior full TLA model run passed 18 configurations, and local server E2E passed 12 settlement, 23 ledger, and 22 identity/friends/import scenarios. The required final-source model and server reruns are still pending. See `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/` for evidence and replay commands.
-- App Store Connect has the demo video and draft review notes. `asc` requires both demo account fields when sign-in is required; no password was supplied. The rejected item is app version 1.0. The current App Review issue was the cropped iPad screen. Build 34 has not been uploaded or selected. The existing submission has not been resubmitted, and the reply has not been sent.
+- `release/1.0-33` merges `fix/state-machines-tla` and `feat/reviewer-login`. The app build is 34 because the acceptance fixes changed Swift. The evidence report at `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/report.md` records the current release and submission state.
+- The release makes the wrong-code message accessible, masks code entry, fixes large-text Home, invitation, receipt, activity, settlement, Profile and failure-notice layouts, explains offline simplify-debts changes, and delivers a queued-payment failure after the settlement screen closes. Debug simulator signing passed with the two existing warnings.
+- TesterArmy checked iPhone 17 Pro and iPad Air 11-inch M4 simulators on iOS/iPadOS 26.5. The earlier connected-Apple and handle-entry page was captured from detached revision `697155d`; Apple's screenshot used iPad Air 11-inch M3 and iPadOS 26.6. The final iPad layout and reviewer-flow traces are in the evidence directory. Real Sign in with Apple was not tested. Landscape iPad accessibility-tree coverage was incomplete, so landscape layouts were reviewed from screenshots.
+- An existing build 32 SwiftData store opened on build 34. Local iPhone checks covered offline ordering, create and edit, a peer revision, account switching after 401, a non-zero balance leave refusal, the offline setting explanation, refresh recovery, sign-out warning, and failure notices. Two iPhones verified the owner's simplify setting and the member's view in both directions. The member-claim path has no local route into its in-memory state; see `first-run-paths.md`.
+- The CloudKit changed-source fix and atomic settlement completion fix passed their server E2E scenarios. All 18 intended TLA+ configurations passed at `d5c4439`, including the two formerly failing cases. The server E2E and final reviewer-flow evidence includes revision and replay commands.
+- The production reset can run with reviewer access disabled. It uses a short-lived, route-limited signed token only in memory and checks the API before changing an existing demo account. Ordinary reviewer tokens remain rejected while no review code is set. The local disabled-code and mismatched-key E2Es passed; see `reset-disabled-findings.md`.
+- App Review rejected app version 1.0 for the cropped iPad page. The video and notes are prepared, and the response is a draft. App Store Connect requires both sign-in fields to mark sign-in required. The owner supplies the review code privately; never submit or send the draft in phase 1.
 
 ### 2026-11-21 — Reviewer login, Part 5 (partial)
 
