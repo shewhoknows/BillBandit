@@ -8,6 +8,14 @@
 
 ## 1. What this is
 
+### 2026-11-22 — Build 33 release preparation (incomplete)
+
+- Release branch `release/1.0-33` combines `fix/state-machines-tla` and `feat/reviewer-login`. Both source branches and the main checkout were preserved. The app build number is set to 33. No push, production deployment, reset, archive, upload, or submission has been made.
+- API typecheck and lint passed. The local server E2E scripts passed: settlement 11/11, ledger 23/23, and identity/friends/import 19/19. Evidence is in `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/`.
+- Sim Guard preflight blocks simulator use because three protected `BB ` simulators are booted above the two-device limit. The combined Swift build, iPhone flows, state-machine Mac checks, and SwiftData migration remain unverified. Do not release before those gates pass.
+- The CloudKit changed-source model reports its documented temporal-property violation. The source may already be partly imported. Its recovery needs a decision on the safe import behavior.
+- App Store Connect now has the demo video and draft review notes. `asc` requires both demo account fields when sign-in is required; no password was supplied. The rejected item's purchase version has an empty resource ID, and `asc web` login failed with HTTP 404 before two-factor authentication. The rejection text and its complete mapping remain unavailable.
+
 ### 2026-11-21 — Reviewer login, Part 5 (partial)
 
 - Accessibility fixes are committed on `feat/reviewer-login`: `ae3d33a` onboarding, `0a3ad4f` review sheet, `b4482b3` currency prompt, and `008d73b` Home. The signed Debug simulator build passed with the two existing warnings. TesterArmy evidence, screenshot mapping, exact replay and limits are in `.scratch/reviewer-login/REPORT-part5.md`.
