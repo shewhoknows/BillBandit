@@ -122,6 +122,14 @@ export async function getMobileSession(req: NextRequest): Promise<MobileSession 
     && payload.exp > payload.iat && payload.exp - payload.iat <= 300
   if (payload.purpose !== undefined && !resetToken) return null
   if (payload.sub === REVIEW_ACCOUNT_ID && !reviewCodeEnabled() && !resetToken) return null
+  if (resetToken) {
+    const path = req.nextUrl.pathname
+    const allowed = (req.method === 'GET' && (path === '/api/mobile/auth/me'
+      || /^\/api\/mobile\/ledger\/groups\/[^/]+$/.test(path)))
+      || (req.method === 'POST' && (path === '/api/mobile/groups' || path === '/api/mobile/expenses'
+        || /^\/api\/groups\/[^/]+\/settlements$/.test(path)))
+    if (!allowed) return null
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
