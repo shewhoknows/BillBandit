@@ -110,6 +110,31 @@ async function main() {
 
   return { groupId, read, accountOf, addExpense, settleBody, settle, reverse, txCount, assertMoneyConserved }
   }
+  await step('Payment commit preserves completion flags without the route post-commit hook', async () => {
+    const isolated = await makeGroup('Interrupted settlement')
+    await isolated.addExpense(10000)
+    const group = await isolated.read()
+    const transfer = group.settlementPlan.transfers[0]
+    const { executeSettlement } = await import('../lib/settlement/commands/settle')
+    await executeSettlement({
+      groupId: isolated.groupId,
+      userId: isolated.accountOf(group, transfer.payerMemberId),
+      idempotencyKey: randomUUID(),
+      expectedVersion: group.revision,
+      planTransferId: transfer.planTransferId,
+      payerParticipantId: transfer.payerMemberId,
+      recipientParticipantId: transfer.recipientMemberId,
+      currencyCode: 'INR',
+      currencyExponent: 2,
+      minorUnits: transfer.amount.minorUnits,
+      db,
+    })
+    const persisted = await db.group.findUniqueOrThrow({ where: { id: isolated.groupId }, select: { hadOpenTransfers: true, settlementCompletedAt: true } })
+    assert.equal(await isolated.txCount(), 1)
+    assert.equal(persisted.hadOpenTransfers, false)
+    assert.ok(persisted.settlementCompletedAt)
+    assert.equal((await isolated.read()).settlementPlan.transfers.length, 0)
+  })
   const { groupId, read, accountOf, addExpense, settleBody, settle, reverse, txCount, assertMoneyConserved } = await makeGroup('Settlement E2E')
 
   await addExpense(10000) // member owes owner 5000

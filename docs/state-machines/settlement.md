@@ -43,7 +43,11 @@ Derived state. It is recomputed only after a settle or reverse request (`version
 | OPEN | true | null | the plan has transfers |
 | SETTLED | false | time of the latest settle/reverse journal row | "everyone is settled" + date on the settle-up screen |
 
-Rule (`state.ts` deriveCompletionFlags, used at `sources.ts` 32): plan not empty → OPEN. Plan empty → SETTLED, with completedAt = `createdAt` of the newest `SettlementVersionJournal` row of type `settlement_created` or `settlement_reversed`. If no such row exists (a legacy import), the old value or now is used. The group row is locked (`SELECT … FOR UPDATE`, `sources.ts` 18) for the read and the write. Kernel commits need the same lock.
+Rule: the mutation kernel holds the group revision lock and updates completion
+flags in the same transaction as the ledger change and journal. A nonempty plan
+clears the completion date. An empty plan uses the latest settle or reverse
+journal date. With no such event, it keeps the existing date. The route's later
+recompute remains safe to retry.
 
 Invariants (TLA+ `SettlementCompletion.tla`): when no request is in progress and the last commit was a settle or reverse, `hadOpen = planNotEmpty` and `completedAt = (planEmpty ? time of last settle/reverse : null)`.
 
@@ -51,7 +55,10 @@ Invariants (TLA+ `SettlementCompletion.tla`): when no request is in progress and
 1. *Stale date.* The old rule was `completedAt = existing ?? now`. If everyone settled on Monday, a new expense was added, and it was settled on Friday, the screen still showed Monday. TLC: `tlc-completion-before-sequential.txt`. E2E step 4 failed before the fix and passes after it.
 2. *Out-of-order write.* Phone A records the last payment. Phone B reverses it at the same moment. A's recompute read "plan empty" before B committed, but its write landed after B's recompute. The result was `hadOpen=false` and a completion date while a debt was open. TLC: `tlc-completion-before.txt` (8 states). The row lock fixes it. There is no E2E test for this: the timing window cannot be hit on purpose over HTTP.
 
-Known gap (not fixed, needs a kernel change): the recompute is a second transaction. If the process dies between the kernel commit and the recompute, the flags stay stale until the next settle or reverse request. With the new rule, that next request heals them. `tlc-completion-after-crash.txt` shows the gap. The full fix is to run the same recompute inside the kernel transaction for every mutation kind.
+The crash window between a payment and its flag update is closed by the kernel
+transaction. The server E2E invokes the payment command without the route's
+post-commit hook and checks the persisted flags and payment. The
+`SettlementCompletion_after_crash` model passes with the atomic transition.
 
 Dead code: `commands/core.ts` `advanceGroupVersion` (143) is a second, different copy of the version, journal, outbox and flag logic. Nothing calls it. If it were called next to the kernel, it would journal a version twice.
 

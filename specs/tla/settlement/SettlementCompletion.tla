@@ -1,22 +1,4 @@
 ------------------------- MODULE SettlementCompletion -------------------------
-(***************************************************************************)
-(* Group.hadOpenTransfers / Group.settlementCompletedAt                    *)
-(* (apps/api/lib/settlement/version/sources.ts, onSettlementCommandCommitted)*)
-(*                                                                         *)
-(* A settle or reverse request commits in the kernel (one atomic step,     *)
-(* serialized by the settlementVersion CAS), and THEN, in a second         *)
-(* transaction, the route recomputes the two group flags. Expense writes   *)
-(* go through other routes and never touch the flags.                      *)
-(*                                                                         *)
-(* One debt direction is enough: `owed` = expenses - active payments.      *)
-(* Time is the group version (each commit is one tick).                    *)
-(*                                                                         *)
-(* FIX = FALSE: old rule, read flags+ledger, write later (no lock),        *)
-(*   completedAt kept as `existing ?? now`.                                *)
-(* FIX = TRUE: group row locked (SELECT ... FOR UPDATE) for read+write, and *)
-(*   completedAt = time of the latest settle/reverse journal entry when    *)
-(*   the plan is empty, else null.                                         *)
-(***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
 CONSTANTS Clients, MaxExp, MaxCmds, MaxCrash, FIX
@@ -51,25 +33,31 @@ Init ==
 AddExpense ==
   /\ exp < MaxExp
   /\ exp' = exp + 1 /\ version' = version + 1 /\ lastKind' = "expense"
-  /\ UNCHANGED <<pays, hadOpen, completedAt, lastSettleEvt, pc, snap, cmds, crashes>>
+  /\ hadOpen' = IF FIX THEN TRUE ELSE hadOpen
+  /\ completedAt' = IF FIX THEN Null ELSE completedAt
+  /\ UNCHANGED <<pays, lastSettleEvt, pc, snap, cmds, crashes>>
 
 Settle(c, amt) ==
   /\ pc[c] = "idle" /\ cmds[c] < MaxCmds
   /\ amt \in 1..Owed                      \* kernel: 0 < amount <= owed
   /\ pays' = pays \cup {[id |-> version + 1, amt |-> amt, rev |-> FALSE]}
   /\ version' = version + 1 /\ lastSettleEvt' = version + 1 /\ lastKind' = "settle"
-  /\ pc' = [pc EXCEPT ![c] = "post"] /\ cmds' = [cmds EXCEPT ![c] = @ + 1]
+  /\ pc' = [pc EXCEPT ![c] = IF FIX THEN "idle" ELSE "post"] /\ cmds' = [cmds EXCEPT ![c] = @ + 1]
   /\ snap' = [snap EXCEPT ![c].kind = "created"]
-  /\ UNCHANGED <<exp, hadOpen, completedAt, crashes>>
+  /\ hadOpen' = IF FIX THEN amt # Owed ELSE hadOpen
+  /\ completedAt' = IF FIX THEN (IF amt = Owed THEN version + 1 ELSE Null) ELSE completedAt
+  /\ UNCHANGED <<exp, crashes>>
 
 Reverse(c, p) ==
   /\ pc[c] = "idle" /\ cmds[c] < MaxCmds
   /\ p \in Active
   /\ pays' = (pays \ {p}) \cup {[p EXCEPT !.rev = TRUE]}
   /\ version' = version + 1 /\ lastSettleEvt' = version + 1 /\ lastKind' = "settle"
-  /\ pc' = [pc EXCEPT ![c] = "post"] /\ cmds' = [cmds EXCEPT ![c] = @ + 1]
+  /\ pc' = [pc EXCEPT ![c] = IF FIX THEN "idle" ELSE "post"] /\ cmds' = [cmds EXCEPT ![c] = @ + 1]
   /\ snap' = [snap EXCEPT ![c].kind = "reversed"]
-  /\ UNCHANGED <<exp, hadOpen, completedAt, crashes>>
+  /\ hadOpen' = IF FIX THEN TRUE ELSE hadOpen
+  /\ completedAt' = IF FIX THEN Null ELSE completedAt
+  /\ UNCHANGED <<exp, crashes>>
 
 \* ---- post-commit flag update (route, second transaction) ----
 OldValue(s, now) ==
@@ -93,7 +81,6 @@ PostWrite(c) ==
   /\ pc' = [pc EXCEPT ![c] = "idle"]
   /\ UNCHANGED <<exp, pays, version, lastSettleEvt, lastKind, snap, cmds, crashes>>
 
-\* fix: one locked step; kernel commits need the same row lock.
 PostLocked(c) ==
   /\ FIX /\ pc[c] = "post"
   /\ hadOpen' = ~Empty

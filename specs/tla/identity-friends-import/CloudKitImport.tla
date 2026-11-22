@@ -1,27 +1,4 @@
 ---------------------------- MODULE CloudKitImport ----------------------------
-(***************************************************************************)
-(* CloudKit ledger import (lib/migrations/cloudkit/service.ts) for one     *)
-(* account and one sourceKey. Each worker is one HTTP request             *)
-(* (POST /migrations/cloudkit or POST /migrations/cloudkit/:id). The iOS   *)
-(* client retries after its 30 s timeout, so two runs can overlap. A run   *)
-(* can crash between its transactions.                                     *)
-(*                                                                         *)
-(* runNormalizedImport =                                                   *)
-(*   prepareImport  (1 tx: find/create LedgerImport, reserve record rows,  *)
-(*                   state -> RUNNING or FAILED)                           *)
-(*   processSourceRecord per record (1 tx each: upsert target by a         *)
-(*                   deterministic id, record row -> IMPORTED)             *)
-(*   completion     (1 tx: all rows IMPORTED -> COMPLETED)                 *)
-(*                                                                         *)
-(* FIX = FALSE: prepare reads, then creates; a concurrent create hits the  *)
-(*   unique key, which aborts the Postgres transaction, so the code's     *)
-(*   "re-read the winner" branch cannot run -> HTTP 500. Completion writes  *)
-(*   COMPLETED whatever the current state is.                              *)
-(* FIX = TRUE: prepare and completion take a per-account advisory lock;    *)
-(*   each record takes a per-record lock; completion only from RUNNING.    *)
-(* ALLOW_CHANGE: the source (CloudKit) changes one record after the first  *)
-(*   submission, and the client sends the new export with the same key.    *)
-(***************************************************************************)
 EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS FIX, ALLOW_CHANGE, Workers, MaxCrash
@@ -84,13 +61,13 @@ Prepare(w) ==
        ELSE IF imp = "COMPLETED"
        THEN /\ pc' = [pc EXCEPT ![w] = "done"]   \* 200 completed (or 409 frozen)
             /\ UNCHANGED <<imp, impSum, rec, recSum, errors>>
-       ELSE IF imp # "none" /\ impSum # v
+       ELSE IF ~FIX /\ imp # "none" /\ impSum # v
        THEN /\ imp' = "FAILED"                   \* checksum changed while incomplete
             /\ pc' = [pc EXCEPT ![w] = "done"]
             /\ UNCHANGED <<impSum, rec, recSum, errors>>
-       ELSE IF \E r \in RecSet : rec[r] # "none" /\ recSum[r] # RecVer(r, v)
+       ELSE IF \E r \in RecSet : rec[r] # "none" /\ recSum[r] # RecVer(r, v) /\ (~FIX \/ rec[r] = "IMPORTED")
        THEN /\ imp' = "FAILED"                   \* record changed after it was recorded
-            /\ impSum' = v
+            /\ impSum' = IF FIX THEN impSum ELSE v
             /\ pc' = [pc EXCEPT ![w] = "done"]
             /\ UNCHANGED <<rec, recSum, errors>>
        ELSE /\ imp' = "RUNNING"
@@ -106,6 +83,7 @@ Prepare(w) ==
 \* code (no lock) cannot make a second target row.
 Process(w) ==
   /\ pc[w] = "process"
+  /\ (~FIX \/ (imp = "RUNNING" /\ impSum = ver[w]))
   /\ idx[w] <= Len(Records)
   /\ LET r == Records[idx[w]] IN
        /\ money' = [money EXCEPT ![r] = 1]
@@ -115,12 +93,18 @@ Process(w) ==
 
 Complete(w) ==
   /\ pc[w] = "process"
+  /\ (~FIX \/ (imp = "RUNNING" /\ impSum = ver[w]))
   /\ idx[w] > Len(Records)
   /\ IF (\A r \in RecSet : rec[r] = "IMPORTED") /\ (FIX => imp = "RUNNING")
        THEN imp' = "COMPLETED"
        ELSE UNCHANGED imp
   /\ pc' = [pc EXCEPT ![w] = "done"]
   /\ UNCHANGED <<impSum, rec, recSum, money, exportVer, ver, idx, sawRow, errors, crashes>>
+
+Superseded(w) ==
+  /\ FIX /\ pc[w] = "process" /\ (imp # "RUNNING" \/ impSum # ver[w])
+  /\ pc' = [pc EXCEPT ![w] = "done"]
+  /\ UNCHANGED <<imp, impSum, rec, recSum, money, exportVer, ver, idx, sawRow, errors, crashes>>
 
 \* A run dies between transactions (process killed, deploy, timeout).
 Crash(w) ==
@@ -149,11 +133,11 @@ AllDone == (\A w \in Workers : pc[w] = "done") /\ imp = "COMPLETED"
 Finished == AllDone /\ UNCHANGED vars
 
 Next ==
-  \/ \E w \in Workers : Start(w) \/ Find(w) \/ Prepare(w) \/ Process(w) \/ Complete(w) \/ Crash(w) \/ Restart(w)
+  \/ \E w \in Workers : Start(w) \/ Find(w) \/ Prepare(w) \/ Process(w) \/ Complete(w) \/ Superseded(w) \/ Crash(w) \/ Restart(w)
   \/ SourceChange
   \/ Finished
 
-Fair == \A w \in Workers : WF_vars(Start(w) \/ Find(w) \/ Prepare(w) \/ Process(w) \/ Complete(w) \/ Restart(w))
+Fair == \A w \in Workers : WF_vars(Start(w) \/ Find(w) \/ Prepare(w) \/ Process(w) \/ Complete(w) \/ Superseded(w) \/ Restart(w))
 Spec == Init /\ [][Next]_vars /\ Fair
 
 (* ── Properties ───────────────────────────────────────────────────────── *)
@@ -178,7 +162,5 @@ Allowed == {<<"none", "RUNNING">>, <<"none", "FAILED">>, <<"RUNNING", "RUNNING">
             <<"FAILED", "RUNNING">>, <<"FAILED", "FAILED">>}
 LegalTransitions == [][imp # imp' => <<imp, imp'>> \in Allowed]_imp
 
-\* Liveness: the client keeps retrying and crashes are bounded, so the import
-\* finishes.
-EventuallyCompleted == <>(imp = "COMPLETED")
+EventuallyCompleted == <>(imp = "COMPLETED" \/ (imp = "FAILED" /\ \E r \in RecSet : rec[r] = "IMPORTED" /\ recSum[r] # RecVer(r, exportVer)))
 =============================================================================

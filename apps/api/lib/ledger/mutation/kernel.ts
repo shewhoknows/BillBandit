@@ -14,7 +14,9 @@ import {
 import {
   allocateSettlementPaths,
   buildPlan,
+  planIsEmpty,
 } from '../../settlement/ledger/projections'
+import { deriveCompletionFlags, SETTLE_EVENT_TYPES } from '../../settlement/state'
 import { wakeOutboxDispatcher } from '../../settlement/outbox/dispatcher'
 import type { GroupLedgerInput, SettlementRecord } from '../../settlement/ledger/types'
 import {
@@ -1528,6 +1530,26 @@ async function executeInTransaction(
     eventType: prepared.eventType,
   }
   await journalMutation(tx, request, revision, mutationResult)
+  const completionGroup = await tx.group.findUniqueOrThrow({
+    where: { id: request.groupId },
+    select: { hadOpenTransfers: true, settlementCompletedAt: true },
+  })
+  const ledger = await loadMutationLedger(request.groupId, tx)
+  const latestSettleEvent = await tx.settlementVersionJournal.findFirst({
+    where: { groupId: request.groupId, eventType: { in: [...SETTLE_EVENT_TYPES] } },
+    orderBy: { version: 'desc' },
+    select: { createdAt: true },
+  })
+  const empty = planIsEmpty(buildPlan(ledger))
+  const completion = empty && !latestSettleEvent
+    ? { hadOpenTransfers: false, settlementCompletedAt: completionGroup.settlementCompletedAt }
+    : deriveCompletionFlags({
+        planIsEmpty: empty,
+        latestSettleEventAt: latestSettleEvent?.createdAt ?? null,
+        current: completionGroup,
+        now: committedAt,
+      })
+  await tx.group.update({ where: { id: request.groupId }, data: completion })
   await tx.ledgerOperation.update({
     where: { id: operation.id },
     data: {

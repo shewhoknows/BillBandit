@@ -110,14 +110,11 @@ Security and realtime:
 - **CloudKit import:** it moves data from the old iCloud version of the app
   to the server. It needs a link between each old iCloud user and a server
   account, and nothing creates those links, so every real import stops as
-  "needs repair". Also, if the iCloud data changes after the first upload,
-  the import stays FAILED (`CloudKitImport-change-after` fails on purpose).
-  The app now tells the person once. New users are not affected: the
+  "needs repair". An incomplete import can now adopt changed pending records.
+  A changed or missing imported record is reported for repair and is not overwritten.
+  The app tells the person once. New users are not affected: the
   current app never makes the old iCloud group folders, so for them there is
   nothing to move and the import ends at once with no message.
-- **Completion flags:** if the server crashes between a payment and the flag
-  update, the flags stay stale until the next payment
-  (`SettlementCompletion_after_crash` fails on purpose).
 - **Queue delay:** a group's later changes can wait up to 300 s behind an
   earlier change that is in retry.
 - `scripts/vietnam-trip-qa.ts` starts its server on port 31301 but calls

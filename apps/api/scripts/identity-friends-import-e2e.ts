@@ -367,6 +367,91 @@ async function main() {
     const m = await moneyIn(first.data.serverGroupId); note(m)
     assert.equal(m, expected)
   })
+  await step('CloudKit: changed pending payment after interruption imports once', async () => {
+    const ck = await ckPair('changed-pending')
+    const exp = exportFor(`${run}changed-pending`, ck)
+    const { normalizeCloudKitExport } = await import('../lib/migrations/cloudkit/normalize')
+    const normalized = normalizeCloudKitExport(exp)
+    const payment = normalized.records.find((record) => record.recordType === 'settlement')!
+    let importId = ''
+    await db.$transaction(async (tx) => {
+      const lockKey = `cloudkit-import:${ck.owner.id}:${payment.logicalKey}`
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`
+      const controller = new AbortController()
+      const pending = fetch(new URL('/api/mobile/migrations/cloudkit', devApiBase), {
+        method: 'POST', headers: { Authorization: `Bearer ${ck.owner.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ export: exp }), signal: controller.signal,
+      }).catch(() => undefined)
+      const deadline = Date.now() + 60000
+      let blocked: { pid: number }[] = []
+      while (Date.now() < deadline && blocked.length === 0) {
+        blocked = await tx.$queryRaw<{ pid: number }[]>`SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))`
+        if (!blocked.length) await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      assert.equal(blocked.length, 1, 'first upload did not reach the blocked payment')
+      const row = await tx.ledgerImport.findUniqueOrThrow({ where: { accountId_sourceSystem_sourceKey: { accountId: ck.owner.id, sourceSystem: 'cloudkit', sourceKey: normalized.sourceKey } } })
+      importId = row.id
+      controller.abort()
+      await pending
+      await tx.$queryRaw`SELECT pg_terminate_backend(${blocked[0].pid}::integer)`
+    }, { timeout: 90000 })
+    const reserved = await db.ledgerImportRecord.findFirstOrThrow({ where: { importId, sourceRecordType: 'settlement' } })
+    assert.equal(reserved.state, 'PENDING')
+    const changed = structuredClone(exp)
+    ;(changed.records.find((record) => record.recordType === 'BBSettlement')!.fields as Json).amount = money(2500)
+    const result = await postImport(ck.owner, changed)
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+    assert.equal(result.data.status, 'completed')
+    assert.equal(await moneyIn(result.data.serverGroupId), 'expenses=2/30999 splits=4/30999 payments=1/2500')
+    const replay = await postImport(ck.owner, changed)
+    assert.equal(replay.status, 200, JSON.stringify(replay.data))
+    assert.equal(await moneyIn(result.data.serverGroupId), 'expenses=2/30999 splits=4/30999 payments=1/2500')
+  })
+  await step('CloudKit: changed export resumes when no record was imported', async () => {
+    const ck = await ckPair('changed-before-records')
+    const exp = exportFor(`${run}changed-before-records`, ck)
+    const { normalizeCloudKitExport } = await import('../lib/migrations/cloudkit/normalize')
+    const normalized = normalizeCloudKitExport(exp)
+    const row = await db.ledgerImport.create({ data: {
+      accountId: ck.owner.id, sourceSystem: 'cloudkit', sourceKey: normalized.sourceKey,
+      sourceChecksum: normalized.sourceChecksum, state: 'RUNNING',
+    } })
+    await db.ledgerImportRecord.createMany({ data: normalized.records.map((record) => ({
+      accountId: ck.owner.id, importId: row.id, sourceSystem: 'cloudkit',
+      sourceRecordKey: record.logicalKey, sourceRecordType: record.recordType,
+      payload: record.fields as Json, payloadChecksum: record.checksum, state: 'PENDING',
+    })) })
+    const changed = structuredClone(exp)
+    ;(changed.records.find((record) => record.recordType === 'BBSettlement')!.fields as Json).amount = money(2500)
+    const result = await postImport(ck.owner, changed)
+    assert.equal(result.status, 200, JSON.stringify(result.data))
+    assert.equal(result.data.status, 'completed')
+    assert.equal(await moneyIn(result.data.serverGroupId), 'expenses=2/30999 splits=4/30999 payments=1/2500')
+  })
+  await step('CloudKit: changed imported expense is reported and not overwritten', async () => {
+    const ck = await ckPair('changed-imported')
+    const exp = exportFor(`${run}changed-imported`, ck)
+    const first = await postImport(ck.owner, exp)
+    assert.equal(first.status, 200, JSON.stringify(first.data))
+    await db.ledgerImport.update({ where: { id: first.data.importId }, data: { state: 'RUNNING', completedAt: null } })
+    const changed = structuredClone(exp)
+    ;(changed.records.find((record) => record.recordType === 'BBExpense')!.fields as Json).title = 'Changed after import'
+    const result = await postImport(ck.owner, changed)
+    assert.equal(result.status, 409, JSON.stringify(result.data))
+    assert.equal(result.data.status, 'needs-repair')
+    assert.match(result.data.needsRepairReason, /imported CloudKit record changed/)
+    assert.equal(await moneyIn(first.data.serverGroupId), expected)
+    assert.equal(await db.expense.count({ where: { groupId: first.data.serverGroupId, description: 'Changed after import' } }), 0)
+    const changedPayment = structuredClone(exp)
+    ;(changedPayment.records.find((record) => record.recordType === 'BBSettlement')!.fields as Json).amount = money(2500)
+    const paymentResult = await postImport(ck.owner, changedPayment)
+    assert.equal(paymentResult.status, 409, JSON.stringify(paymentResult.data))
+    assert.match(paymentResult.data.needsRepairReason, /imported CloudKit record changed/)
+    assert.equal(await moneyIn(first.data.serverGroupId), expected)
+    const restored = await postImport(ck.owner, exp)
+    assert.equal(restored.status, 200, JSON.stringify(restored.data))
+    assert.equal(await moneyIn(first.data.serverGroupId), expected)
+  })
   await step('CloudKit: three runs of a new export at once -> no 5xx, no double money', async () => {
     const ck = await ckPair('c')
     const exp = exportFor(`${run}c`, ck)

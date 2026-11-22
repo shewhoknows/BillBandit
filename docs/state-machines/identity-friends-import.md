@@ -144,14 +144,20 @@ Illegal transition also found: `CloudKitImport-change-before` — `FAILED → CO
 finishes after another run failed the import for a changed checksum. Now refused (completion only
 from `RUNNING`).
 
-## Open issue (not fixed: needs a product decision)
+## Changed source after interruption
 
-**Changed CloudKit source traps the import in `FAILED`.** `CloudKitImport-change-after` (and
-`-change-before-live`): the first submission records rows and the checksum, the request times out
-or crashes before the app learns the `importId`, the app re-reads CloudKit (status `collecting`),
-one record changed, the `sourceKey` stays the same (it hashes record names only), and every later
-prepare answers `needs-repair` ("checksum changed while incomplete"). The app then stops for good
-(`needsRepair`). Part of the ledger may already be imported. Options: let a `RUNNING`/`FAILED`
-import adopt the new checksum while no record is `IMPORTED`, or include the checksum in the client
-`sourceKey`. Today the path is unreachable in production: no code creates `cloudkit`
-`ExternalIdentity` rows, so every real import ends `needs-repair` at `resolvePeople`.
+An incomplete import can adopt a new export checksum. Pending records use the
+new payload. Imported records must still exist with the same checksum. A changed
+or missing imported record is reported as needing repair and is not overwritten.
+Per-account transaction locks and checksum checks stop an older run from writing
+or completing after another export is prepared. Retrying the original export can
+recover from a reported conflict.
+
+The server E2E interrupts a local HTTP upload at a blocked payment record, changes
+the pending payment, and checks the imported ledger and replay. It also checks an
+all-pending export and rejects changes to imported expenses and payments. The
+`CloudKitImport-change-after` model permits either completion or a reported
+conflict for a changed imported record.
+
+The separate identity-link gap remains: production code does not create the
+CloudKit external identities needed by `resolvePeople`.

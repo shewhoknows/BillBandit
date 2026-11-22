@@ -42,6 +42,8 @@ const METADATA_KEY_PREFIX = '__cloudkit_metadata__:'
 
 type DbTransaction = Prisma.TransactionClient
 
+class SupersededImportError extends Error {}
+
 function isPrismaClient(db: CloudKitImportDb): db is PrismaClient {
   return '$transaction' in db && typeof db.$transaction === 'function'
 }
@@ -636,8 +638,14 @@ async function ensureMetadataRow(
     select: { id: true, payloadChecksum: true, importId: true },
   })
   if (existing) {
-    if (existing.importId !== importRow.id || existing.payloadChecksum !== normalized.sourceChecksum) {
+    if (existing.importId !== importRow.id) {
       throw new CloudKitImportNeedsRepairError('metadata already belongs to a different CloudKit import', 'source_checksum_conflict')
+    }
+    if (existing.payloadChecksum !== normalized.sourceChecksum) {
+      await tx.ledgerImportRecord.update({
+        where: { id: existing.id },
+        data: { payload: jsonInput(storedEnvelope(normalized)), payloadChecksum: normalized.sourceChecksum, updatedAt: now },
+      })
     }
     return
   }
@@ -681,6 +689,17 @@ async function ensureRecordRows(
   normalized: NormalizedCloudKitExport,
   now: Date
 ): Promise<void> {
+  const existingRows = await tx.ledgerImportRecord.findMany({
+    where: { accountId: importRow.accountId, sourceSystem: CLOUDKIT_IMPORT_SOURCE, sourceRecordType: { not: METADATA_RECORD_TYPE }, OR: [{ importId: importRow.id }, { sourceRecordKey: { in: normalized.records.map((source) => source.logicalKey) } }] },
+    select: { sourceRecordKey: true, payloadChecksum: true, state: true, importId: true },
+  })
+  const incoming = new Map(normalized.records.map((source) => [source.logicalKey, source]))
+  for (const row of existingRows) {
+    const source = incoming.get(row.sourceRecordKey)
+    if ((row.state === 'IMPORTED' && row.importId === importRow.id && !source) || (source && source.checksum !== row.payloadChecksum && (row.state === 'IMPORTED' || row.importId !== importRow.id))) {
+      throw new CloudKitImportNeedsRepairError(`An imported CloudKit record changed or is missing: ${row.sourceRecordKey}`, 'source_checksum_conflict')
+    }
+  }
   for (const source of normalized.records) {
     const sourceRecordKey = source.logicalKey
     const existing = await tx.ledgerImportRecord.findUnique({
@@ -694,13 +713,13 @@ async function ensureRecordRows(
       select: { id: true, importId: true, payloadChecksum: true, state: true },
     })
     if (existing) {
-      if (existing.payloadChecksum !== source.checksum) {
+      if (existing.payloadChecksum !== source.checksum && (existing.state === 'IMPORTED' || existing.importId !== importRow.id)) {
         throw new CloudKitImportNeedsRepairError(`CloudKit record ${source.recordName} changed after it was recorded`, 'source_checksum_conflict', { recordName: source.recordName })
       }
       if (existing.importId === importRow.id && existing.state !== 'IMPORTED') {
         await tx.ledgerImportRecord.update({
           where: { id: existing.id },
-          data: { payload: jsonInput(source.fields), state: 'PENDING', quarantineReason: null, updatedAt: now },
+          data: { payload: jsonInput(source.fields), payloadChecksum: source.checksum, state: 'PENDING', quarantineReason: null, updatedAt: now },
         })
       }
       continue
@@ -751,27 +770,12 @@ async function prepareImport(
     // account's other imports (one completed import per account).
     await lockImportKey(tx, accountId)
     const importRow = await createOrFindImport(tx, normalized, accountId, now)
-    if (importRow.sourceChecksum && importRow.sourceChecksum !== normalized.sourceChecksum) {
-      if (importRow.state === 'COMPLETED') {
-        throw new CloudKitImportValidationError(
-          'completed_import_frozen',
-          'A completed CloudKit import is frozen against later source writes',
-          { importId: importRow.id, sourceKey: normalized.sourceKey }
-        )
-      }
-      const reason = 'The CloudKit export checksum changed while the import was incomplete.'
-      assertImportTransition(importRow.state, 'FAILED')
-      await tx.ledgerImport.update({
-        where: { id: importRow.id },
-        data: { state: 'FAILED', failureReason: reason, completedAt: null },
-      })
-      return {
-        importId: importRow.id,
-        status: 'needs-repair',
-        sourceChecksum: normalized.sourceChecksum,
-        alreadyCompleted: false,
-        needsRepairReason: reason,
-      }
+    if (importRow.sourceChecksum && importRow.sourceChecksum !== normalized.sourceChecksum && importRow.state === 'COMPLETED') {
+      throw new CloudKitImportValidationError(
+        'completed_import_frozen',
+        'A completed CloudKit import is frozen against later source writes',
+        { importId: importRow.id, sourceKey: normalized.sourceKey }
+      )
     }
     if (importRow.state === 'COMPLETED') {
       return {
@@ -785,15 +789,15 @@ async function prepareImport(
 
     try {
       await validateAndResolve(tx, accountId, normalized)
-      await ensureMetadataRow(tx, importRow, normalized, now)
       await ensureRecordRows(tx, importRow, normalized, now)
+      await ensureMetadataRow(tx, importRow, normalized, now)
     } catch (error) {
       if (!(error instanceof CloudKitImportNeedsRepairError) && !(error instanceof CloudKitImportValidationError)) throw error
       const reason = error.message
       assertImportTransition(importRow.state, 'FAILED')
       await tx.ledgerImport.update({
         where: { id: importRow.id },
-        data: { state: 'FAILED', failureReason: reason, sourceChecksum: normalized.sourceChecksum, completedAt: null },
+        data: { state: 'FAILED', failureReason: reason, completedAt: null },
       })
       return {
         importId: importRow.id,
@@ -1221,8 +1225,12 @@ async function processSourceRecord(
   importId: string,
   source: CloudKitSourceRecord,
   state: SemanticState,
+  sourceChecksum: string,
   now: Date
 ): Promise<ProcessedSource> {
+  await lockImportKey(tx, accountId)
+  const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true, sourceChecksum: true } })
+  if (!current || current.state !== 'RUNNING' || current.sourceChecksum !== sourceChecksum) throw new SupersededImportError()
   // One writer per source record. A second run waits here, then reads the
   // committed IMPORTED row and reuses it instead of writing the money again.
   await lockImportKey(tx, `${accountId}:${source.logicalKey}`)
@@ -1280,10 +1288,14 @@ async function processAllRecords(
   )
   for (const source of ordered) {
     try {
-      await withTransaction(rootDb, (tx) => processSourceRecord(tx, accountId, importId, source, state, now))
+      await withTransaction(rootDb, (tx) => processSourceRecord(tx, accountId, importId, source, state, normalized.sourceChecksum, now))
     } catch (error) {
+      if (error instanceof SupersededImportError) return
       if (error instanceof CloudKitImportNeedsRepairError || error instanceof CloudKitImportValidationError) {
         await withTransaction(rootDb, async (tx) => {
+          await lockImportKey(tx, accountId)
+          const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true, sourceChecksum: true } })
+          if (!current || current.state !== 'RUNNING' || current.sourceChecksum !== normalized.sourceChecksum) return
           const row = await tx.ledgerImportRecord.findUnique({
             where: {
               accountId_sourceSystem_sourceRecordKey: {
@@ -1304,9 +1316,9 @@ async function processAllRecords(
   }
   await withTransaction(rootDb, async (tx) => {
     await lockImportKey(tx, accountId)
-    const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true } })
+    const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true, sourceChecksum: true } })
     // Another run already finished (or failed) this import.
-    if (!current || current.state !== 'RUNNING') return
+    if (!current || current.state !== 'RUNNING' || current.sourceChecksum !== normalized.sourceChecksum) return
     let ready = true
     for (const source of normalized.records) {
       const row = await tx.ledgerImportRecord.findUnique({
@@ -1470,13 +1482,17 @@ async function runNormalizedImport(
   } catch (error) {
     if (!(error instanceof CloudKitImportNeedsRepairError) && !(error instanceof CloudKitImportValidationError)) throw error
     await withTransaction(rootDb, async (tx) => {
-      await tx.ledgerImport.update({ where: { id: prepared.importId }, data: { state: 'FAILED', failureReason: error.message, completedAt: null } })
+      await lockImportKey(tx, accountId)
+      await tx.ledgerImport.updateMany({ where: { id: prepared.importId, state: 'RUNNING', sourceChecksum: normalized.sourceChecksum }, data: { state: 'FAILED', failureReason: error.message, completedAt: null } })
     })
     row = await loadImportRow(rootDb, accountId, prepared.importId)
     return buildImportResult(rootDb, row, normalized)
   }
   await processAllRecords(rootDb, accountId, prepared.importId, normalized, state, now)
   row = await loadImportRow(rootDb, accountId, prepared.importId)
+  if (row.state !== 'FAILED' && row.sourceChecksum !== normalized.sourceChecksum) {
+    return buildImportResult(rootDb, row, await loadStoredNormalized(rootDb, row))
+  }
   return buildImportResult(rootDb, row, normalized)
 }
 
