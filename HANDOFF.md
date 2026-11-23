@@ -2,11 +2,17 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-22, build 34 release preparation. See the current evidence report for production and App Store Connect state.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-23, build 34 demo restored. See the current evidence report for production and App Store Connect state.**
 
 ---
 
 ## 1. What this is
+
+### 2026-11-23 — Production demo restored
+
+- The owner restored Railway CLI access. The production Postgres identity and public proxy were checked before the single confirmed reset attempt. That attempt created an empty Goa Trip but failed on a transaction timeout over the proxy. A guarded continuation completed the remaining original seed steps without another reset. Readback confirms Goa Trip has four expenses and one payment; Flat 4B has two expenses and one payment. See `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/production-reset-recovery-20261123.md` and the report there.
+- The local client path in `review:reset` uses the default transaction timeout for the settings change and can time out over a high-latency database proxy. Address that before relying on a future remote reset. The production review-code endpoint remains disabled until the owner sets the code privately.
+- Build 34 remains selected and valid. The existing App Review submission remains unresolved for phase 2. The notes contain the owner placeholder; the sign-in-required fields could not be enabled without a password. Do not submit or send the draft in phase 1.
 
 ### 2026-11-22 — Build 34 release preparation
 
