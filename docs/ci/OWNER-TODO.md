@@ -2,7 +2,10 @@
 
 All prices are USD. The GitHub integration and Xcode Cloud product already
 point to `My-apps-factory/BillBandit`. The two distribution workflows exist
-and are disabled. This list starts after the PRs in [report.md](report.md).
+and are disabled. Use the order in [report.md](report.md). The owner starts with #47. It has
+all seven current required check results. Open its GitHub PR and select
+**Merge when ready** to put it in the queue. Review its merge-group run
+before advancing the remaining PRs.
 
 1. **Verify the first Railway deploy after #47 lands.** Open Railway →
    BillBandit → production API → Deployments. Confirm a single deployment
@@ -53,8 +56,36 @@ and are disabled. This list starts after the PRs in [report.md](report.md).
    App Store Connect when ready. GitHub standard runner and API key
    incremental costs are $0. [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
 
-5. **Review Xcode Cloud compute usage.** Open **App Store Connect → Xcode
-   Cloud → Usage**. Record action minutes for PR smoke, main, and release.
+5. **Require the full suite on the queue.** After #39, #48 and #51 land,
+   open the Xcode Cloud workflow editor. Duplicate **Main: TestFlight** as
+   **BillBandit merge queue**. Keep just the full `BillBandit` iOS
+   **Test** action and its fixture variable. Remove all post-actions.
+   Under **Start Conditions → Branch Changes**, set a custom branch
+   **Starts With** `gh-readonly-queue/main/`. Enable this test-only
+   workflow. Leave the two distribution workflows disabled until authorized.
+
+   Use **GitHub → Settings → Secrets and variables → Actions → Variables**.
+   Set `BILLBANDIT_IOS_PR_TEST_CHECK` to the observed native smoke Test
+   check name. Set `BILLBANDIT_IOS_QUEUE_TEST_CHECK` to the full workflow's
+   native Test check name. With the action named **Test - iOS**, the
+   expected names are `BillBandit | PR build | Test - iOS` and
+   `BillBandit | BillBandit merge queue | Test - iOS`. Confirm the PR
+   smoke result appears as `iOS Cloud Test` on a new PR event.
+
+   In **GitHub → Settings → Rules → Rulesets**, edit **Protect main with
+   merge queue**. Keep the existing seven API checks. Add
+   `TLA+ (ledger-kernel)`, `TLA+ (ios-ledger-sync)`,
+   `TLA+ (ios-settlement-shell)`, `TLA+ (other-models)` and
+   `iOS Cloud Test`. Queue the next reviewed PR. Check that all five
+   added contexts report on the exact `merge_group.head_sha`. The iOS
+   check waits for the matching native full Test result. The merge
+   stays gated if that result is missing. Standard GitHub compute
+   remains $0. The additional Cloud Test minutes remain unmeasured.
+   [GitHub merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue)
+   [iOS Test status](ios-merge-queue.md)
+
+6. **Review Xcode Cloud compute usage.** Open **App Store Connect → Xcode
+   Cloud → Usage**. Record action minutes for PR smoke, the merge queue, main, and release.
    The Apple Developer account includes 25 hours of team usage each month.
    Published tiers are 100 hours at $49.99/month, 250 at $99.99/month,
    1,000 at $399.99/month, and 10,000 at $3,999.99/month. Standard

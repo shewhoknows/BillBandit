@@ -113,10 +113,22 @@ The [active ruleset](https://github.com/My-apps-factory/BillBandit/rules/2797422
 lists exactly the seven API names in [required-checks.txt](required-checks.txt).
 Each has both `pull_request` and `merge_group` triggers. No API context
 mismatches. The four Model checking jobs also have both triggers. GitHub
-currently does not require them, and the native Xcode Cloud check is still
-Build only on PRs. A full iOS Test result on a merge-group SHA is unverified.
-Those are the gaps between the active ruleset and full-suite enforcement.
-Actual queue admission and main cache seeding require the owner to land #47.
+currently does not require them. The native Xcode Cloud check is still
+Build only on PRs. #51 supplies one opt-in `iOS Cloud Test` context for
+both events. It reads smoke on the PR head and the full Test result on
+the queue SHA. A read-only replay against a successful Apple Build
+result found no Test result and exited 1 in 0.66 s.
+[PR #51](https://github.com/My-apps-factory/BillBandit/pull/51)
+
+GitHub showed zero merge-group runs and all seven checks passing on #47.
+A local squash rehearsal of the five original PRs ran API static checks,
+a 9.05 s Next build, all eight API E2E files exactly once, and all 18
+bounded-queue TLA+ checks. The same snapshot ran the Cloud pre-build
+hook against a local source mirror in 8.78 s. It produced the empty
+account and canonical expense fixtures. The HTTP replay confirmed
+offline 503 and reconnection 200. These are local command and fixture
+results. Actual GitHub queue admission, main cache seeding, and the
+Cloud Test result need an owner-started rollout.
 
 ## Merge order
 
@@ -130,7 +142,8 @@ checks on the candidate revision.
 | 2 | [#37](https://github.com/My-apps-factory/BillBandit/pull/37) | Historical audit |
 | 3 | [#48](https://github.com/My-apps-factory/BillBandit/pull/48) | Model checking and separate bounded and full ledger configurations |
 | 4 | [#39](https://github.com/My-apps-factory/BillBandit/pull/39) | iOS Cloud, fixture consumer, simulator startup guard and release staging |
-| 5 | [#46](https://github.com/My-apps-factory/BillBandit/pull/46) | Owner actions, report and two-week test failure log |
+| 5 | [#51](https://github.com/My-apps-factory/BillBandit/pull/51) | One iOS Test context for PRs and the merge queue |
+| 6 | [#46](https://github.com/My-apps-factory/BillBandit/pull/46) | Owner actions, report and two-week test failure log |
 
 The API fixture producer is in #47. The iOS fixture consumer is in #39.
 The narrower PRs #38, #40–#45, #49 and #50 were superseded by the
@@ -142,7 +155,8 @@ Evidence remains in `.scratch/ci/` in the audit worktree. The historical
 per-job ledger is `audit/job-buckets.tsv`. New evidence is in `review/`,
 including `queue-seconds.json`, `container-proofs/`, `tla-hosted/`,
 `ledger-split-coverage.txt`, `ios-stage-pr39-dry-run.json`, and the
-readbacks for the disabled Cloud workflows.
+readbacks for the disabled Cloud workflows. The combined rehearsal is
+under `review/rollout-rehearsal/integrated/`.
 
 Fetch a hosted API E2E result with
 `gh run download 45376270657 -R My-apps-factory/BillBandit --pattern 'api-e2e-*'`.
