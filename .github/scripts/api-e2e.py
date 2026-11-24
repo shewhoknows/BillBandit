@@ -1,5 +1,6 @@
 import argparse
 import concurrent.futures
+import contextlib
 import json
 import os
 import pathlib
@@ -12,6 +13,8 @@ import socket
 import subprocess
 import tempfile
 import time
+
+from api_qa_proxy import qa_proxy
 
 root = pathlib.Path(__file__).resolve().parents[2]
 scripts = root / "apps/api/scripts"
@@ -40,13 +43,32 @@ def available_port():
 
 
 def stop(process):
-    if process.poll() is None:
+    try:
         os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def split(chosen, count, history):
+    weights = json.loads((root / ".github/scripts/api-e2e-times.json").read_text())
+    for summary in sorted(history.glob("*/summary.json")) if history else []:
+        for result in json.loads(summary.read_text())["results"]:
+            if result["exit"] == 0:
+                weights[result["file"]] = result["seconds"]
+    shards = [[] for _ in range(count)]
+    totals = [0] * count
+    for case in sorted(chosen, key=lambda case: (-weights.get(case, 20), case)):
+        lane = min(range(count), key=totals.__getitem__)
+        shards[lane].append(case)
+        totals[lane] += weights.get(case, 20)
+    if sorted(case for shard in shards for case in shard) != sorted(chosen):
+        raise RuntimeError("The shard plan does not cover the selected suite.")
+    return shards
 
 
 def run_case(case, database, scratch, evidence):
@@ -59,7 +81,7 @@ def run_case(case, database, scratch, evidence):
     logs = work / "logs"
     logs.mkdir()
     port = available_port()
-    api_base = f"http://127.0.0.1:{port}"
+    next_base = f"http://127.0.0.1:{port}"
     env = {key: value for key, value in os.environ.items() if key in {"PATH", "HOME", "LANG", "JAVA_HOME"}}
     env.update({
         "CI": "1",
@@ -67,7 +89,7 @@ def run_case(case, database, scratch, evidence):
         "BILLBANDIT_CI_E2E": "1",
         "NEXT_TELEMETRY_DISABLED": "1",
         "DEV_DATABASE_URL": database,
-        "DEV_API_BASE": api_base,
+        "DEV_API_BASE": next_base,
         "TEST_DATABASE_URL": database,
         "MOBILE_AUTH_MOCK_APPLE_SUBJECT": "ifi-e2e-apple-subject",
         "MOBILE_AUTH_MOCK_APPLE_EMAIL": "ifi-e2e@dev.billbandit.local",
@@ -75,13 +97,15 @@ def run_case(case, database, scratch, evidence):
         "POLISH_E2E_PORT": str(port),
         "POLISH_E2E_EVIDENCE_DIR": str(logs),
         "START_VIETNAM_TRIP_SERVER": "1",
-        "VIETNAM_TRIP_BASE_URL": api_base,
+        "VIETNAM_TRIP_UPSTREAM_PORT": str(port),
         "VIETNAM_TRIP_EVIDENCE_DIR": str(logs),
     })
     server = None
     start = time.monotonic()
     result = 1
-    with (logs / "run.log").open("w") as out, (logs / "api.log").open("w") as api_log:
+    proxy = qa_proxy(port) if case == "vietnam-trip-qa.ts" else contextlib.nullcontext(port)
+    with proxy as external_port, (logs / "run.log").open("w") as out, (logs / "api.log").open("w") as api_log:
+        env["VIETNAM_TRIP_BASE_URL"] = f"http://127.0.0.1:{external_port}"
         try:
             if case not in self_hosted:
                 server = subprocess.Popen(
@@ -98,10 +122,14 @@ def run_case(case, database, scratch, evidence):
                             ["bun", "run", "scripts/dev-data.ts", "friend", name],
                             cwd=api, env=env, stdout=out, stderr=out, check=True, timeout=4,
                         )
-            result = subprocess.run(
-                ["node", "--import", "tsx", f"scripts/{case}"] if case in self_hosted or case == "identity-friends-import-e2e.ts" else ["bun", "run", f"scripts/{case}"], cwd=api, env=env,
-                stdout=out, stderr=out, timeout=30 - (time.monotonic() - start),
-            ).returncode
+            command = ["bun", "run", f"scripts/{case}"]
+            if case in self_hosted or case == "identity-friends-import-e2e.ts":
+                command = ["node", "--import", "tsx", f"scripts/{case}"]
+            test = subprocess.Popen(command, cwd=api, env=env, stdout=out, stderr=out, start_new_session=True)
+            try:
+                result = test.wait(timeout=max(0, 30 - (time.monotonic() - start)))
+            finally:
+                stop(test)
         except (subprocess.SubprocessError, RuntimeError) as error:
             out.write(f"\n{error}\n")
         finally:
@@ -130,6 +158,8 @@ def run(args):
         chosen = [args.case]
         if args.case not in suite:
             raise ValueError(f"Unknown E2E case: {args.case}")
+    plan = split(chosen, args.total_shards, args.history)
+    chosen = plan[args.shard]
     if args.list:
         print(json.dumps(chosen))
         return True
@@ -144,8 +174,10 @@ def run(args):
         "environment": platform.platform(),
         "bun": subprocess.check_output(["bun", "--version"], text=True).strip(),
         "expected": suite, "selected": chosen, "seed": seed, "results": [],
-        "replay": f"python3 .github/scripts/api-e2e.py --seed {seed}" + (f" --base {args.base}" if args.base else "") + (f" --case {args.case}" if args.case else ""),
+        "shard": args.shard, "plan": plan,
+        "replay": f"python3 .github/scripts/api-e2e.py --seed {seed} --shard {args.shard} --total-shards {args.total_shards}" + (f" --base {args.base}" if args.base else "") + (f" --case {args.case}" if args.case else ""),
     }
+    started = time.monotonic()
     try:
         if chosen:
             with tempfile.TemporaryDirectory(prefix="api-e2e-", dir=evidence.parent) as temp:
@@ -165,9 +197,11 @@ def run(args):
                 finally:
                     subprocess.run([*pg, "-m", "fast", "stop"], check=True)
     finally:
+        summary["seconds"] = round(time.monotonic() - started, 3)
         (evidence / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return (
         sorted(result["file"] for result in summary["results"]) == sorted(chosen)
+        and (args.total_shards == 1 or summary["seconds"] <= 30)
         and all(r["exit"] == 0 and r["within_budget"] for r in summary["results"])
     )
 
@@ -178,6 +212,9 @@ if __name__ == "__main__":
     parser.add_argument("--case", help="Replay one existing script")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--shard", type=int, default=0)
+    parser.add_argument("--total-shards", type=int, default=1)
+    parser.add_argument("--history", type=pathlib.Path)
     parser.add_argument("--workers", type=int, default=len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count())
     parser.add_argument("--postgres", type=pathlib.Path)
     parser.add_argument("--evidence", type=pathlib.Path, default=root / ".scratch/ci/api-e2e")

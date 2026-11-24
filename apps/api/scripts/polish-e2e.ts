@@ -129,7 +129,7 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
   const server = spawn(ciRun ? 'bun' : 'npm', args, {
     cwd: repositoryRoot,
     env: { ...process.env, DATABASE_URL: databaseURL, MOBILE_JWT_SECRET: mobileSecret, NEXTAUTH_SECRET: mobileSecret, NODE_ENV: 'development' },
-    detached: true,
+    detached: !ciRun,
     stdio: ['ignore', outFd, errFd],
   })
   closeSync(outFd)
@@ -554,7 +554,10 @@ async function main() {
     writeReport()
     // A failed run stops the server it started, so the port is free for the next run.
     if ((ciRun || !succeeded) && server?.pid) {
-      try { process.kill(-server.pid, 'SIGTERM') } catch { /* already gone */ }
+      if (ciRun) server.kill('SIGTERM')
+      else {
+        try { process.kill(-server.pid, 'SIGTERM') } catch { /* already gone */ }
+      }
     }
     await fixture.db.$disconnect().catch(() => undefined)
     if (ciRun || !startServer) await fixture.close().catch(() => undefined)

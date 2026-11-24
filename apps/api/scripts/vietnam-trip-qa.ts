@@ -25,7 +25,7 @@ const defaultEvidenceRoot = resolve(repositoryRoot, '.scratch/vietnam-trip/evide
 const baseURL = process.env.VIETNAM_TRIP_BASE_URL?.trim() || 'http://127.0.0.1:31300'
 const evidenceRoot = process.env.VIETNAM_TRIP_EVIDENCE_DIR?.trim() || defaultEvidenceRoot
 const ciRun = process.env.BILLBANDIT_CI_E2E === '1'
-const port = ciRun ? Number(new URL(baseURL).port) : 31301
+const port = ciRun ? Number(process.env.VIETNAM_TRIP_UPSTREAM_PORT) : 31301
 const startedServer = process.env.START_VIETNAM_TRIP_SERVER === '1'
 const suffix = `${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
 const handleSuffix = randomBytes(2).toString('hex')
@@ -233,7 +233,7 @@ function startNextServer(databaseURL: string): { server: ChildProcess; readiness
       NEXTAUTH_SECRET: mobileSecret,
       NODE_ENV: 'development',
     },
-    detached: true,
+    detached: !ciRun,
     stdio: ['ignore', stdoutFd, stderrFd],
   })
   closeSync(stdoutFd)
@@ -608,6 +608,7 @@ async function main() {
       method: 'PUT',
       body: { offline: false, dropNextExpenseResponse: true },
     })
+    if (ciRun) expectStatus(proxyControl, 200, 'configure CI fault proxy')
     if (proxyControl.status === 200) {
       let dropped = false
       try {
@@ -776,13 +777,7 @@ async function main() {
     await fixture?.db.$disconnect().catch(() => undefined)
     // Keep the disposable schema and detached server for simulator QA. The root
     // agent can drop the schema and database after the mobile flow completes.
-    if (ciRun && server?.pid) {
-      try {
-        process.kill(-server.pid, 'SIGTERM')
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-      }
-    }
+    if (ciRun) server?.kill('SIGTERM')
     if (ciRun || !startedServer) await fixture?.close().catch(() => undefined)
   }
 }
