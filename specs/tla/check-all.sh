@@ -27,6 +27,7 @@ for cfg in ${ONLY:-"$ROOT"/*/*after*.cfg "$ROOT"/*/*fixed*.cfg}; do
   # -deadlock turns off only the "no next step" check: these models end when
   # all work is done. Invariants and PROPERTIES are still checked.
   flags="-deadlock"
+  if [ "${TLC_COVERAGE:-0}" = 1 ]; then flags="$flags -coverage 1"; fi
   if [ ! -f "$cfg" ] || [ ! -f "$spec" ]; then
     echo "$slice/$name: missing model inputs" >> "$OUT"
     failed=1

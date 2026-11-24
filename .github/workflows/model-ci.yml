@@ -18,7 +18,7 @@ concurrency:
 jobs:
   models:
     name: TLA+ (${{ matrix.lane }})
-    runs-on: ${{ vars.BILLBANDIT_CI_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           if [[ -n "$BASE_SHA" ]] && git diff --quiet "$BASE_SHA" HEAD -- specs/tla/ .github/workflows/model-ci.yml; then
-            echo 'No model inputs changed. Merge groups and main run every model.'
+            echo 'No model inputs changed. The merge queue checks the bounded suite. Main checks the full suite.'
             exit 0
           fi
           mapfile -t all < <(git ls-files 'specs/tla/*/*after*.cfg' 'specs/tla/*/*fixed*.cfg')
@@ -53,7 +53,12 @@ jobs:
               specs/tla/ios-settlement-shell/*) lane=ios-settlement-shell ;;
               *) lane=other-models ;;
             esac
-            if [[ "$LANE" == "$lane" ]]; then cases+=("$PWD/$model"); fi
+            if [[ "$LANE" == "$lane" ]]; then
+              if [[ "$lane" == ledger-kernel && "$GITHUB_EVENT_NAME" != push ]]; then
+                model=specs/tla/ledger-kernel/LedgerKernel_queue.cfg
+              fi
+              cases+=("$PWD/$model")
+            fi
           done
           test "${#cases[@]}" -gt 0
           printf 'cases=%s\n' "${cases[*]}" >> "$GITHUB_OUTPUT"
@@ -75,16 +80,18 @@ jobs:
           export OUT="$evidence/results.txt" TLC_LOG_DIR="$evidence/logs"
           export TLA2TOOLS="$evidence/tla2tools.jar" TLC_WORKERS="$(nproc)"
           export TLC_HEAP=3g TLC_FP_MEMORY=0.25
+          limit=35s
           if [[ "$LANE" == ledger-kernel ]]; then
-            export TLC_HEAP=8g TLC_FP_MEMORY=0.40
+            if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+              export TLC_HEAP=8g TLC_FP_MEMORY=0.40
+              limit=12m
+            else
+              export TLC_COVERAGE=1
+            fi
           fi
           printf 'ONLY=%s\nTLC_WORKERS=%s\nTLC_HEAP=%s\nTLC_FP_MEMORY=%s\ncommand=sh specs/tla/check-all.sh\n' \
             "$ONLY" "$TLC_WORKERS" "$TLC_HEAP" "$TLC_FP_MEMORY" >> "$evidence/replay.txt"
-          if [[ "$LANE" == ledger-kernel ]]; then
-            timeout 12m sh specs/tla/check-all.sh
-          else
-            timeout 35s sh specs/tla/check-all.sh
-          fi
+          timeout "$limit" sh specs/tla/check-all.sh
       - name: Upload model evidence
         if: ${{ !cancelled() && steps.select.outputs.cases != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
