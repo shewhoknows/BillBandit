@@ -1,6 +1,8 @@
+import concurrent.futures
 import datetime
 import json
 import os
+import pathlib
 import subprocess
 import sys
 
@@ -10,7 +12,7 @@ def seconds_between(start, end):
             datetime.datetime.fromisoformat(start)).total_seconds()
 
 
-def check(job_name, command_step):
+def run_job(job_name):
     repo = os.environ["GITHUB_REPOSITORY"]
     run = os.environ["GITHUB_RUN_ID"]
     attempt = os.environ["GITHUB_RUN_ATTEMPT"]
@@ -21,8 +23,27 @@ def check(job_name, command_step):
     matches = [job for job in json.loads(data)["jobs"] if job["name"] == job_name]
     if len(matches) != 1:
         raise RuntimeError(f"Expected one job named {job_name}.")
-    job = matches[0]
-    command_start = next(step["started_at"] for step in job["steps"] if step["name"] == command_step)
+    return matches[0]
+
+
+def budget_data():
+    return pathlib.Path(os.environ["RUNNER_TEMP"]) / "api-job-budget.json"
+
+
+def run(job_name, command):
+    start = datetime.datetime.now(datetime.UTC).isoformat()
+    env = {key: value for key, value in os.environ.items() if key != "GH_TOKEN"}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        job = pool.submit(run_job, job_name)
+        result = subprocess.run(command, env=env)
+        budget_data().write_text(json.dumps({"job": job.result(), "command_start": start}))
+    return result.returncode
+
+
+def check():
+    data = json.loads(budget_data().read_text())
+    job = data["job"]
+    command_start = data["command_start"]
     now = datetime.datetime.now(datetime.UTC).isoformat()
     metrics = [
         ("Waiting", seconds_between(job["created_at"], job["started_at"]), 68),
@@ -41,4 +62,8 @@ def check(job_name, command_step):
 
 
 if __name__ == "__main__":
-    raise SystemExit(0 if check(*sys.argv[1:]) else 1)
+    if sys.argv[1] == "run":
+        raise SystemExit(run(sys.argv[2], sys.argv[3:]))
+    if sys.argv[1:] != ["check"]:
+        raise SystemExit("Use run JOB COMMAND or check.")
+    raise SystemExit(0 if check() else 1)

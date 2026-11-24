@@ -122,11 +122,10 @@ def run_case(case, database, scratch, evidence):
                         raise RuntimeError("The API did not become ready. See api.log.")
                     time.sleep(.05)
                 if case != "identity-friends-import-e2e.ts":
-                    for name in ("Kabir", "Aarav", "Zoya"):
-                        subprocess.run(
-                            ["bun", "run", "scripts/dev-data.ts", "friend", name],
-                            cwd=api, env=env, stdout=out, stderr=out, check=True, timeout=4,
-                        )
+                    subprocess.run(
+                        ["bun", "run", "scripts/dev-data.ts", "friend", "Kabir", "Aarav", "Zoya"],
+                        cwd=api, env=env, stdout=out, stderr=out, check=True, timeout=4,
+                    )
             command = ["bun", "run", f"scripts/{case}"]
             if case in self_hosted or case == "identity-friends-import-e2e.ts":
                 command = ["node", "--import", "tsx", f"scripts/{case}"]
