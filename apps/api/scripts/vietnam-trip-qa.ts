@@ -10,7 +10,15 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
 import { dirname, resolve } from 'node:path'
@@ -181,7 +189,11 @@ async function waitForHealth(server: ChildProcess | null, readinessPaths: string
     // later appends, so the readiness line was missed.
     const poll = setInterval(() => {
       for (const path of readinessPaths) {
-        try { ready(readFileSync(path, 'utf8')) } catch { /* the child may still be creating the file */ }
+        try {
+          ready(readFileSync(path, 'utf8'))
+        } catch {
+          /* the child may still be creating the file */
+        }
       }
     }, 200)
     const closeWatchers = () => clearInterval(poll)

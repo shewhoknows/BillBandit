@@ -155,7 +155,11 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
     // later appends, so the readiness line was missed.
     const poll = setInterval(() => {
       for (const path of [out, err]) {
-        try { if (/ready|started server/i.test(readFileSync(path, 'utf8'))) finish() } catch { /* file still opening */ }
+        try {
+          if (/ready|started server/i.test(readFileSync(path, 'utf8'))) finish()
+        } catch {
+          /* file still opening */
+        }
       }
     }, 200)
     server.once('exit', (code) => finish(new Error(`Next exited early with code ${code}`)))
