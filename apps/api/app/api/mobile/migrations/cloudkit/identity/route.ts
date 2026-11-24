@@ -23,16 +23,24 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ error: 'A JSON body with cloudKitRecordName is required.' }, { status: 400, headers: noStoreHeaders })
+    return NextResponse.json(
+      { error: 'A JSON body with cloudKitRecordName is required.' },
+      { status: 400, headers: noStoreHeaders },
+    )
   }
-  const cloudKitRecordName = body && typeof body === 'object' && !Array.isArray(body)
-    ? (body as { cloudKitRecordName?: unknown }).cloudKitRecordName
-    : undefined
+  const cloudKitRecordName =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as { cloudKitRecordName?: unknown }).cloudKitRecordName
+      : undefined
   try {
-    const result = await linkCloudKitIdentityForAccount({ accountId: session.user.id, cloudKitRecordName })
+    const result = await linkCloudKitIdentityForAccount({
+      accountId: session.user.id,
+      cloudKitRecordName,
+    })
     return NextResponse.json(result, { headers: noStoreHeaders })
   } catch (error) {
-    if (cloudKitImportErrorStatus(error) === 500) console.error('[POST /api/mobile/migrations/cloudkit/identity]', error)
+    if (cloudKitImportErrorStatus(error) === 500)
+      console.error('[POST /api/mobile/migrations/cloudkit/identity]', error)
     return NextResponse.json(cloudKitImportErrorBody(error), {
       status: cloudKitImportErrorStatus(error),
       headers: noStoreHeaders,

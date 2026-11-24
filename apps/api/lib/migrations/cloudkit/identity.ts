@@ -32,11 +32,17 @@ export async function lockCloudKitKey(tx: DbTransaction, key: string): Promise<v
 
 export function normalizeCloudKitSubject(value: unknown, path = 'cloudKitRecordName'): string {
   if (typeof value !== 'string') {
-    throw new CloudKitImportValidationError('invalid_envelope', `${path} must be a CloudKit user record name`)
+    throw new CloudKitImportValidationError(
+      'invalid_envelope',
+      `${path} must be a CloudKit user record name`,
+    )
   }
   const subject = value.trim()
   if (subject.length === 0 || subject.length > 255 || /\s/.test(subject)) {
-    throw new CloudKitImportValidationError('invalid_envelope', `${path} must be a CloudKit user record name`)
+    throw new CloudKitImportValidationError(
+      'invalid_envelope',
+      `${path} must be a CloudKit user record name`,
+    )
   }
   return subject
 }
@@ -54,7 +60,7 @@ export async function linkCloudKitIdentity(
   accountId: string,
   rawSubject: string,
   via: 'cloudkit-import' | 'device',
-  now: Date
+  now: Date,
 ): Promise<CloudKitLinkOutcome> {
   const subject = normalizeCloudKitSubject(rawSubject)
   await lockCloudKitKey(tx, accountId)
@@ -68,7 +74,7 @@ export async function linkCloudKitIdentity(
     throw new CloudKitImportNeedsRepairError(
       'This iCloud account is already linked to another BillBandit account',
       'identity_conflict',
-      { conflict: 'subject_linked_elsewhere' }
+      { conflict: 'subject_linked_elsewhere' },
     )
   }
   const byAccount = await tx.externalIdentity.findUnique({
@@ -79,12 +85,15 @@ export async function linkCloudKitIdentity(
     throw new CloudKitImportNeedsRepairError(
       'This BillBandit account is already linked to a different iCloud account',
       'identity_conflict',
-      { conflict: 'account_linked_elsewhere' }
+      { conflict: 'account_linked_elsewhere' },
     )
   }
   const user = await tx.user.findUnique({ where: { id: accountId }, select: { deletedAt: true } })
   if (!user || user.deletedAt) {
-    throw new CloudKitImportNeedsRepairError('the authenticated account does not exist', 'identity_not_claimed')
+    throw new CloudKitImportNeedsRepairError(
+      'the authenticated account does not exist',
+      'identity_not_claimed',
+    )
   }
   assertCloudKitLinkTransition('unlinked', 'linked')
   await tx.externalIdentity.create({
@@ -98,7 +107,10 @@ export async function linkCloudKitIdentity(
   return 'linked'
 }
 
-export async function linkedCloudKitAccount(tx: DbTransaction, subject: string): Promise<string | null> {
+export async function linkedCloudKitAccount(
+  tx: DbTransaction,
+  subject: string,
+): Promise<string | null> {
   const row = await tx.externalIdentity.findUnique({
     where: { provider_subject: { provider: CLOUDKIT_IDENTITY_PROVIDER, subject } },
     select: { accountId: true },
@@ -114,11 +126,14 @@ export async function linkedCloudKitAccount(tx: DbTransaction, subject: string):
 export async function resolveLegacyFriendAccount(
   tx: DbTransaction,
   importerAccountId: string,
-  subject: string
+  subject: string,
 ): Promise<string | null> {
   const friendAccountId = await linkedCloudKitAccount(tx, subject)
   if (!friendAccountId || friendAccountId === importerAccountId) return null
-  const friend = await tx.user.findUnique({ where: { id: friendAccountId }, select: { deletedAt: true } })
+  const friend = await tx.user.findUnique({
+    where: { id: friendAccountId },
+    select: { deletedAt: true },
+  })
   if (!friend || friend.deletedAt) return null
   const friendship = await tx.friendship.findUnique({
     where: { fromId_toId: normalizedFriendPair(importerAccountId, friendAccountId) },
@@ -132,7 +147,11 @@ export async function resolveLegacyFriendAccount(
  * CloudKit identity) is keyed by that identity, so the same friend in several
  * legacy groups is one member; a name-only person is keyed by its person id.
  */
-export function legacyPersonKey(importerAccountId: string, cloudKitRecordName: string | null, personSourceId: string): string {
+export function legacyPersonKey(
+  importerAccountId: string,
+  cloudKitRecordName: string | null,
+  personSourceId: string,
+): string {
   return cloudKitRecordName
     ? `${importerAccountId}:ck:${cloudKitRecordName}`
     : `${importerAccountId}:person:${personSourceId}`
@@ -156,7 +175,7 @@ export async function ensureLegacyPersonAccount(
     personSourceId: string
     cloudKitRecordName: string | null
     displayName: string
-  }
+  },
 ): Promise<string> {
   const id = legacyPersonAccountId(input.key)
   await tx.user.upsert({
@@ -186,7 +205,10 @@ export async function ensureLegacyPersonAccount(
     select: { accountId: true },
   })
   if (marker.accountId !== id) {
-    throw new CloudKitImportNeedsRepairError('legacy person placeholder belongs to another account', 'identity_conflict')
+    throw new CloudKitImportNeedsRepairError(
+      'legacy person placeholder belongs to another account',
+      'identity_conflict',
+    )
   }
   return id
 }

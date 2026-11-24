@@ -135,7 +135,10 @@ export function assertCloudKitLinkTransition(from: CloudKitLinkState, to: CloudK
 // transaction)--> owner | friend | placeholder. Terminal: later runs read the
 // frozen answer and never re-decide, even if a link or friendship appears.
 export type LegacyPersonResolution = 'unresolved' | 'owner' | 'friend' | 'placeholder'
-export const LEGACY_PERSON_TRANSITIONS: Record<LegacyPersonResolution, readonly LegacyPersonResolution[]> = {
+export const LEGACY_PERSON_TRANSITIONS: Record<
+  LegacyPersonResolution,
+  readonly LegacyPersonResolution[]
+> = {
   unresolved: ['owner', 'friend', 'placeholder'],
   owner: [],
   friend: [],
