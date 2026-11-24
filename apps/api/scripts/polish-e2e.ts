@@ -37,6 +37,7 @@ const apiRoot = resolve(repositoryRoot, 'apps/api')
 const evidenceRoot = process.env.POLISH_E2E_EVIDENCE_DIR?.trim() || resolve(repositoryRoot, '.scratch/polish-e2e')
 const port = Number(process.env.POLISH_E2E_PORT ?? 31401)
 const baseURL = `http://127.0.0.1:${port}`
+const ciRun = process.env.BILLBANDIT_CI_E2E === '1'
 const startServer = process.env.START_POLISH_SERVER === '1'
 const suffix = `${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
 const handleSuffix = randomBytes(2).toString('hex')
@@ -94,11 +95,10 @@ function mobileToken(user: { id: string; email: string; name: string }): string 
     "const user = JSON.parse(process.env.POLISH_USER ?? '{}')",
     'process.stdout.write(createMobileToken(user))',
   ].join(';')
-  return execFileSync(process.execPath, ['--import', 'tsx', '--eval', helper], {
+  return execFileSync('bun', ['--eval', helper], {
     cwd: apiRoot,
     env: {
       ...process.env,
-      TSX_TSCONFIG_PATH: resolve(apiRoot, 'tsconfig.json'),
       POLISH_USER: JSON.stringify(user),
       MOBILE_JWT_SECRET: mobileSecret,
       NEXTAUTH_SECRET: mobileSecret,
@@ -122,10 +122,20 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
   writeFileSync(err, '', { mode: 0o600 })
   const outFd = openSync(out, 'a', 0o600)
   const errFd = openSync(err, 'a', 0o600)
-  const server = spawn('npm', ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', String(port), '-H', '0.0.0.0'], {
+  const args = [
+    'run',
+    '--cwd',
+    apiRoot,
+    'dev',
+    '-p',
+    String(port),
+    '-H',
+    ciRun ? '127.0.0.1' : '0.0.0.0',
+  ]
+  const server = spawn('bun', args, {
     cwd: repositoryRoot,
     env: { ...process.env, DATABASE_URL: databaseURL, MOBILE_JWT_SECRET: mobileSecret, NEXTAUTH_SECRET: mobileSecret, NODE_ENV: 'development' },
-    detached: true,
+    detached: !ciRun,
     stdio: ['ignore', outFd, errFd],
   })
   closeSync(outFd)
@@ -549,11 +559,18 @@ async function main() {
   } finally {
     writeReport()
     // A failed run stops the server it started, so the port is free for the next run.
-    if (!succeeded && server?.pid) {
-      try { process.kill(-server.pid, 'SIGTERM') } catch { /* already gone */ }
+    if ((ciRun || !succeeded) && server?.pid) {
+      if (ciRun) server.kill('SIGTERM')
+      else {
+        try {
+          process.kill(-server.pid, 'SIGTERM')
+        } catch {
+          /* already gone */
+        }
+      }
     }
     await fixture.db.$disconnect().catch(() => undefined)
-    if (!startServer) await fixture.close().catch(() => undefined)
+    if (ciRun || !startServer) await fixture.close().catch(() => undefined)
   }
 }
 
@@ -576,7 +593,7 @@ function writeReport() {
     '## Run it again',
     '',
     '```sh',
-    'node --import tsx apps/api/scripts/polish-e2e.ts',
+    'bun run apps/api/scripts/polish-e2e.ts',
     '```',
     '',
   ].join('\n')

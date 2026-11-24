@@ -27,12 +27,12 @@ has a TLA+ model in `specs/tla/<part>/` that the TLC model checker checked.
   cd apps/api
   MOBILE_AUTH_MOCK_APPLE_SUBJECT=ifi-e2e-apple-subject \
   MOBILE_AUTH_MOCK_APPLE_EMAIL=ifi-e2e@dev.billbandit.local npm run dev:server
-  npx tsx scripts/dev-data.ts scenario
-  npx tsx scripts/settlement-e2e.ts
-  npx tsx scripts/ledger-kernel-e2e.ts        # also adds dev_zoya
-  npx tsx scripts/any-member-delete-e2e.ts    # needs dev_zoya, so run it after ledger-kernel-e2e
-  npx tsx scripts/identity-friends-import-e2e.ts
-  npx tsx scripts/simplify-debts-e2e.ts
+  bun run scripts/dev-data.ts scenario
+  bun run scripts/settlement-e2e.ts
+  bun run scripts/ledger-kernel-e2e.ts        # also adds dev_zoya
+  bun run scripts/any-member-delete-e2e.ts    # needs dev_zoya, so run it after ledger-kernel-e2e
+  bun run scripts/identity-friends-import-e2e.ts
+  bun run scripts/simplify-debts-e2e.ts
   ```
 
   Each script prints the revision, environment, replay command and a PASS/FAIL
