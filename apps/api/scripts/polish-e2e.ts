@@ -22,7 +22,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
 import { dirname, resolve } from 'node:path'
@@ -147,13 +147,21 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      watchers.forEach((entry) => entry.close())
+      clearInterval(poll)
       error ? fail(error) : done()
     }
     const timer = setTimeout(() => finish(new Error('Next did not start within 120 seconds')), 120_000)
-    const watchers = [out, err].map((path) => watch(path, { persistent: false }, () => {
-      try { if (/ready|started server/i.test(readFileSync(path, 'utf8'))) finish() } catch { /* file still opening */ }
-    }))
+    // Poll rather than fs.watch: under Bun on macOS the watcher stops reporting
+    // later appends, so the readiness line was missed.
+    const poll = setInterval(() => {
+      for (const path of [out, err]) {
+        try {
+          if (/ready|started server/i.test(readFileSync(path, 'utf8'))) finish()
+        } catch {
+          /* file still opening */
+        }
+      }
+    }, 200)
     server.once('exit', (code) => finish(new Error(`Next exited early with code ${code}`)))
   })
   return server
