@@ -159,5 +159,82 @@ all-pending export and rejects changes to imported expenses and payments. The
 `CloudKitImport-change-after` model permits either completion or a reported
 conflict for a changed imported record.
 
-The separate identity-link gap remains: production code does not create the
-CloudKit external identities needed by `resolvePeople`.
+The identity-link gap is closed in §6.
+
+## 6. CloudKit identity links and legacy people (branch `fix/cloudkit-identity-linking`)
+
+**Bug (TestFlight build 35, 2026-11-24).** `resolvePeople` needed an
+`ExternalIdentity(provider 'cloudkit', subject = CloudKit user record name)` row
+for every person, and production never created one. Every account with
+`BillBandit.Group.*` zones ended `FAILED` (`needs-repair`), and the app showed
+"Old iCloud data not moved". Name-only people (no `cloudUser`) also had no claim
+and failed `missing_member_claim`. Reproduced against `origin/main` over HTTP:
+`specs/tla/identity-friends-import/e2e-cloudkit-identity-stuck.txt`.
+
+**Link** (`lib/migrations/cloudkit/identity.ts`, `CLOUDKIT_LINK_TRANSITIONS`):
+
+| Event | From → To | Guard | Code |
+| --- | --- | --- | --- |
+| Owner's import prepare | `unlinked` → `linked(owner subject)` | subject not linked to another account; account has no other subject | `linkCloudKitIdentity` from `prepareImport` |
+| `POST /api/mobile/migrations/cloudkit/identity` from the app | `unlinked` → `linked` | same | `app/api/mobile/migrations/cloudkit/identity/route.ts` |
+| Same account, same subject | `linked` → `linked` | — | answers `already_linked` |
+| Subject taken, or account holds another subject | refused, nothing moves | — | 409 `identity_conflict` (import: `needs-repair`) |
+| Account deleted | `linked` → `unlinked` | — | `lib/account-deletion.ts` deletes the row |
+
+Locks: account import lock `cloudkit-import:<account>`, then
+`cloudkit-import:identity:<subject>`, in one transaction. The server cannot prove
+a CloudKit subject, so a link is trust-on-first-use. It is kept narrow. A link
+only lets an account import its own export, and the account could build that
+export by hand anyway. One iCloud user's legacy data goes to one account (the
+second account gets `identity_conflict`). A link alone never adds an account to
+someone else's group.
+
+**Person resolution** (`LEGACY_PERSON_TRANSITIONS`). Each legacy person is
+resolved once:
+
+| Answer | When | Account |
+| --- | --- | --- |
+| `owner` | CloudKit identity = export owner | the authenticated account |
+| `friend` | the identity is linked to account F **and** importer and F are accepted server friends **and** F is live | F (becomes a group member, sees the group) |
+| `placeholder` | anyone else: not on BillBandit, not linked, not a friend, name-only | importer-scoped user `cloudkit-person-<hash>`: no Apple account, password, phone, username or session; marked by `ExternalIdentity(provider 'cloudkit-legacy-person', subject '<importer>:ck:<subject>'` or `'<importer>:person:<id>')`. One per friend per importer, shared across groups |
+
+Two consents are needed before an import can add a real account: the friend's
+own link and the friendship. Residual risk: someone who knows a victim's CloudKit
+record name (other members of a shared legacy zone see it) and links it first
+could, if they are also the importer's server friend, receive that member's
+seat. The victim's own link then gets `identity_conflict`. Closing this needs
+CloudKit web-auth-token verification of the subject on the server.
+
+**Frozen resolution.** All person records of an import commit in **one
+transaction** (phase 1). Each run then re-reads the committed person rows
+before writing any money (phase 2, `processAllRecords`). Before this, a run
+that resolved people before a friendship appeared wrote that friend's splits to
+the real account, while the person row (from another run) said placeholder. TLC
+counterexample: `CloudKitIdentity-before-money` (`Resolve(w1) Befriend
+Resolve(w2) People(w1) … Money(w2)` → money for `meera`, row `placeholder`).
+After: `MoneySingleOwner` holds (`tlc-CloudKitIdentity-after.txt`). The link
+model without the lock answers 500 when two accounts link one subject at once
+(`CloudKitIdentity-before-link`). With the lock, `NoServerError` and
+`LinkNeverMoves` hold.
+
+`LedgerImport.state` transitions are unchanged. The stuck build-35 rows
+(`FAILED`, no records, no metadata) recover through the existing
+`FAILED → RUNNING` (same checksum) move. `GET` / list now return those rows as
+`needs-repair` instead of failing to load their missing metadata
+(`buildStoredImportResult`). Interactive transactions use a 60 s timeout:
+Prisma's 5 s default is too short for a real export over a remote database.
+
+**App** (`CloudCollaboration.swift`):
+- `needsRepair` is no longer final. The same frozen checkpoint is resent once
+  per app build and then at most daily, except after `completed_import_frozen`.
+- A 409 `needs-repair` body is decoded, so the import id is kept.
+- The app links its CloudKit identity once per account and iCloud user, so
+  friends' imports can match it.
+- The "Old iCloud data not moved" notice still shows once per account.
+
+**Proof.** HTTP E2E `apps/api/scripts/cloudkit-identity-import-e2e.ts` ran in two
+phases on one database. `stuck` ran against `origin/main` and reproduced the
+real stuck row. `fix` ran against this branch: 14/14 PASS
+(`e2e-cloudkit-identity-fix.txt`). The existing
+`identity-friends-import-e2e.ts` still passes 22/22 on this branch
+(`e2e-after-cloudkit-identity.txt`).

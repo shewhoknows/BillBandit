@@ -114,3 +114,33 @@ export const IMPORT_RECORD_TRANSITIONS: Record<ImportRecordState, readonly Impor
 export function assertImportRecordTransition(from: string, to: ImportRecordState) {
   assertIn('cloudkit import record', IMPORT_RECORD_TRANSITIONS, from as ImportRecordState, to)
 }
+
+// ── CloudKit identity link (ExternalIdentity provider 'cloudkit') ──────────
+// unlinked --owner's import prepare | device link--> linked(subject)
+// linked --same account, same subject--> linked (no-op)
+// linked --account deleted--> unlinked (row deleted with the account)
+// A request for a subject linked to another account, or a second subject for
+// a linked account, is refused with identity_conflict: a link never moves.
+export type CloudKitLinkState = 'unlinked' | 'linked'
+export const CLOUDKIT_LINK_TRANSITIONS: Record<CloudKitLinkState, readonly CloudKitLinkState[]> = {
+  unlinked: ['linked'],
+  linked: ['linked', 'unlinked'],
+}
+export function assertCloudKitLinkTransition(from: CloudKitLinkState, to: CloudKitLinkState) {
+  assertIn('cloudkit link', CLOUDKIT_LINK_TRANSITIONS, from, to)
+}
+
+// ── Legacy person resolution (person LedgerImportRecord.targetId) ─────────
+// unresolved --phase 1 commit (all people of the import in one
+// transaction)--> owner | friend | placeholder. Terminal: later runs read the
+// frozen answer and never re-decide, even if a link or friendship appears.
+export type LegacyPersonResolution = 'unresolved' | 'owner' | 'friend' | 'placeholder'
+export const LEGACY_PERSON_TRANSITIONS: Record<
+  LegacyPersonResolution,
+  readonly LegacyPersonResolution[]
+> = {
+  unresolved: ['owner', 'friend', 'placeholder'],
+  owner: [],
+  friend: [],
+  placeholder: [],
+}

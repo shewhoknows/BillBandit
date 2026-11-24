@@ -123,6 +123,7 @@ export type CloudKitValidationErrorCode =
   | 'missing_source_owner'
   | 'missing_member_claim'
   | 'identity_not_claimed'
+  | 'identity_conflict'
   | 'money_not_exact'
   | 'money_not_representable'
   | 'dependency_missing'

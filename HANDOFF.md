@@ -2,11 +2,29 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-24, build 35 release preparation. See the current evidence report for production and App Store Connect state.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-24, CloudKit legacy import fix (branch `fix/cloudkit-identity-linking`); build 35 release preparation. See the current evidence report for production and App Store Connect state.**
 
 ---
 
 ## 1. What this is
+
+### 2026-11-24 — CloudKit legacy import completes for real accounts (branch `fix/cloudkit-identity-linking`, PR #59)
+
+- Fixes the build 35 TestFlight finding "Old iCloud data not moved". This is a server and client fix. Before it, every account with `BillBandit.Group.*` zones ended `needs-repair`, because nothing created the `ExternalIdentity(cloudkit)` rows that `resolvePeople` needs. Reproduced against `origin/main`: `specs/tla/identity-friends-import/e2e-cloudkit-identity-stuck.txt`.
+- How it works now (full design and safety notes: `docs/state-machines/identity-friends-import.md` §6):
+  - The import links the owner's own CloudKit identity to the signed-in account. The app also links it via `POST /api/mobile/migrations/cloudkit/identity`. Links are exclusive and never move: a taken subject gets `identity_conflict`.
+  - A legacy friend becomes a real group member only if they linked their own identity **and** are an accepted server friend of the importer.
+  - Everyone else becomes a placeholder member that nobody can sign in as (`cloudkit-person-*`). Their money stays exact.
+  - People are resolved in one transaction and frozen before any money is written. TLA+ `CloudKitIdentity.tla` checks this: before fails, after passes.
+- Stuck accounts recover with no data repair. Their FAILED rows (no records) retry `FAILED → RUNNING` with the same frozen export. List/GET now show those rows as `needs-repair` instead of erroring.
+- The app retries `needsRepair` once per build and then daily (not after `completed_import_frozen`). It keeps the import id from 409 bodies and links its CloudKit identity once. iOS generic-device build succeeded. No simulator or device run.
+- Interactive import transactions now use a 60 s timeout. The 5 s default would 500 on a real export over Railway's database.
+- Evidence: `cloudkit-identity-import-e2e.ts` 14/14 PASS against this branch, after the stuck phase ran against `origin/main` (`e2e-cloudkit-identity-fix.txt`). The existing `identity-friends-import-e2e.ts` passes 22/22. The replay is in each file's header.
+- Needs a new app build for recovery: build 35 never retries `needsRepair`. Deploying the server alone does not unstick anyone. Merge to `main` auto-deploys production, so it is the owner's call.
+- Open follow-ups:
+  - A claim flow so the importer can hand a placeholder to the friend's real account after import. This re-points ledger rows and needs owner sign-off.
+  - Mark placeholder members in the read model or UI.
+  - Optional: verify CloudKit subjects with CloudKit web auth tokens, which closes the link-squatting risk described in §6.
 
 ### 2026-11-24 — Build 35 TestFlight findings (branch `fix/build35-testflight-findings`, from `main` 136e120)
 

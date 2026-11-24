@@ -1,0 +1,24 @@
+# CloudKit identity import E2E (phase fix)
+revision: ffa4963727a635b2f4fbe7400053a6b0e29ecd05+dirty
+environment: api=http://127.0.0.1:3142 db=postgresql://prateekranka@localhost:5432/bb_cloudkit_identity_e2e_20261124 node=v22.23.2 health=200 run=mwuutg4522bf at=2026-11-24T15:33:37.306Z
+artifacts: /Users/prateekranka/worktrees/billbandit-cloudkit-import/.scratch/e2e/cloudkit-identity-import/final
+replay: cd apps/api && DEV_DATABASE_URL=postgresql://prateekranka@localhost:5432/bb_cloudkit_identity_e2e_20261124 DEV_API_BASE=http://127.0.0.1:3142 PHASE=fix STATE=/Users/prateekranka/worktrees/billbandit-cloudkit-import/.scratch/e2e/cloudkit-identity-import/final/state.json npx tsx scripts/cloudkit-identity-import-e2e.ts
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| Setup: Arjun is Priya's server friend; Meera and Rohan are not | PASS |  |
+| Device link: Arjun and Meera link their own iCloud from their phones; repeat is a no-op | PASS | 200,200,200 linked,linked,already_linked |
+| Device link: a second account cannot take Arjun's iCloud identity; bad input is 400 | PASS | squat=409/identity_conflict secondSubject=409/identity_conflict blank=400 |
+| Stuck account: Priya's build-35 import is listed as needs-repair before the retry | PASS | imports=needs-repair:CloudKit identity _e2fd0ec0fcd6df3a5f483d23649e138f is not linked to an API account |
+| Recovery: the app resends the same frozen export -> 200 completed on the same import | PASS | status=200 importId=same counts={"people":7,"groups":2,"expenses":5,"splits":17,"settlements":2,"activity":9,"importedRecords":25,"duplicateRecords":0} |
+| Money: every rupee imported exactly once in both groups | PASS | goa expenses=3/2825000 splits=11/2825000 payments=1/200000; flat expenses=2/3120000 splits=6/3120000 payments=1/500000 |
+| Balances: Priya's app shows the hand-computed balances for all five people | PASS | goa={"Priya":1466600,"Arjun":-608300,"Kabir":-508300,"Meera":-350000} flat={"Kabir":-280000,"Dadi":-660000,"Priya":940000} |
+| Friends: Arjun (linked + friend) is a real member and sees Goa; Meera (linked, not friend) does not | PASS | members=4 arjunGET=200 meeraGET=403 |
+| Placeholders: Meera, Kabir and Dadi are sign-in-less placeholders; Kabir is one member across both groups | PASS | placeholders=Dadi,Kabir,Kabir,Meera kabirAccounts=1 |
+| Replay: same export again and three at once -> 200, no 5xx, money unchanged | PASS | again=200 parallel=200,200,200 goa expenses=3/2825000 splits=11/2825000 payments=1/200000 |
+| Frozen: completed import refuses a different export (409 completed_import_frozen) | PASS | status=409 code=completed_import_frozen |
+| Conflict: another account sending Priya's iCloud export is refused; nothing imported | PASS | status=409 state=needs-repair reason=This iCloud account is already linked to another BillBandit account |
+| Conflict: an account linked to one iCloud cannot import another iCloud's export | PASS | link=linked import=409/needs-repair reason=This BillBandit account is already linked to a different iCloud account |
+| Crash between people and money: a friendship made mid-import does not move Meera; resume completes once | PASS | peopleAtCrash=IMPORTED,IMPORTED resume=200/completed meeraMember=placeholder expenses=1/400000 splits=2/400000 payments=0/null |
+
+14/14 PASS

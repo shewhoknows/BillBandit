@@ -1,0 +1,84 @@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Running breadth-first search Model-Checking with fp 51 and seed 4941853211674852181 with 2 workers on 10 cores with 3641MB heap and 64MB offheap memory [pid: 45129] (Mac OS X 27.2.1 aarch64, Homebrew 26.0.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /Users/prateekranka/worktrees/billbandit-cloudkit-import/specs/tla/identity-friends-import/CloudKitIdentity.tla
+Parsing file /private/var/folders/m7/7b9v0v0d67d4mc_kfvt7hmlw0000gn/T/Naturals.tla
+Parsing file /private/var/folders/m7/7b9v0v0d67d4mc_kfvt7hmlw0000gn/T/FiniteSets.tla
+Parsing file /private/var/folders/m7/7b9v0v0d67d4mc_kfvt7hmlw0000gn/T/Sequences.tla
+Semantic processing of module Naturals
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module CloudKitIdentity
+Starting... (2026-11-24 21:04:37)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-24 21:04:37.
+Error: Invariant NoServerError is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ personRow = "none"
+/\ lpc = (a1 :> "idle" @@ a2 :> "idle")
+/\ money = [m1 |-> {}, m2 |-> {}]
+/\ seen = (a1 :> "none" @@ a2 :> "none")
+/\ idx = (w1 :> 0 @@ w2 :> 0)
+/\ errors = 0
+/\ crashes = 0
+/\ res = (w1 :> "none" @@ w2 :> "none")
+/\ pc = (w1 :> "idle" @@ w2 :> "idle")
+/\ friends = FALSE
+/\ link = "none"
+
+State 2: <LinkStart line 52, col 3 to line 61, col 75 of module CloudKitIdentity>
+/\ personRow = "none"
+/\ lpc = (a1 :> "create" @@ a2 :> "idle")
+/\ money = [m1 |-> {}, m2 |-> {}]
+/\ seen = (a1 :> "none" @@ a2 :> "none")
+/\ idx = (w1 :> 0 @@ w2 :> 0)
+/\ errors = 0
+/\ crashes = 0
+/\ res = (w1 :> "none" @@ w2 :> "none")
+/\ pc = (w1 :> "idle" @@ w2 :> "idle")
+/\ friends = FALSE
+/\ link = "none"
+
+State 3: <LinkStart line 52, col 3 to line 61, col 75 of module CloudKitIdentity>
+/\ personRow = "none"
+/\ lpc = (a1 :> "create" @@ a2 :> "create")
+/\ money = [m1 |-> {}, m2 |-> {}]
+/\ seen = (a1 :> "none" @@ a2 :> "none")
+/\ idx = (w1 :> 0 @@ w2 :> 0)
+/\ errors = 0
+/\ crashes = 0
+/\ res = (w1 :> "none" @@ w2 :> "none")
+/\ pc = (w1 :> "idle" @@ w2 :> "idle")
+/\ friends = FALSE
+/\ link = "none"
+
+State 4: <LinkCreate line 64, col 3 to line 71, col 73 of module CloudKitIdentity>
+/\ personRow = "none"
+/\ lpc = (a1 :> "done" @@ a2 :> "create")
+/\ money = [m1 |-> {}, m2 |-> {}]
+/\ seen = (a1 :> "none" @@ a2 :> "none")
+/\ idx = (w1 :> 0 @@ w2 :> 0)
+/\ errors = 0
+/\ crashes = 0
+/\ res = (w1 :> "none" @@ w2 :> "none")
+/\ pc = (w1 :> "idle" @@ w2 :> "idle")
+/\ friends = FALSE
+/\ link = a1
+
+State 5: <LinkCreate line 64, col 3 to line 71, col 73 of module CloudKitIdentity>
+/\ personRow = "none"
+/\ lpc = (a1 :> "done" @@ a2 :> "done")
+/\ money = [m1 |-> {}, m2 |-> {}]
+/\ seen = (a1 :> "none" @@ a2 :> "none")
+/\ idx = (w1 :> 0 @@ w2 :> 0)
+/\ errors = 1
+/\ crashes = 0
+/\ res = (w1 :> "none" @@ w2 :> "none")
+/\ pc = (w1 :> "idle" @@ w2 :> "idle")
+/\ friends = FALSE
+/\ link = a1
+
+101 states generated, 73 distinct states found, 49 states left on queue.
+The depth of the complete state graph search is 5.
+The average outdegree of the complete state graph is 4 (minimum is 2, the maximum 5 and the 95th percentile is 5).
+Finished in 00s at (2026-11-24 21:04:37)
