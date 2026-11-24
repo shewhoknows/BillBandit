@@ -25,6 +25,7 @@ const defaultEvidenceRoot = resolve(repositoryRoot, '.scratch/vietnam-trip/evide
 const baseURL = process.env.VIETNAM_TRIP_BASE_URL?.trim() || 'http://127.0.0.1:31300'
 const evidenceRoot = process.env.VIETNAM_TRIP_EVIDENCE_DIR?.trim() || defaultEvidenceRoot
 const ciRun = process.env.BILLBANDIT_CI_E2E === '1'
+const uiFixtureDir = process.env.BILLBANDIT_UI_FIXTURE_DIR?.trim()
 const port = ciRun ? Number(process.env.VIETNAM_TRIP_UPSTREAM_PORT) : 31301
 const startedServer = process.env.START_VIETNAM_TRIP_SERVER === '1'
 const suffix = `${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
@@ -280,7 +281,121 @@ function expenseBody(input: {
   }
 }
 
+async function prepareUIFixtures(
+  db: PrismaClient,
+  directory: string,
+  accounts: {
+    aliceID: string
+    aliceToken: string
+    bobID: string
+    bobToken: string
+    outsiderToken: string
+  },
+) {
+  const { aliceID, aliceToken, bobID, bobToken, outsiderToken } = accounts
+  const group = expectStatus(
+    await request('/api/mobile/groups', {
+      token: aliceToken,
+      method: 'POST',
+      body: {
+        name: 'Shared overview QA',
+        currency: 'VND',
+        category: 'TRIP',
+        memberAccountIds: [bobID],
+      },
+    }),
+    201,
+    'overview fixture group',
+  )
+  const groupId = expectString((group.group as JsonRecord).id, 'overview group id')
+  const expenseId = randomUUID()
+  const expenseTitle = 'Shared overview QA dinner'
+  const expense = {
+    groupId,
+    expenseId,
+    amount: '1000',
+    paidById: bobID,
+    splitType: 'EXACT' as const,
+    splits: [
+      { userId: aliceID, amount: '500' },
+      { userId: bobID, amount: '500' },
+    ],
+  }
+  const created = expectStatus(
+    await request('/api/mobile/expenses', {
+      token: aliceToken,
+      method: 'POST',
+      body: expenseBody({
+        ...expense,
+        operationId: randomUUID(),
+        expectedRevision: 0,
+        description: 'Overview draft',
+      }),
+    }),
+    201,
+    'overview fixture expense',
+  )
+  expectStatus(
+    await request(`/api/mobile/expenses/${expenseId}`, {
+      token: aliceToken,
+      method: 'PUT',
+      body: expenseBody({
+        ...expense,
+        operationId: randomUUID(),
+        expectedRevision: expectNumber(created.revision, 'overview create revision'),
+        description: expenseTitle,
+      }),
+    }),
+    200,
+    'overview fixture edit',
+  )
+  const activity = await db.activityLog.findMany({
+    where: { metadata: { path: ['expenseId'], equals: expenseId } },
+  })
+  const createdActivity = activity.find(({ type }) => type === 'EXPENSE_CREATED')
+  const editedActivity = activity.find(({ type }) => type === 'EXPENSE_UPDATED')
+  assert.equal(activity.length, 2)
+  assert.equal(createdActivity?.userId, aliceID)
+  assert.equal(editedActivity?.userId, aliceID)
+  assert.ok(createdActivity)
+  expectStatus(
+    await request('/api/mobile/auth/username', {
+      token: outsiderToken,
+      method: 'POST',
+      body: { username: `vqa_ui_${handleSuffix}` },
+    }),
+    200,
+    'UI fixture username',
+  )
+  const empty = expectStatus(
+    await request('/api/mobile/groups', { token: outsiderToken }),
+    200,
+    'isolated UI session',
+  )
+  assert.deepEqual(empty.groups, [])
+  const fixtures = {
+    'ui-session.json': { baseURL, token: outsiderToken },
+    'qa-session.json': { baseURL, aliceID, aliceToken, bobID, bobToken },
+    'overview-fixture.json': {
+      expenseTitle,
+      creatorName: 'Alice Vietnam QA',
+      payerName: 'Bob Vietnam QA',
+      editorName: 'Alice Vietnam QA',
+      addedAt: createdActivity.createdAt.toISOString(),
+    },
+  }
+  for (const [name, value] of Object.entries(fixtures)) {
+    writeFileSync(resolve(directory, name), JSON.stringify(value) + '\n', {
+      mode: 0o600,
+      flag: 'wx',
+    })
+  }
+}
+
 async function main() {
+  if (uiFixtureDir && (!ciRun || !startedServer || new URL(baseURL).hostname !== '127.0.0.1')) {
+    throw new Error('UI fixtures require the managed loopback CI server.')
+  }
   ensureEvidenceRoot()
   process.env.MOBILE_JWT_SECRET = mobileSecret
   process.env.NEXTAUTH_SECRET = mobileSecret
@@ -684,6 +799,17 @@ async function main() {
     assert.equal((uiGroup.members as Array<unknown>).length, 2)
     mark(checks, 'Empty VND UI group has two members and no expenses')
 
+    if (uiFixtureDir) {
+      await prepareUIFixtures(fixture.db, uiFixtureDir, {
+        aliceID,
+        aliceToken,
+        bobID,
+        bobToken,
+        outsiderToken,
+      })
+      mark(checks, 'UI fixture session and overview history')
+    }
+
     const qaSession = {
       baseURL,
       aliceToken,
@@ -747,10 +873,15 @@ async function main() {
     writeFileSync(reportPath, report, { encoding: 'utf8', mode: 0o600 })
     chmodSync(reportPath, 0o600)
 
-    const scratchSessionPath = resolve(repositoryRoot, '.scratch/vietnam-trip/qa-session.json')
-    mkdirSync(dirname(scratchSessionPath), { recursive: true, mode: 0o700 })
-    writeFileSync(scratchSessionPath, JSON.stringify(qaSession, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-    chmodSync(scratchSessionPath, 0o600)
+    if (!ciRun) {
+      const scratchSessionPath = resolve(repositoryRoot, '.scratch/vietnam-trip/qa-session.json')
+      mkdirSync(dirname(scratchSessionPath), { recursive: true, mode: 0o700 })
+      writeFileSync(scratchSessionPath, JSON.stringify(qaSession, null, 2) + '\n', {
+        encoding: 'utf8',
+        mode: 0o600,
+      })
+      chmodSync(scratchSessionPath, 0o600)
+    }
 
     console.log(`Vietnam trip backend QA passed: ${checks.length} checks; API ${baseURL}; group ${groupID}; evidence ${reportPath}`)
   } catch (error) {
@@ -778,8 +909,8 @@ async function main() {
     await fixture?.db.$disconnect().catch(() => undefined)
     // Keep the disposable schema and detached server for simulator QA. The root
     // agent can drop the schema and database after the mobile flow completes.
-    if (ciRun) server?.kill('SIGTERM')
-    if (ciRun || !startedServer) await fixture?.close().catch(() => undefined)
+    if (ciRun && !uiFixtureDir) server?.kill('SIGTERM')
+    if ((ciRun && !uiFixtureDir) || !startedServer) await fixture?.close().catch(() => undefined)
   }
 }
 

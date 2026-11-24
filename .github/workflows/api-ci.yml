@@ -97,8 +97,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TIMING_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
-          run=$(gh run list --branch main --event push --status success \
-            --commit "$TIMING_SHA" --limit 30 --json databaseId,workflowName --jq 'map(select(.workflowName == "API CI")) | .[0].databaseId // empty')
+          if git cat-file -e "$TIMING_SHA^{commit}" &&
+              ! git cat-file -e "$TIMING_SHA:.github/workflows/api-ci.yml" 2>/dev/null; then
+            exit 0
+          fi
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/api-ci.yml/runs?branch=main&event=push&status=success&head_sha=$TIMING_SHA&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')
           if [[ -n "$run" ]]; then
             count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
               --jq '[.artifacts[] | select(.expired == false and (.name | startswith("api-e2e-")))] | length')
