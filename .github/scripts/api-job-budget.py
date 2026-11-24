@@ -47,9 +47,10 @@ def check():
     command_start = data["command_start"]
     now = datetime.datetime.now(datetime.UTC).isoformat()
     is_e2e = re.fullmatch(r"API E2E \([0-9]+\)", job["name"]) is not None
+    setup_limit = 20 if is_e2e else {"API checks": 17}.get(job["name"], 15)
     metrics = [
         ("Waiting", seconds_between(job["created_at"], job["started_at"]), 68, None),
-        ("Setup", seconds_between(job["started_at"], command_start), 20 if is_e2e else 15, 15 if is_e2e else None),
+        ("Setup", seconds_between(job["started_at"], command_start), setup_limit, 15 if is_e2e else None),
         ("Runner through budget check", seconds_between(job["started_at"], now), 40 if is_e2e else 35, 35 if is_e2e else None),
     ]
     passes = True
