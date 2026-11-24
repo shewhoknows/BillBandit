@@ -32,24 +32,18 @@ fixtures and depend on a disposable API and its offline-control proxy. Xcode
 Cloud runs the test action on a separate test machine. It does not get the
 developer's local files or servers. Keep the main workflow's internal
 distribution off until the full fixture handoff is implemented and all tests
-pass on Cloud. The full scheme remains the acceptance gate. See
+pass on Cloud. The repository handoff records five existing UI failures
+and two unavailable fixtures. The full scheme remains the acceptance gate. See
 [Apple's workflow reference](https://developer.apple.com/documentation/xcode/xcode-cloud-workflow-reference)
 and [custom build scripts](https://developer.apple.com/documentation/xcode/writing-custom-build-scripts).
 
-For App Store releases, confirm the archive is from the requested tag and
-Cloud build. Resolve its App Store Connect build by Cloud run ID:
-
-```sh
-asc xcode-cloud build-runs builds --run-id "$CLOUD_RUN_ID"
-asc release stage --app 6792712181 --platform IOS --version "$VERSION" \
-  --build-id "$BUILD_ID" --copy-metadata-from "$PREVIOUS_VERSION" --dry-run
-```
-
-The release bridge must resolve one processed build from the successful tag run
-and confirm staging. Staging selects the build and validates review readiness.
-The owner submits through App Store Connect. Keep release distribution disabled
-until the full suite and staging work on a rehearsal. See
-[Apple's build number guidance](https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds/).
+For App Store releases, `Stage iOS release` starts when a protected version tag
+lands. The protected GitHub environment holds App Store Connect credentials.
+The workflow requires the tagged commit to belong to `main`, then waits for
+one successful Cloud run for the same tag and commit. It resolves the
+processed iOS build from that run, attaches it to the prepared App Store
+version, and runs ASC validation. The owner submits through App Store Connect.
+See [Apple's build number guidance](https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds/).
 
 No Cloud timings exist yet. The local unsigned build ran on Xcode 27.2.
 It measures compile time on this Mac. Apple adds queue time, checkout,
