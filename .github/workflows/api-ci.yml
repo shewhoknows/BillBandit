@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: api-${{ github.event.pull_request.number || github.ref }}
@@ -44,6 +45,11 @@ jobs:
             git fetch --no-tags --depth=1 --filter=blob:none origin "$base"
           fi
           python3 .github/scripts/api-check.py "$base" "$GITHUB_SHA"
+      - name: Enforce API job budgets
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/api-job-budget.py 'API checks' "Lint, format and typecheck"
 
   build:
     name: API build
@@ -60,13 +66,15 @@ jobs:
       - uses: ./.github/actions/api-toolchain
       - name: Build Next on Bun
         run: timeout 35s bun run build:ci
+      - name: Enforce API job budgets
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/api-job-budget.py 'API build' "Build Next on Bun"
 
   e2e:
     name: API E2E (${{ matrix.shard }})
     runs-on: ${{ vars.BILLBANDIT_CI_RUNNER || 'ubuntu-24.04' }}
-    permissions:
-      contents: read
-      actions: read
     timeout-minutes: 2
     strategy:
       fail-fast: false
@@ -136,3 +144,8 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+      - name: Enforce API job budgets
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/api-job-budget.py 'API E2E (${{ matrix.shard }})' "${{ steps.select.outputs.selected != '[]' && 'Run E2E with a disposable database per script' || 'Select E2E scripts' }}"
