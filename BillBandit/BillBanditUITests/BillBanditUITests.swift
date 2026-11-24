@@ -9,21 +9,25 @@ final class BillBanditUITests: XCTestCase {
         return app
     }
 
+    private func readFixture(_ name: String, localPath: String) throws -> [String: Any] {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let directory = ProcessInfo.processInfo.environment["BILLBANDIT_UI_FIXTURE_DIR"]
+        let url = directory.map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent(name) }
+            ?? root.appendingPathComponent(localPath)
+        let data = try Data(contentsOf: url)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
     /// The app signed in to the API on this computer (`npm run dev:server`), as a
     /// brand-new empty account. Since 2026-10-22 the server is the only source of
     /// truth, so flows that create groups or change the default currency need it.
     /// Prepare with `npm run dev:data -- ui-session`, which writes
     /// `.scratch/ui-session.json` and never deletes data.
     private func localServerApp() throws -> XCUIApplication {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let url = root.appendingPathComponent(".scratch/ui-session.json")
-        guard let data = try? Data(contentsOf: url),
-              let config = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let base = config["baseURL"] as? String, let token = config["token"] as? String else {
-            throw NSError(domain: "BillBanditUITests", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                "Missing \(url.path). Run `npm run dev:server`, then `npm run dev:data -- ui-session`."])
-        }
+        let config = try readFixture("ui-session.json", localPath: ".scratch/ui-session.json")
+        let base = try XCTUnwrap(config["baseURL"] as? String)
+        let token = try XCTUnwrap(config["token"] as? String)
         let app = XCUIApplication()
         app.launchEnvironment = ["BILLBANDIT_QA_STORE_ID": "vietnam-test-ui-" + UUID().uuidString.lowercased().prefix(8),
                                  "BILLBANDIT_QA_BASE_URL": base,
@@ -544,12 +548,8 @@ final class BillBanditUITests: XCTestCase {
     }
 
     func testSharedActivityOpensReadOnlyOverviewAndWorksOffline() async throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
-            root.appendingPathComponent(".scratch/vietnam-trip/overview-fixture.json"))) as? [String: Any])
-        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
-            root.appendingPathComponent(".scratch/vietnam-trip/qa-session.json"))) as? [String: Any])
+        let fixture = try readFixture("overview-fixture.json", localPath: ".scratch/vietnam-trip/overview-fixture.json")
+        let config = try readFixture("qa-session.json", localPath: ".scratch/vietnam-trip/qa-session.json")
         let base = try XCTUnwrap(config["baseURL"] as? String)
         let token = try XCTUnwrap(config["aliceToken"] as? String)
         let title = try XCTUnwrap(fixture["expenseTitle"] as? String)
@@ -635,11 +635,7 @@ final class BillBanditUITests: XCTestCase {
 extension BillBanditUITests {
     @MainActor
     func testVietnamSharedExpenseOfflineRelaunchAndReconnect() async throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let configURL = root.appendingPathComponent(".scratch/vietnam-trip/qa-session.json")
-        let data = try Data(contentsOf: configURL)
-        let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let config = try readFixture("qa-session.json", localPath: ".scratch/vietnam-trip/qa-session.json")
         let base = try XCTUnwrap(config["baseURL"] as? String)
         let token = try XCTUnwrap(config["aliceToken"] as? String)
         let runID = UUID().uuidString.lowercased()
