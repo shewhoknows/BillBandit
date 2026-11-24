@@ -1,4 +1,4 @@
-name: API image SIGSEGV experiment
+name: API image SIGSEGV streak
 
 on:
   pull_request:
@@ -8,99 +8,49 @@ permissions:
   contents: read
 
 jobs:
-  sample:
+  sequence:
     if: github.head_ref == 'ci/segv-repro'
-    name: Image sample ${{ matrix.runtime }} ${{ matrix.lane }}
+    name: Thirty consecutive image smoke runs
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        lane: [1, 2, 3, 4, 5, 6]
-        runtime: [original, bun]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           filter: blob:none
           persist-credentials: false
-      - name: Build original Railway image
+      - name: Build the Railway Dockerfile
         shell: bash
         run: |
-          evidence="$RUNNER_TEMP/segv"
+          evidence="$RUNNER_TEMP/segv-streak"
           context="$RUNNER_TEMP/segv-context"
           mkdir -p "$evidence" "$context"
           git archive "$GITHUB_SHA" | tar -xf - -C "$context"
           docker build --platform linux/amd64 --tag billbandit-api-ci "$context" 2>&1 | tee "$evidence/build.log"
       - uses: ./.github/actions/api-toolchain
-      - name: Install debugger on runners that lack it
+      - name: Run the unchanged smoke cases thirty times in sequence
         shell: bash
         run: |
-          if ! command -v gdb; then
-            sudo apt-get -qq update
-            sudo apt-get -qq install -y --no-install-recommends gdb
-          fi
-      - name: Capture runtime and sample independent smoke runs
-        shell: bash
-        env:
-          TEST_RUNTIME: ${{ matrix.runtime }}
-        run: |
-          evidence="$RUNNER_TEMP/segv"
+          evidence="$RUNNER_TEMP/segv-streak"
           {
             printf 'image=%s/%s\n' "$ImageOS" "$ImageVersion"
-            command -v node
-            node -p 'JSON.stringify(process.versions)'
+            node --version
+            bun --version
             node -p 'require("tsx/package.json").version'
             node -p 'require("@prisma/client/package.json").version'
-            sha256sum node_modules/.prisma/client/libquery_engine-*.so.node
-            uname -a
-            lscpu
             free -h
-            cat /proc/sys/kernel/core_pattern
-            command -v gdb
+            git rev-parse HEAD
+            sha256sum .github/scripts/api-image-smoke.py
           } | tee "$evidence/runtime.txt"
-          if [[ "$TEST_RUNTIME" == bun ]]; then
-            python3 - <<'PYTHON'
-          from pathlib import Path
-
-          script = Path(".github/scripts/api-image-smoke.py")
-          source = script.read_text()
-          before = "['node', '--import', 'tsx', 'scripts/any-member-delete-e2e.ts']"
-          after = "['bun', 'run', 'scripts/any-member-delete-e2e.ts']"
-          assert source.count(before) == 1
-          script.write_text(source.replace(before, after))
-          PYTHON
-          fi
-          sudo sysctl -w "kernel.core_pattern=$RUNNER_TEMP/segv/core.%e.%p"
-          ulimit -c unlimited
-          result=0
-          for trial in 1 2 3 4 5; do
-            if /usr/bin/time -p -o "$evidence/time-$trial.txt" python3 .github/scripts/api-image-smoke.py \
-                --image billbandit-api-ci --revision "$GITHUB_SHA" --evidence "$evidence/trial-$trial" \
-                > "$evidence/trial-$trial.log" 2>&1; then
-              printf '%s\tPASS\n' "$trial" | tee -a "$evidence/results.tsv"
-            else
-              printf '%s\tFAIL\n' "$trial" | tee -a "$evidence/results.tsv"
-              cat "$evidence/trial-$trial.log"
-              result=1
-            fi
-            shopt -s nullglob
-            for core in "$evidence"/core.node.*; do
-              [[ "$core" == *.gdb.txt ]] && continue
-              gdb --batch -ex 'info sharedlibrary' -ex 'thread apply all bt' "$(command -v node)" "$core" \
-                > "$core.gdb.txt" 2>&1 || cat "$core.gdb.txt"
-              rm -- "$core"
-            done
+          for index in $(seq -w 1 30); do
+            /usr/bin/time -p -o "$evidence/time-$index.txt" python3 .github/scripts/api-image-smoke.py \
+              --image billbandit-api-ci --revision "$GITHUB_SHA" --evidence "$evidence/trial-$index"
+            printf '%s\tPASS\n' "$index" | tee -a "$evidence/results.tsv"
           done
-          exit "$result"
+          test "$(wc -l < "$evidence/results.tsv")" -eq 30
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: ${{ !cancelled() }}
         with:
-          name: segv-sample-${{ matrix.runtime }}-${{ matrix.lane }}
-          path: |
-            ${{ runner.temp }}/segv/*.log
-            ${{ runner.temp }}/segv/*.txt
-            ${{ runner.temp }}/segv/*.tsv
-            ${{ runner.temp }}/segv/trial-*/**/*.log
-            ${{ runner.temp }}/segv/trial-*/**/*.json
+          name: segv-sequential
+          path: ${{ runner.temp }}/segv-streak/
           if-no-files-found: error
           retention-days: 7
