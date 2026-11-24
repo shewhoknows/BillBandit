@@ -22,11 +22,11 @@
  *                safety cases. Without a STATE file from a stuck run, the
  *                stuck row is created as a fixture first.
  *
- * Replay (from apps/api; each server: DEV_DATABASE_URL=<db> DEV_API_BASE=<url> npm run dev:server):
+ * Replay (from apps/api; each server: DEV_DATABASE_URL=<db> DEV_API_BASE=<url> bun run dev:server):
  *   DEV_DATABASE_URL=postgresql://$USER@localhost:5432/bb_cloudkit_identity_e2e \
- *   DEV_API_BASE=http://127.0.0.1:3141 PHASE=stuck npx tsx scripts/cloudkit-identity-import-e2e.ts
+ *   DEV_API_BASE=http://127.0.0.1:3141 PHASE=stuck bun run scripts/cloudkit-identity-import-e2e.ts
  *   DEV_DATABASE_URL=postgresql://$USER@localhost:5432/bb_cloudkit_identity_e2e \
- *   DEV_API_BASE=http://127.0.0.1:3142 PHASE=fix STATE=<artifact dir>/state.json npx tsx scripts/cloudkit-identity-import-e2e.ts
+ *   DEV_API_BASE=http://127.0.0.1:3142 PHASE=fix STATE=<artifact dir>/state.json bun run scripts/cloudkit-identity-import-e2e.ts
  *
  * Evidence: ARTIFACT_DIR (default <repo>/.scratch/e2e/cloudkit-identity-import/<run>)
  * gets report.md (the table below), evidence.json (every status, money and
@@ -486,7 +486,7 @@ async function main() {
     `revision: ${revision}`,
     `environment: api=${devApiBase} db=${devDatabaseUrl} node=${process.version} health=${health.status} run=${run} at=${new Date().toISOString()}`,
     `artifacts: ${artifactDir}`,
-    `replay: cd apps/api && DEV_DATABASE_URL=${devDatabaseUrl} DEV_API_BASE=${devApiBase} PHASE=${PHASE}${statePath ? ` STATE=${statePath}` : ''} npx tsx scripts/cloudkit-identity-import-e2e.ts`,
+    `replay: cd apps/api && DEV_DATABASE_URL=${devDatabaseUrl} DEV_API_BASE=${devApiBase} PHASE=${PHASE}${statePath ? ` STATE=${statePath}` : ''} bun run scripts/cloudkit-identity-import-e2e.ts`,
     '',
     '| Step | Result | Evidence |',
     '| --- | --- | --- |',

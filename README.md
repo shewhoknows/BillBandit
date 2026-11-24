@@ -24,15 +24,27 @@ open BillBandit/BillBandit.xcodeproj
 **API on this computer** (port 3000, which Debug builds use; never touches the live server)
 
 ```bash
-npm install
-npm run dev:server
+bun install --frozen-lockfile --ignore-scripts
+bun run db:generate
+bun run dev:server
 ```
 
 **Add test data** (adds only, never deletes; see the top of `apps/api/scripts/dev-data.ts`)
 
 ```bash
-npm run dev:data                 # a new group with friends, expenses and a payment
-npm run dev:data -- signin --launch   # open the simulator app signed in as "You"
+bun run dev:data                 # a new group with friends, expenses and a payment
+bun run dev:data -- signin --launch   # open the simulator app signed in as "You"
+```
+
+**Reviewer demo on disposable local data**
+
+Set `DATABASE_URL` to the local PostgreSQL database. Set
+`REVIEW_API_BASE_URL` to the local API and use its local
+`MOBILE_JWT_SECRET` for reset. Run these commands from the repository root.
+
+```bash
+bun run review:reset -- --confirm
+bun run review:teardown -- --confirm
 ```
 
 ## More docs

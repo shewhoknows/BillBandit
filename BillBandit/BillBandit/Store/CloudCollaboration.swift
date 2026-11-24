@@ -300,7 +300,7 @@ final class CloudCollaborationService: ObservableObject {
     }
     @Published private(set) var pendingMemberClaimGroupID: UUID?
 
-    let container: CKContainer
+    private lazy var container = CKContainer(identifier: Self.containerIdentifier)
     private var currentUserRecordName: String?
     private var isPreparing = false
     private var foregroundSyncWorker: Task<Void, Never>?
@@ -308,13 +308,16 @@ final class CloudCollaborationService: ObservableObject {
     private var friendProfileRefreshTaskToken: UUID?
     private var accountGeneration = 0
 
-    private var isReviewSession: Bool {
-        !(UserDefaults.standard.string(forKey: "reviewAccountID") ?? "").isEmpty
+    private var cloudKitDisabled: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        if SettlementTokenStore.hasValidatedQATestNamespace {
+            return true
+        }
+        #endif
+        return !(UserDefaults.standard.string(forKey: "reviewAccountID") ?? "").isEmpty
     }
 
-    private init() {
-        self.container = CKContainer(identifier: Self.containerIdentifier)
-    }
+    private init() {}
 
     /// Prepares non-ledger friend/profile identity, activates the authenticated
     /// API account, and then performs the one-time CloudKit import if needed.
@@ -452,7 +455,7 @@ final class CloudCollaborationService: ObservableObject {
     /// Best-effort removal of the signed-in user's public profile before the
     /// API account is anonymized. Shared ledger records are not stored here.
     func deleteAccountData() async {
-        guard !isReviewSession else { return }
+        guard !cloudKitDisabled else { return }
         let cloudUser = currentUserRecordName
         if let cloudUser {
             _ = try? await container.publicCloudDatabase.deleteRecord(
@@ -464,13 +467,13 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     func currentPersonDidChange() {
-        guard !isReviewSession else { return }
+        guard !cloudKitDisabled else { return }
         linkCurrentPerson()
         Task { await publishFriendProfile() }
     }
 
     func refreshFriendProfiles() async {
-        guard !isReviewSession else { return }
+        guard !cloudKitDisabled else { return }
         if currentUserRecordName == nil {
             guard UsernameIdentityService.hasStoredSession,
                   (try? await container.accountStatus()) == .available,
@@ -557,7 +560,7 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     private func prepareNonLedgerCloudIdentity() async -> Bool {
-        guard !isReviewSession else { return false }
+        guard !cloudKitDisabled else { return false }
         let generation = accountGeneration
         do {
             let accountStatus = try await container.accountStatus()
@@ -617,7 +620,7 @@ final class CloudCollaborationService: ObservableObject {
     }
 
     private func publishFriendProfile() async {
-        guard !isReviewSession else { return }
+        guard !cloudKitDisabled else { return }
         guard let cloudUser = currentUserRecordName else { return }
         let generation = accountGeneration
         let context = AppStore.container.mainContext
@@ -863,7 +866,7 @@ private extension CloudCollaborationService {
     var legacyImportContext: ModelContext { AppStore.container.mainContext }
 
     func runLegacyCloudKitImportIfNeeded() async {
-        guard !isReviewSession else { return }
+        guard !cloudKitDisabled else { return }
         guard let accountID = ServerLedgerAccountLifecycle.shared.activeAccountID,
               let ownerCloudUser = currentUserRecordName else { return }
         guard UsernameIdentityService.hasStoredSession else { return }
