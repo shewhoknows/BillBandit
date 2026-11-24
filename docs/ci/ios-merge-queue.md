@@ -13,7 +13,8 @@ A successful Build action does not satisfy it. The job has read access to
 GitHub checks and does not need App Store Connect credentials.
 
 The two repository variables contain exact native Xcode Cloud check names.
-Before both are present, GitHub uses the distinct name `iOS Cloud Test setup`.
+Before both are present, the job reports configuration status under the distinct name
+`iOS Cloud Test setup`.
 The active ruleset currently requires only the names in
 `docs/ci/required-checks.txt`. Owner activation steps are in
 [OWNER-TODO.md](OWNER-TODO.md).

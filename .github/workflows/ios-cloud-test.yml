@@ -17,16 +17,20 @@ concurrency:
 jobs:
   test:
     name: ${{ vars.BILLBANDIT_IOS_PR_TEST_CHECK != '' && vars.BILLBANDIT_IOS_QUEUE_TEST_CHECK != '' && 'iOS Cloud Test' || 'iOS Cloud Test setup' }}
-    if: vars.BILLBANDIT_IOS_PR_TEST_CHECK != '' && vars.BILLBANDIT_IOS_QUEUE_TEST_CHECK != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 32
     steps:
+      - name: Report configuration status
+        if: vars.BILLBANDIT_IOS_PR_TEST_CHECK == '' || vars.BILLBANDIT_IOS_QUEUE_TEST_CHECK == ''
+        run: echo 'Configure both native Test check names before requiring iOS Cloud Test.'
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        if: vars.BILLBANDIT_IOS_PR_TEST_CHECK != '' && vars.BILLBANDIT_IOS_QUEUE_TEST_CHECK != ''
         with:
           filter: blob:none
           sparse-checkout: .github/scripts
           persist-credentials: false
       - name: Wait for the exact Xcode Cloud Test result
+        if: vars.BILLBANDIT_IOS_PR_TEST_CHECK != '' && vars.BILLBANDIT_IOS_QUEUE_TEST_CHECK != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TEST_SHA: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
