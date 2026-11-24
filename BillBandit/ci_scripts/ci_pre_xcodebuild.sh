@@ -18,6 +18,8 @@ git -C "$source" fetch --depth=1 https://github.com/My-apps-factory/BillBandit.g
 git -C "$source" checkout --quiet FETCH_HEAD
 test "$(git -C "$source" rev-parse HEAD)" = "$CI_COMMIT"
 
+# The scripts run under Bun, but the Next.js and Prisma CLIs start with
+# `#!/usr/bin/env node`, so the Next dev server still needs Node on PATH.
 if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
   brew install node@22
   export PATH="$(brew --prefix node@22)/bin:$PATH"

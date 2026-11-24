@@ -54,11 +54,10 @@ def serve(directory):
                     "VIETNAM_TRIP_BASE_URL": f"http://127.0.0.1:{proxy_port}",
                     "VIETNAM_TRIP_EVIDENCE_DIR": str(directory / "backend"),
                     "BILLBANDIT_UI_FIXTURE_DIR": str(directory),
-                    "TSX_TSCONFIG_PATH": str(root / "apps/api/tsconfig.json"),
                 })
                 worker = subprocess.Popen(
-                    ["node", "--import", "tsx", "apps/api/scripts/vietnam-trip-qa.ts"],
-                    cwd=root, env=env, start_new_session=True,
+                    ["bun", "run", "scripts/vietnam-trip-qa.ts"],
+                    cwd=root / "apps/api", env=env, start_new_session=True,
                 )
                 try:
                     if worker.wait(timeout=100):
