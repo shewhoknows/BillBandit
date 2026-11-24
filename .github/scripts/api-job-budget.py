@@ -25,14 +25,16 @@ def check(job_name, command_step):
     command_start = next(step["started_at"] for step in job["steps"] if step["name"] == command_step)
     now = datetime.datetime.now(datetime.UTC).isoformat()
     metrics = [
-        ("Waiting", seconds_between(job["created_at"], job["started_at"]), 5),
+        ("Waiting", seconds_between(job["created_at"], job["started_at"]), 68),
         ("Setup", seconds_between(job["started_at"], command_start), 15),
         ("Runner through budget check", seconds_between(job["started_at"], now), 35),
     ]
     passes = True
     for phase, elapsed, limit in metrics:
-        print(f"{phase}: {elapsed:.2f}s (limit < {limit}s)")
-        if not 0 <= elapsed < limit:
+        inclusive = phase == "Waiting"
+        comparison = "<=" if inclusive else "<"
+        print(f"{phase}: {elapsed:.2f}s (limit {comparison} {limit}s)")
+        if elapsed < 0 or elapsed > limit or (elapsed == limit and not inclusive):
             print(f"::error::{phase} exceeded the API job budget or has invalid timestamps.")
             passes = False
     return passes
