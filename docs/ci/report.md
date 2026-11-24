@@ -49,7 +49,7 @@ An iOS monthly estimate requires separate action minutes for PR tests,
 main tests and archives, and release archives. Compute-hour usage is
 `(PR count × PR action minutes + main count × main action minutes +
 tag count × tag action minutes) / 60`. Apple includes 25 hours of team
-usage. Cloud queue, signing, simulator and processing times are unmeasured.
+usage. Cloud smoke queue, signing, simulator and processing times are unmeasured.
 The local unsigned build is a compile reference on this Mac. It cannot
 establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode-cloud/get-started/)
 
@@ -92,7 +92,8 @@ establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode
   ledger lane. Splitting the iOS model groups let the three shorter jobs pass
   in 23 s, 24 s, and 32 s. Together they checked 17 models. The ledger
   job failed at its 12-minute command limit after 737 s on runner.
-  The hosted suite therefore has 17 confirmed results out of 18.
+  Its last progress entry showed 59,378,793 distinct states with 3,584,724
+  states still queued. The hosted suite has 17 confirmed results out of 18.
   [Split model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123)
 - The iOS smoke scheme builds locally with release Xcode. A beta, a malformed
   tag, and a version mismatch fail the post-clone guard. The product was
@@ -131,7 +132,7 @@ The owner controls all merges, settings and distribution.
 
 ## Evidence
 
-The audit worktree keeps evidence under `.scratch/ci/`.
+The audit worktree keeps evidence under `.scratch/ci/`. The per-job audit ledger is `audit/job-buckets.tsv`.
 
 | Evidence | Location |
 | --- | --- |
