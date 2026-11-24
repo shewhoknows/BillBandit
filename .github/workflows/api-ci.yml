@@ -2,7 +2,7 @@ name: API CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'ci/**']
   merge_group:
     types: [checks_requested]
   push:
@@ -37,8 +37,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           base="$BASE_SHA"
-          if [[ "$GITHUB_EVENT_NAME" == push ]] && ! git cat-file -e "$base^{commit}"; then
-            base=$(git hash-object -t tree /dev/null)
+          if ! git cat-file -e "$base^{commit}"; then
+            git fetch --no-tags --depth=1 --filter=blob:none origin "$base"
           fi
           python3 .github/scripts/api-check.py "$base" "$GITHUB_SHA"
 
