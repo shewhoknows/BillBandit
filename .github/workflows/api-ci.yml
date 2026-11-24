@@ -54,3 +54,50 @@ jobs:
       - uses: ./.github/actions/api-toolchain
       - name: Build Next on Bun
         run: timeout 35s bun run build:ci
+
+  e2e:
+    name: API E2E
+    runs-on: ${{ vars.BILLBANDIT_CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          filter: blob:none
+          persist-credentials: false
+      - name: Select E2E scripts
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          args=()
+          if [[ -n "$BASE_SHA" ]]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}"; then
+              git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
+            fi
+            args=(--base "$BASE_SHA")
+          fi
+          selected=$(python3 .github/scripts/api-e2e.py --list "${args[@]}")
+          printf 'Selected scripts: %s\n' "$selected"
+          printf 'selected=%s\n' "$selected" >> "$GITHUB_OUTPUT"
+      - if: steps.select.outputs.selected != '[]'
+        uses: ./.github/actions/api-toolchain
+      - name: Run E2E with a disposable database per script
+        if: steps.select.outputs.selected != '[]'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          args=()
+          if [[ -n "$BASE_SHA" ]]; then
+            args=(--base "$BASE_SHA")
+          fi
+          python3 .github/scripts/api-e2e.py "${args[@]}"
+      - name: Upload test evidence
+        if: ${{ !cancelled() && steps.select.outputs.selected != '' && steps.select.outputs.selected != '[]' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: api-e2e
+          path: .scratch/ci/api-e2e/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

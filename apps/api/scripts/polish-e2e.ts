@@ -37,6 +37,7 @@ const apiRoot = resolve(repositoryRoot, 'apps/api')
 const evidenceRoot = process.env.POLISH_E2E_EVIDENCE_DIR?.trim() || resolve(repositoryRoot, '.scratch/polish-e2e')
 const port = Number(process.env.POLISH_E2E_PORT ?? 31401)
 const baseURL = `http://127.0.0.1:${port}`
+const ciRun = process.env.BILLBANDIT_CI_E2E === '1'
 const startServer = process.env.START_POLISH_SERVER === '1'
 const suffix = `${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
 const handleSuffix = randomBytes(2).toString('hex')
@@ -122,7 +123,10 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
   writeFileSync(err, '', { mode: 0o600 })
   const outFd = openSync(out, 'a', 0o600)
   const errFd = openSync(err, 'a', 0o600)
-  const server = spawn('npm', ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', String(port), '-H', '0.0.0.0'], {
+  const args = ciRun
+    ? ['run', '--cwd', apiRoot, 'dev', '-p', String(port), '-H', '127.0.0.1']
+    : ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', String(port), '-H', '0.0.0.0']
+  const server = spawn(ciRun ? 'bun' : 'npm', args, {
     cwd: repositoryRoot,
     env: { ...process.env, DATABASE_URL: databaseURL, MOBILE_JWT_SECRET: mobileSecret, NEXTAUTH_SECRET: mobileSecret, NODE_ENV: 'development' },
     detached: true,
@@ -549,11 +553,11 @@ async function main() {
   } finally {
     writeReport()
     // A failed run stops the server it started, so the port is free for the next run.
-    if (!succeeded && server?.pid) {
+    if ((ciRun || !succeeded) && server?.pid) {
       try { process.kill(-server.pid, 'SIGTERM') } catch { /* already gone */ }
     }
     await fixture.db.$disconnect().catch(() => undefined)
-    if (!startServer) await fixture.close().catch(() => undefined)
+    if (ciRun || !startServer) await fixture.close().catch(() => undefined)
   }
 }
 

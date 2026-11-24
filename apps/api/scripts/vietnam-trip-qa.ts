@@ -24,6 +24,8 @@ const apiRoot = resolve(repositoryRoot, 'apps/api')
 const defaultEvidenceRoot = resolve(repositoryRoot, '.scratch/vietnam-trip/evidence')
 const baseURL = process.env.VIETNAM_TRIP_BASE_URL?.trim() || 'http://127.0.0.1:31300'
 const evidenceRoot = process.env.VIETNAM_TRIP_EVIDENCE_DIR?.trim() || defaultEvidenceRoot
+const ciRun = process.env.BILLBANDIT_CI_E2E === '1'
+const port = ciRun ? Number(new URL(baseURL).port) : 31301
 const startedServer = process.env.START_VIETNAM_TRIP_SERVER === '1'
 const suffix = `${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
 const handleSuffix = randomBytes(2).toString('hex')
@@ -219,7 +221,10 @@ function startNextServer(databaseURL: string): { server: ChildProcess; readiness
   writeFileSync(stderrPath, '', { encoding: 'utf8', mode: 0o600 })
   const stdoutFd = openSync(stdoutPath, 'a', 0o600)
   const stderrFd = openSync(stderrPath, 'a', 0o600)
-  const server = spawn('npm', ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', '31301'], {
+  const args = ciRun
+    ? ['run', '--cwd', apiRoot, 'dev', '-p', String(port), '-H', '127.0.0.1']
+    : ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', String(port)]
+  const server = spawn(ciRun ? 'bun' : 'npm', args, {
     cwd: repositoryRoot,
     env: {
       ...process.env,
@@ -291,7 +296,7 @@ async function main() {
     const databaseURL = fixture.url
 
     if (startedServer) {
-      if (await portIsOccupied(31301)) throw new Error('Port 31301 is already occupied; refusing to stop another process')
+      if (await portIsOccupied(port)) throw new Error(`Port ${port} is already occupied; refusing to stop another process`)
       const started = startNextServer(databaseURL)
       server = started.server
       server.unref()
@@ -705,7 +710,7 @@ async function main() {
       '',
       `- Revision: ${execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim()}`,
       `- Base URL: ${baseURL}`,
-      `- API port: 31301${server?.pid ? ` (PID ${server.pid})` : ''}`,
+      `- API port: ${port}${server?.pid ? ` (PID ${server.pid})` : ''}`,
       `- Database URL: ${databaseURL.replace(/([?&]schema=).*/, '$1[task-schema]')}`,
       `- Schema: ${fixture.schema}`,
       `- Financial QA group: ${groupName} (${groupID})`,
@@ -771,7 +776,14 @@ async function main() {
     await fixture?.db.$disconnect().catch(() => undefined)
     // Keep the disposable schema and detached server for simulator QA. The root
     // agent can drop the schema and database after the mobile flow completes.
-    if (!startedServer) await fixture?.close().catch(() => undefined)
+    if (ciRun && server?.pid) {
+      try {
+        process.kill(-server.pid, 'SIGTERM')
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      }
+    }
+    if (ciRun || !startedServer) await fixture?.close().catch(() => undefined)
   }
 }
 
