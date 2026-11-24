@@ -18,7 +18,7 @@ git -C "$source" fetch --depth=1 https://github.com/My-apps-factory/BillBandit.g
 git -C "$source" checkout --quiet FETCH_HEAD
 test "$(git -C "$source" rev-parse HEAD)" = "$CI_COMMIT"
 
-if ! command -v npm >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
+if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
   brew install node@22
   export PATH="$(brew --prefix node@22)/bin:$PATH"
 fi
@@ -27,8 +27,17 @@ if ! command -v pg_config >/dev/null || [[ ! -x "$(pg_config --bindir)/initdb" ]
   export PATH="$(brew --prefix postgresql@16)/bin:$PATH"
 fi
 if ! command -v bun >/dev/null || [[ "$(bun --version)" != 1.3.14 ]]; then
-  npm install --prefix "$work/tools" --no-save bun@1.3.14
-  export PATH="$work/tools/node_modules/.bin:$PATH"
+  case "$(uname -m)" in
+    arm64) bun_platform=darwin-aarch64; digest=d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620 ;;
+    x86_64) bun_platform=darwin-x64; digest=4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633 ;;
+    *) echo 'Unsupported Xcode Cloud architecture.' >&2; exit 1 ;;
+  esac
+  bun_zip="$work/bun.zip"
+  curl --fail --silent --show-error --location \
+    "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-${bun_platform}.zip" -o "$bun_zip"
+  printf '%s  %s\n' "$digest" "$bun_zip" | shasum -a 256 -c -
+  unzip -q "$bun_zip" -d "$work"
+  export PATH="$work/bun-$bun_platform:$PATH"
 fi
 
 cd "$source"
