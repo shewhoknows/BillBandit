@@ -129,24 +129,6 @@ jobs:
             .github
             apps/api
           persist-credentials: false
-      - name: Read exact-base timing artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TIMING_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        run: |
-          if git cat-file -e "$TIMING_SHA^{commit}" &&
-              ! git cat-file -e "$TIMING_SHA:.github/workflows/api-ci.yml" 2>/dev/null; then
-            exit 0
-          fi
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/api-ci.yml/runs?branch=main&event=push&status=success&head_sha=$TIMING_SHA&per_page=1" \
-            --jq '.workflow_runs[0].id // empty')
-          if [[ -n "$run" ]]; then
-            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
-              --jq '[.artifacts[] | select(.expired == false and (.name | startswith("api-e2e-")))] | length')
-            if [[ "$count" -eq "$TOTAL_SHARDS" ]]; then
-              gh run download "$run" --pattern 'api-e2e-*' --dir "$RUNNER_TEMP/e2e-history"
-            fi
-          fi
       - name: Select E2E scripts
         id: select
         env:
@@ -160,7 +142,7 @@ jobs:
             args=(--base "$BASE_SHA")
           fi
           selected=$(python3 -B .github/scripts/api-e2e.py --list "${args[@]}" \
-            --shard "$SHARD" --total-shards "$TOTAL_SHARDS" --history "$RUNNER_TEMP/e2e-history")
+            --shard "$SHARD" --total-shards "$TOTAL_SHARDS")
           printf 'Selected scripts: %s\n' "$selected"
           printf 'selected=%s\n' "$selected" >> "$GITHUB_OUTPUT"
       - if: steps.select.outputs.selected != '[]'
@@ -178,7 +160,7 @@ jobs:
           command=(true)
           if [[ "$SELECTED" != '[]' ]]; then
             command=(python3 -B .github/scripts/api-e2e.py "${args[@]}" \
-              --shard "$SHARD" --total-shards "$TOTAL_SHARDS" --history "$RUNNER_TEMP/e2e-history")
+              --shard "$SHARD" --total-shards "$TOTAL_SHARDS")
           fi
           python3 .github/scripts/api-job-budget.py run "API E2E ($SHARD)" "${command[@]}"
       - name: Upload test evidence
