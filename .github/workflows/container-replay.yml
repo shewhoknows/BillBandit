@@ -1,0 +1,59 @@
+name: Container comparison
+on:
+  pull_request:
+    branches: [main, 'ci/**']
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    if: github.event.pull_request.head.ref == 'ci/job-budgets'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [baseline, candidate]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build and start the production image on a disposable database
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          base=136e120a171b083091efdaf5edfc12a4e54a4e76
+          if [[ "$IMAGE" == baseline ]]; then git checkout --detach "$base"; fi
+          revision=$(git rev-parse HEAD)
+          evidence="$RUNNER_TEMP/container-replay"
+          mkdir -p "$evidence"
+          printf 'revision=%s\nenvironment=ubuntu-24.04 Docker\ncommand=docker build and run with an empty Postgres 16 database\n' "$revision" > "$evidence/replay.txt"
+          /usr/bin/time -p -o "$evidence/build-seconds.txt" docker build --tag billbandit-replay . 2>&1 | tee "$evidence/build.log"
+          docker network create billbandit-replay
+          docker run -d --name replay-db --network billbandit-replay -e POSTGRES_PASSWORD=replay postgres:16
+          timeout 30s bash -c 'until docker exec replay-db pg_isready -U postgres; do sleep 1; done'
+          begin=$(date +%s)
+          docker run -d --name replay-api --network billbandit-replay -p 127.0.0.1:13000:3000 \
+            -e DATABASE_URL=postgresql://postgres:replay@replay-db:5432/postgres \
+            -e RAILWAY_GIT_COMMIT_SHA="$revision" -e RAILWAY_GIT_BRANCH=main billbandit-replay
+          timeout 45s bash -c 'until curl --silent --fail http://127.0.0.1:13000/api/health; do test "$(docker inspect -f "{{.State.Running}}" replay-api)" = true || exit 1; sleep 1; done' > "$evidence/health.json"
+          printf 'startup_seconds=%d\n' "$(( $(date +%s) - begin ))" >> "$evidence/replay.txt"
+          jq -e --arg rev "$revision" '.status == "ok" and .commit == $rev and .branch == "main"' "$evidence/health.json"
+          status=$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:13000/api/mobile/groups || true)
+          test "$status" = 401
+          migrations=$(docker exec replay-db psql -U postgres -Atc 'select count(*) from "_prisma_migrations" where finished_at is not null')
+          test "$migrations" -gt 0
+          printf 'completed_migrations=%s\nunauthenticated_groups=%s\nresult=passed\n' "$migrations" "$status" >> "$evidence/replay.txt"
+      - name: Save Docker output
+        if: ${{ always() }}
+        run: docker logs replay-api > "$RUNNER_TEMP/container-replay/startup.log" 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: ${{ always() }}
+        with:
+          name: container-${{ matrix.image }}
+          path: ${{ runner.temp }}/container-replay
+          if-no-files-found: error
