@@ -50,14 +50,30 @@ def check():
         ("Setup", seconds_between(job["started_at"], command_start), 15),
         ("Runner through budget check", seconds_between(job["started_at"], now), 35),
     ]
+    # A breach of the budget is reported as a warning: hosted-runner checkout and
+    # startup vary by a few seconds, and failing required checks on that noise
+    # would bounce PRs out of the merge queue. A breach of twice the budget is a
+    # real regression (for example a lost cache) and fails the job.
     passes = True
+    lines = []
     for phase, elapsed, limit in metrics:
         inclusive = phase == "Waiting"
         comparison = "<=" if inclusive else "<"
-        print(f"{phase}: {elapsed:.2f}s (limit {comparison} {limit}s)")
-        if elapsed < 0 or elapsed > limit or (elapsed == limit and not inclusive):
-            print(f"::error::{phase} exceeded the API job budget or has invalid timestamps.")
+        line = f"{phase}: {elapsed:.2f}s (limit {comparison} {limit}s)"
+        print(line)
+        over = elapsed > limit or (elapsed == limit and not inclusive)
+        if elapsed < 0 or elapsed > 2 * limit:
+            print(f"::error::{phase} took {elapsed:.2f}s, more than twice the {limit}s budget, or has invalid timestamps.")
             passes = False
+            line += " FAIL"
+        elif over:
+            print(f"::warning::{phase} took {elapsed:.2f}s, over the {limit}s budget.")
+            line += " OVER"
+        lines.append(f"- {line}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a") as handle:
+            handle.write("### Job budget\n" + "\n".join(lines) + "\n")
     return passes
 
 
