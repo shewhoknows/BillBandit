@@ -150,7 +150,7 @@ def check_api(args, pg, network, database, schema, before, evidence):
                 api, env, evidence / f'dev-data-{name}.log',
             )
         run_tool(
-            ['node', '--import', 'tsx', 'scripts/any-member-delete-e2e.ts'],
+            ['bun', 'run', 'scripts/any-member-delete-e2e.ts'],
             api, env, evidence / 'any-member-delete-e2e.log',
         )
         run_tool(
