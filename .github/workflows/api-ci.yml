@@ -28,6 +28,9 @@ jobs:
         with:
           fetch-depth: 2
           filter: blob:none
+          sparse-checkout: |
+            .github
+            apps/api
           persist-credentials: false
       - uses: ./.github/actions/api-toolchain
         with:
@@ -50,6 +53,9 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           filter: blob:none
+          sparse-checkout: |
+            .github
+            apps/api
           persist-credentials: false
       - uses: ./.github/actions/api-toolchain
       - name: Build Next on Bun
