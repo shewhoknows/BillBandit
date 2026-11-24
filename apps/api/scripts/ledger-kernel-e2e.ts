@@ -8,9 +8,9 @@
  *
  * Replay (from apps/api, with the local server running on the same DB):
  *   DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_a1 \
- *   DEV_API_BASE=http://127.0.0.1:3101 npx tsx scripts/ledger-kernel-e2e.ts
+ *   DEV_API_BASE=http://127.0.0.1:3101 bun run scripts/ledger-kernel-e2e.ts
  *
- * Needs the users of `npx tsx scripts/dev-data.ts scenario` (dev_you, dev_kabir).
+ * Needs the users of `bun run scripts/dev-data.ts scenario` (dev_you, dev_kabir).
  * It adds dev_zoya itself (local only, same rules as dev-data). It only adds data.
  */
 import assert from 'node:assert/strict'

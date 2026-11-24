@@ -129,18 +129,17 @@ function createDatabaseIfNeeded(): { url: string; databaseName: string | null; o
 
 function realMobileToken(user: { id: string; email: string; name: string }): string {
   // Run the checked-in createMobileToken implementation from the API workspace.
-  // tsx needs the API tsconfig for its @/* path alias; token output stays in
+  // Bun reads the API tsconfig for its @/* path alias; token output stays in
   // this process and is written only to the chmod 600 session file.
   const helper = [
     "import { createMobileToken } from './lib/mobile-auth.ts'",
     "const user = JSON.parse(process.env.VIETNAM_TRIP_USER ?? '{}')",
     'process.stdout.write(createMobileToken(user))',
   ].join(';')
-  const token = execFileSync(process.execPath, ['--import', 'tsx', '--eval', helper], {
+  const token = execFileSync('bun', ['--eval', helper], {
     cwd: apiRoot,
     env: {
       ...process.env,
-      TSX_TSCONFIG_PATH: resolve(apiRoot, 'tsconfig.json'),
       VIETNAM_TRIP_USER: JSON.stringify(user),
       MOBILE_JWT_SECRET: mobileSecret,
       NEXTAUTH_SECRET: mobileSecret,
@@ -222,10 +221,8 @@ function startNextServer(databaseURL: string): { server: ChildProcess; readiness
   writeFileSync(stderrPath, '', { encoding: 'utf8', mode: 0o600 })
   const stdoutFd = openSync(stdoutPath, 'a', 0o600)
   const stderrFd = openSync(stderrPath, 'a', 0o600)
-  const args = ciRun
-    ? ['run', '--cwd', apiRoot, 'dev', '-p', String(port), '-H', '127.0.0.1']
-    : ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', String(port)]
-  const server = spawn(ciRun ? 'bun' : 'npm', args, {
+  const args = ['run', '--cwd', apiRoot, 'dev', '-p', String(port), ...(ciRun ? ['-H', '127.0.0.1'] : [])]
+  const server = spawn('bun', args, {
     cwd: repositoryRoot,
     env: {
       ...process.env,
@@ -849,7 +846,7 @@ async function main() {
       '## Commands',
       '',
       '```sh',
-      `VIETNAM_TRIP_EVIDENCE_DIR='${evidenceRoot}' START_VIETNAM_TRIP_SERVER=1 node --import tsx apps/api/scripts/vietnam-trip-qa.ts`,
+      `VIETNAM_TRIP_EVIDENCE_DIR='${evidenceRoot}' START_VIETNAM_TRIP_SERVER=1 bun run apps/api/scripts/vietnam-trip-qa.ts`,
       '```',
       '',
       '## Covered behavior',

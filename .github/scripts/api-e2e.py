@@ -88,7 +88,6 @@ def run_case(case, database, scratch, evidence):
     env = {key: value for key, value in os.environ.items() if key in {"PATH", "HOME", "LANG", "JAVA_HOME"}}
     env.update({
         "CI": "1",
-        "TSX_TSCONFIG_PATH": str(api / "tsconfig.json"),
         "BILLBANDIT_CI_E2E": "1",
         "NEXT_TELEMETRY_DISABLED": "1",
         "DEV_DATABASE_URL": database,
@@ -127,10 +126,6 @@ def run_case(case, database, scratch, evidence):
                         cwd=api, env=env, stdout=out, stderr=out, check=True, timeout=4,
                     )
             command = ["bun", "run", f"scripts/{case}"]
-            # These scripts start their own Next server or need Node's runtime; they fail under Bun
-            # (CI run on 24 Nov 2026). See docs/ci/known-issues.md.
-            if case in self_hosted or case == "identity-friends-import-e2e.ts":
-                command = ["node", "--import", "tsx", f"scripts/{case}"]
             test = subprocess.Popen(command, cwd=api, env=env, stdout=out, stderr=out, start_new_session=True)
             try:
                 result = test.wait(timeout=max(0, 30 - (time.monotonic() - start)))

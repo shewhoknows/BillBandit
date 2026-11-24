@@ -95,11 +95,10 @@ function mobileToken(user: { id: string; email: string; name: string }): string 
     "const user = JSON.parse(process.env.POLISH_USER ?? '{}')",
     'process.stdout.write(createMobileToken(user))',
   ].join(';')
-  return execFileSync(process.execPath, ['--import', 'tsx', '--eval', helper], {
+  return execFileSync('bun', ['--eval', helper], {
     cwd: apiRoot,
     env: {
       ...process.env,
-      TSX_TSCONFIG_PATH: resolve(apiRoot, 'tsconfig.json'),
       POLISH_USER: JSON.stringify(user),
       MOBILE_JWT_SECRET: mobileSecret,
       NEXTAUTH_SECRET: mobileSecret,
@@ -123,10 +122,8 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
   writeFileSync(err, '', { mode: 0o600 })
   const outFd = openSync(out, 'a', 0o600)
   const errFd = openSync(err, 'a', 0o600)
-  const args = ciRun
-    ? ['run', '--cwd', apiRoot, 'dev', '-p', String(port), '-H', '127.0.0.1']
-    : ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', String(port), '-H', '0.0.0.0']
-  const server = spawn(ciRun ? 'bun' : 'npm', args, {
+  const args = ['run', '--cwd', apiRoot, 'dev', '-p', String(port), '-H', ciRun ? '127.0.0.1' : '0.0.0.0']
+  const server = spawn('bun', args, {
     cwd: repositoryRoot,
     env: { ...process.env, DATABASE_URL: databaseURL, MOBILE_JWT_SECRET: mobileSecret, NEXTAUTH_SECRET: mobileSecret, NODE_ENV: 'development' },
     detached: !ciRun,
@@ -587,7 +584,7 @@ function writeReport() {
     '## Run it again',
     '',
     '```sh',
-    'node --import tsx apps/api/scripts/polish-e2e.ts',
+    'bun run apps/api/scripts/polish-e2e.ts',
     '```',
     '',
   ].join('\n')

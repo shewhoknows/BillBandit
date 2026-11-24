@@ -3,7 +3,7 @@
  *
  *   cd apps/api
  *   DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit \
- *   DEV_API_BASE=http://127.0.0.1:3000 npx tsx scripts/simplify-debts-e2e.ts
+ *   DEV_API_BASE=http://127.0.0.1:3000 bun run scripts/simplify-debts-e2e.ts
  *
  * Needs a running dev server (scripts/dev-server.ts) with the same env and the
  * dev-data scenario users (dev_you, dev_kabir, dev_aarav). Every step uses the
@@ -238,7 +238,7 @@ async function main() {
   console.log('# Simplify-debts setting E2E')
   console.log(`Revision: ${revision()}`)
   console.log(`Environment: API ${devApiBase}, DB ${devDatabaseUrl.replace(/\/\/[^@]*@/, '//')}, node ${process.version}, ${new Date().toISOString()}`)
-  console.log('Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... npx tsx scripts/simplify-debts-e2e.ts')
+  console.log('Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... bun run scripts/simplify-debts-e2e.ts')
   console.log(`Group: ${groupId}\n| Step | Result |\n| --- | --- |`)
   for (const row of results) console.log(`| ${row.name} | ${row.result.replaceAll('|', '/').replaceAll('\n', ' ')} |`)
   const failed = results.filter((row) => row.result !== 'PASS').length

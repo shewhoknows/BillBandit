@@ -3,7 +3,7 @@
  *
  *   cd apps/api
  *   DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_a2 \
- *   DEV_API_BASE=http://127.0.0.1:3102 npx tsx scripts/settlement-e2e.ts
+ *   DEV_API_BASE=http://127.0.0.1:3102 bun run scripts/settlement-e2e.ts
  *
  * Needs a running dev server (scripts/dev-server.ts) with the same env and the
  * dev-data scenario users (dev_you, dev_kabir). Steps 1-10 use the real HTTP
@@ -304,7 +304,7 @@ async function main() {
   console.log('# Settlement E2E')
   console.log(`Revision: ${revision()}`)
   console.log(`Environment: API ${devApiBase}, DB ${devDatabaseUrl.replace(/\/\/[^@]*@/, '//')}, node ${process.version}, ${new Date().toISOString()}`)
-  console.log('Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... npx tsx scripts/settlement-e2e.ts')
+  console.log('Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... bun run scripts/settlement-e2e.ts')
   console.log(`Group: ${groupId}\n| Step | Result |\n| --- | --- |`)
   for (const row of results) console.log(`| ${row.name} | ${row.result.replaceAll('|', '/').replaceAll('\n', ' ')} |`)
   const failed = results.filter((row) => row.result !== 'PASS').length
