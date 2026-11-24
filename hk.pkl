@@ -1,0 +1,24 @@
+amends "package://github.com/jdx/hk/releases/download/v2.14.0/hk@2.14.0#/Config.pkl"
+
+steps {
+  ["format-api"] {
+    glob = List("apps/api/**/*.{ts,tsx,js,mjs,cjs}")
+    check = "bun run --bun oxfmt --check {{files}}"
+    fix = "bun run --bun oxfmt --write {{files}}"
+  }
+  ["lint-api"] {
+    glob = List("apps/api/**/*.{ts,tsx,js,mjs,cjs}")
+    depends = List("format-api")
+    check = "bun run --bun oxlint -c .oxlintrc.json {{files}}"
+  }
+}
+
+hooks {
+  ["pre-push"] {
+    steps {
+      ["api-check"] {
+        check = "python3 .github/scripts/api-check.py \"$(git merge-base origin/main HEAD)\" HEAD"
+      }
+    }
+  }
+}
