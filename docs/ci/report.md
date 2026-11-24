@@ -11,7 +11,7 @@ Measured on November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWN
 | API E2E | 0 scripts in GitHub Actions | 7 existing scripts passed. Five independent shards. |
 | API static gate | Lint and typecheck combined, 63 s median on runner across event types | 17–29 s on runner across observed green CI samples. Includes Oxlint, original Next ESLint, TypeScript 7, and changed-line format. |
 | API build | No PR build job | 34–35 s on runner in the two full successful API runs |
-| iOS PR and release | 0 Cloud runs | Two successful build-only Cloud observations of 76.49 s and 99.38 s. The local unsigned build was 63.12 s before and 61.90 s with the smoke scheme. |
+| iOS PR and release | 0 Cloud runs | Three successful build-only Cloud observations of 76.49 s, 99.38 s and 83.40 s. The local unsigned build was 63.12 s before and 61.90 s with the smoke scheme. |
 | Standard GitHub Actions compute | $0 per PR and per month for the public repo | $0 per PR and per month for the public repo |
 | Blacksmith and Xcode Cloud | $0 incremental observed | $0 incremental observed. Owner enrollment and runner usage remain pending. |
 
@@ -38,18 +38,24 @@ push volume, six post-merge API runs at 222 runner seconds per run would
 use 22.2 runner minutes, before deployment, model checking, or merge groups.
 For a planning example with 20 PRs, six merge groups, and six main runs,
 applying that same full API sample to all 32 events costs about 118 runner
-minutes per month. PR selection can reduce that figure. An enrolled
+minutes per month. The observed model job times add about 71 runner minutes
+across six full merge groups, plus about 71 across six main runs. PR selection
+can reduce the API estimate. An enrolled
 Blacksmith account with its full free-minute allocation would pay $0 for
 that volume. Its paid 2-vCPU rate is $0.004/min after applicable free usage.
 Optional storage and 4-vCPU rates are separate. See
 [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 and [Blacksmith pricing](https://www.blacksmith.sh/pricing).
 
-An iOS monthly estimate requires separate action minutes for PR tests,
-main tests and archives, and release archives. Compute-hour usage is
-`(PR count × PR action minutes + main count × main action minutes +
-tag count × tag action minutes) / 60`. Apple includes 25 hours of team
-usage. Cloud smoke queue, signing, simulator and processing times are unmeasured.
+An iOS monthly estimate requires separate action minutes for PR smoke,
+merge-queue tests, main tests and archives, and release archives. Compute-hour
+usage is `(PR count × PR action minutes + queue count × queue action minutes +
+main count × main action minutes + tag count × tag action minutes) / 60`.
+Apple includes 25 hours of team
+usage. Twenty PRs at the median observed build action of 72.47 s would use
+about 24 minutes of build-only compute in a month. This is about 0.4 hours
+and $0 incremental if the team has that much included capacity left.
+Cloud smoke queue, signing, simulator and processing times are unmeasured.
 The local unsigned build is a compile reference on this Mac. It cannot
 establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode-cloud/get-started/)
 
@@ -106,8 +112,10 @@ establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode
   connected during the audit. The first manual run on `136e120` took 9.60 s
   waiting and 66.89 s building. The automatic run on fixture commit `0585fc7`
   took 24.84 s waiting and 74.54 s building. Its GitHub build check and commit
-  status were both published on that SHA. The two builds still give no
-  measurement of the complete Cloud Test action.
+  status were both published on that SHA. The automatic run on the simulator
+  QA commit `cc36ada` took 10.94 s waiting and 72.47 s building. The three
+  builds give a 66.89 s fastest observed build action. The Cloud Test action
+  remains unmeasured.
   [Automatic build check](https://github.com/My-apps-factory/BillBandit/pull/49/checks)
 - The iOS fixture runner seeded a disposable database and three test fixtures
   in 4.50 s on this Mac. It passed 11 API checks. A separate replay verified

@@ -21,10 +21,13 @@ App Store Connect showed a connected product and a successful build-only run.
    new workflows report, open **Settings → Rules → Rulesets** and edit the
    active default-branch ruleset. GitHub already reports the queue and the
    seven API check contexts. Land the reviewed API workflow stack so it can
-   emit those checks on merge-group SHAs. An independent docs change cannot
-   supply the API checks while the workflow is absent from main. Retarget the
-   reviewed API stack PR to main for the initial rollout if needed. Keep the
-   merge queue and required checks active for ordinary changes.
+   emit those checks on merge-group SHAs. Review #40, #41, #42 and #47
+   together. For initial rollout, change the base of #47 from `ci/api-e2e`
+   to `main` so its diff includes the complete stack and can emit all seven
+   required checks. Confirm the diff and queue #47. After the squash merge,
+   rebase the other stacked changes with only their topic commits. Change
+   each PR base to `main` after its dependency lands. Keep the queue and
+   checks active.
    Require `API checks`, `API build`, and each `API E2E (0)` through
    `API E2E (4)`. Require `TLA+ (ledger-kernel)`, `TLA+ (ios-ledger-sync)`,
    `TLA+ (ios-settlement-shell)`, and `TLA+ (other-models)`. Allow enough queue
@@ -114,7 +117,7 @@ App Store Connect showed a connected product and a successful build-only run.
    [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
 
 7. **Review compute usage.** Open **App Store Connect → Xcode Cloud → Usage**.
-   Record compute hours for each of the three workflows. Review the team
+   Record compute hours for each workflow, including the merge queue. Review the team
    total before upgrading. The Apple Developer app Account page offers
    25 hours included, 100 for $49.99/month, 250 for $99.99/month, 1,000 for
    $399.99/month, and 10,000 for $3,999.99/month. At the current repo volume
