@@ -10,13 +10,14 @@ permissions:
 jobs:
   sample:
     if: github.head_ref == 'ci/segv-repro'
-    name: Image sample ${{ matrix.lane }}
+    name: Image sample ${{ matrix.runtime }} ${{ matrix.lane }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
         lane: [1, 2, 3, 4, 5, 6]
+        runtime: [original, bun]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -31,8 +32,17 @@ jobs:
           git archive "$GITHUB_SHA" | tar -xf - -C "$context"
           docker build --platform linux/amd64 --tag billbandit-api-ci "$context" 2>&1 | tee "$evidence/build.log"
       - uses: ./.github/actions/api-toolchain
+      - name: Install debugger on runners that lack it
+        shell: bash
+        run: |
+          if ! command -v gdb; then
+            sudo apt-get -qq update
+            sudo apt-get -qq install -y --no-install-recommends gdb
+          fi
       - name: Capture runtime and sample independent smoke runs
         shell: bash
+        env:
+          TEST_RUNTIME: ${{ matrix.runtime }}
         run: |
           evidence="$RUNNER_TEMP/segv"
           {
@@ -48,6 +58,18 @@ jobs:
             cat /proc/sys/kernel/core_pattern
             command -v gdb
           } | tee "$evidence/runtime.txt"
+          if [[ "$TEST_RUNTIME" == bun ]]; then
+            python3 - <<'PYTHON'
+          from pathlib import Path
+
+          script = Path(".github/scripts/api-image-smoke.py")
+          source = script.read_text()
+          before = "['node', '--import', 'tsx', 'scripts/any-member-delete-e2e.ts']"
+          after = "['bun', 'run', 'scripts/any-member-delete-e2e.ts']"
+          assert source.count(before) == 1
+          script.write_text(source.replace(before, after))
+          PYTHON
+          fi
           sudo sysctl -w "kernel.core_pattern=$RUNNER_TEMP/segv/core.%e.%p"
           ulimit -c unlimited
           result=0
@@ -73,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: ${{ !cancelled() }}
         with:
-          name: segv-sample-${{ matrix.lane }}
+          name: segv-sample-${{ matrix.runtime }}-${{ matrix.lane }}
           path: |
             ${{ runner.temp }}/segv/*.log
             ${{ runner.temp }}/segv/*.txt
