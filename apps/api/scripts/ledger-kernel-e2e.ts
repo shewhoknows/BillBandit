@@ -8,9 +8,9 @@
  *
  * Replay (from apps/api, with the local server running on the same DB):
  *   DEV_DATABASE_URL=postgresql://postgres@localhost:5432/billbandit_a1 \
- *   DEV_API_BASE=http://127.0.0.1:3101 npx tsx scripts/ledger-kernel-e2e.ts
+ *   DEV_API_BASE=http://127.0.0.1:3101 bun run scripts/ledger-kernel-e2e.ts
  *
- * Needs the users of `npx tsx scripts/dev-data.ts scenario` (dev_you, dev_kabir).
+ * Needs the users of `bun run scripts/dev-data.ts scenario` (dev_you, dev_kabir).
  * It adds dev_zoya itself (local only, same rules as dev-data). It only adds data.
  */
 import assert from 'node:assert/strict'
@@ -70,6 +70,10 @@ async function ensureZoya(you: User): Promise<User> {
 }
 
 async function main() {
+  const scope = process.env.BILLBANDIT_LEDGER_E2E_SCOPE ?? 'all'
+  if (scope !== 'all' && scope !== 'kernel' && scope !== 'membership') {
+    throw new Error(`Unknown ledger E2E scope: ${scope}`)
+  }
   const { createMobileToken } = await import('../lib/mobile-auth')
   const [you, kabir] = await Promise.all(
     ['dev_you', 'dev_kabir'].map((username) => db.user.findUniqueOrThrow({ where: { username } }))
@@ -113,7 +117,7 @@ async function main() {
 
   // ---------------------------------------------------------------- bugs
   // Bug 1 (LedgerKernel.tla ReplayStable, Fixes = {}): a retry of a committed delete answered 404.
-  {
+  if (scope !== 'membership') {
     const g = await newGroup('replay-delete', [kabir])
     const e = await addExpense(g, you, [[you, 500], [kabir, 500]])
     await step('B1', 'Retry of a committed DELETE (same operationId) replays the first answer, not 404', async () => {
@@ -147,7 +151,7 @@ async function main() {
   }
 
   // Bug 2 (LedgerKernel.tla ReplayStable, Fixes = {"route"}): two attempts with one key at once -> one 500.
-  {
+  if (scope !== 'membership') {
     const g = await newGroup('same-key', [kabir])
     await step('B2', 'Two attempts of one expense create at the same moment: both succeed, one applied + one replayed (8 rounds)', async () => {
       for (let round = 0; round < 8; round += 1) {
@@ -182,7 +186,7 @@ async function main() {
   }
 
   // Bug 3 (GroupMembership.tla DepartedAreSettled, Fixes = {}): leaving through DELETE /members skipped the balance check.
-  {
+  if (scope !== 'kernel') {
     const g = await newGroup('leave-owing', [kabir])
     await addExpense(g, you, [[you, 500], [kabir, 500]])
     await step('B3', 'A member who owes money cannot remove themself through DELETE /members', async () => {
@@ -204,7 +208,7 @@ async function main() {
   }
 
   // Bug 4 (GroupMembership.tla HasAdmin, Fixes = {"balance"}): the last owner could remove or demote themself.
-  {
+  if (scope !== 'kernel') {
     const g = await newGroup('last-owner', [kabir])
     await step('B4', 'The only owner cannot remove themself (group keeps an owner)', async () => {
       const r = await request(T(you), `/api/mobile/groups/${g}/members`, 'DELETE',
@@ -226,7 +230,7 @@ async function main() {
 
   // Bug 5 (GroupMembership.tla DepartedAreSettled, Fixes = {"balance","admin"}):
   // a settled member leaves, then a delete / reversal moves their balance.
-  {
+  if (scope !== 'kernel') {
     const g = await newGroup('departed-balance', [kabir, zoya])
     const taxi = await addExpense(g, you, [[you, 500], [kabir, 500]], 'Taxi')
     await addExpense(g, kabir, [[you, 500], [kabir, 500]], 'Dinner')
@@ -299,7 +303,7 @@ async function main() {
   // Bobby's rule (2026-11-21): a person who left does not see the group,
   // but if they are added back, a debt that changed while they were away
   // shows for them again.
-  {
+  if (scope !== 'kernel') {
     const g = await newGroup('departed-readd', [kabir])
     await addExpense(g, you, [[you, 500], [kabir, 500]], 'Taxi')
     const dinner = await addExpense(g, kabir, [[you, 500], [kabir, 500]], 'Dinner')
@@ -333,7 +337,7 @@ async function main() {
   }
 
   // Bug 6: a self-removal through DELETE /members committed but answered 500 (phone retries forever).
-  {
+  if (scope !== 'kernel') {
     const g = await newGroup('self-remove', [zoya])
     await step('B6', 'A settled member removing themself through DELETE /members gets 200, not 500', async () => {
       const r = await request(T(zoya), `/api/mobile/groups/${g}/members`, 'DELETE',
@@ -344,7 +348,7 @@ async function main() {
   }
 
   // ------------------------------------------------------- regressions
-  {
+  if (scope !== 'membership') {
     const g = await newGroup('regression', [kabir])
     const e = await addExpense(g, you, [[you, 700], [kabir, 700]])
     await step('R1', 'Two phones edit one expense with the same stale revision: one 200, one REVISION_CONFLICT (no lost update)', async () => {
@@ -381,7 +385,7 @@ async function main() {
     })
   }
 
-  {
+  if (scope !== 'membership') {
     const g = await newGroup('hash-stability', [kabir, zoya])
     await step('R4', 'A create sent with member ids replays after membership changed (zoya leaves, is added back): no IDEMPOTENCY_KEY_REUSED', async () => {
       const model = await read(g)
@@ -462,7 +466,9 @@ async function main() {
   console.log(`Revision: ${revision}`)
   console.log(`Environment: API ${devApiBase}, database ${new URL(devDatabaseUrl).pathname.slice(1)} on ${new URL(devDatabaseUrl).host}, node ${process.version}`)
   console.log(`Run at: ${new Date().toISOString()}`)
-  console.log(`Replay: cd apps/api && DEV_DATABASE_URL=${devDatabaseUrl} DEV_API_BASE=${devApiBase} npx tsx scripts/ledger-kernel-e2e.ts`)
+  console.log(
+    `Replay: cd apps/api && DEV_DATABASE_URL=${devDatabaseUrl} DEV_API_BASE=${devApiBase} BILLBANDIT_LEDGER_E2E_SCOPE=${scope} bun run scripts/ledger-kernel-e2e.ts`,
+  )
   console.log(`Groups: ${groupsUsed.length} (first ${groupsUsed[0]})`)
   console.log('\n| Step | Check | Result |\n| --- | --- | --- |')
   for (const row of results) console.log(`| ${row.id} | ${row.name} | ${row.result.replaceAll('|', '/').replaceAll('\n', ' ')} |`)

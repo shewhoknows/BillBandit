@@ -2,11 +2,17 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-23, build 34 demo restored. See the current evidence report for production and App Store Connect state.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-24, build 35 release preparation. See the current evidence report for production and App Store Connect state.**
 
 ---
 
 ## 1. What this is
+
+### 2026-11-24 — Xcode 27.2 build 35
+
+- App Review would not accept build 34 because it was made with Xcode 27.1 beta. Build 35 uses release Xcode 27.2, build `27B52`. Its signed Debug build and full local reviewer-flow E2E passed. The App Store-signed IPA has `DTXcodeBuild` `27B52` and retains the Sign in with Apple entitlement. Evidence is in `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/phase3/`.
+- The iOS build-number commit is on `release/1.0-33`. The production Railway service tracks `main` and automatically deploys on pushes. The phase 3 instruction prohibits changing Railway, so the main push must not proceed unless the owner resolves that conflict. The phase 3 report records the latest upload and version-selection status.
+- Do not submit or send the Resolution Center reply in phase 3. The owner handles submission. Do not change the production review code, App Review notes, sign-in fields, or attachment.
 
 ### 2026-11-23 — Production demo restored
 
@@ -34,7 +40,7 @@
 
 - The unauthenticated review-code GET returns a non-cached enabled flag. The flag requires a code of at least 16 characters. Removing the variable also rejects reviewer tokens with 401. Apple accounts keep their existing path.
 - The sign-in screen checks the flag on entry and foreground return. It hides the link on failure and keeps the Apple button in place. A rejected reviewer session returns to sign-in. Reviewer Home group cards show the demo member names.
-- `npm run review:teardown -- --confirm` shares the reset safety checks and removes the demo accounts and groups. The local round trip refused a non-demo friendship and mixed group, preserved a separate account, and rebuilt the demo.
+- `bun run review:teardown -- --confirm` shares the reset safety checks and removes the demo accounts and groups. The local round trip refused a non-demo friendship and mixed group, preserved a separate account, and rebuilt the demo.
 - The normal Debug simulator build and API typecheck and lint passed. TesterArmy passed the iPhone flow. On iPad, the main run reached sign-in, Home, and return to sign-in; it then failed because its frame comparison depended on object key order. The numeric frames matched. A separate continuation passed the foreground and offline checks. See `.scratch/reviewer-login/REPORT-part4.md` for the traces and exact replay commands.
 - No production, deployment, upload, submission, or push action was taken. Physical devices and a real Apple sign-in were not tested. Reviewer tokens issued before teardown can become usable again if review access is later enabled and the same account is recreated before token expiry.
 
@@ -698,8 +704,8 @@ xcodebuild -project BillBandit.xcodeproj -scheme BillBandit -configuration Debug
   -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
 
 # local API for the app and the UI flows (port 3000; migrates the local `billbandit` DB; never deletes)
-cd .. && npm run dev:server            # leave running in its own terminal
-npm run dev:data -- ui-session         # fresh empty test account -> .scratch/ui-session.json
+cd .. && bun run dev:server            # leave running in its own terminal
+bun run dev:data -- ui-session         # fresh empty test account -> .scratch/ui-session.json
 cd BillBandit
 
 # end-to-end UI flows (there are no unit tests; see §2026-11-10). Keeps a result bundle as evidence.
@@ -714,9 +720,9 @@ START_VIETNAM_TRIP_SERVER=1 VIETNAM_TRIP_BASE_URL=http://127.0.0.1:31301 \
   node --import tsx apps/api/scripts/vietnam-trip-qa.ts
 
 # add test data while working (adds only; see the top of apps/api/scripts/dev-data.ts)
-npm run dev:data                       # new group + friends + 3 expenses + 1 payment, as "You"
-npm run dev:data -- expense --group "Goa trip" --amount 1250.50 --payer Aarav
-npm run dev:data -- signin --launch    # open the booted simulator app signed in as "You"
+bun run dev:data                       # new group + friends + 3 expenses + 1 payment, as "You"
+bun run dev:data -- expense --group "Goa trip" --amount 1250.50 --payer Aarav
+bun run dev:data -- signin --launch    # open the booted simulator app signed in as "You"
 
 # install + launch + screenshot (hooks: `-tab N`, `-showAdd`, `-showAddFriend`, `-openGroup <name>`,
 # `-onboardingPage N`; `-onboardingDemo` auto-advances all three pages for recording)
