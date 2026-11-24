@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { PrismaClient } from '@prisma/client'
 import { createMobileToken, createReviewResetToken } from '../lib/mobile-auth'
 import { executeMutation } from '../lib/ledger/mutation/kernel'
 import { REVIEW_ACCOUNT_EMAIL, REVIEW_ACCOUNT_ID, REVIEW_ACCOUNT_USERNAME } from '../lib/review-account'
+import { createReviewResetClient } from './support/review-reset-client'
 
 type Json = Record<string, any>
 type Person = { id: string; email: string; name: string; username: string; token: string }
@@ -30,7 +30,7 @@ async function main() {
   const apiURL = base ? new URL(base) : null
   if (apiURL && !['http:', 'https:'].includes(apiURL.protocol)) throw new Error('REVIEW_API_BASE_URL must be HTTP or HTTPS')
   if (!teardown && !process.env.MOBILE_JWT_SECRET && !process.env.NEXTAUTH_SECRET) throw new Error('MOBILE_JWT_SECRET or NEXTAUTH_SECRET is required')
-  const db = new PrismaClient()
+  const db = createReviewResetClient()
   const ids = definitions.map(({ id }) => id)
   const allowed = new Set(ids)
   try {
@@ -148,7 +148,7 @@ async function main() {
         const [fromId, toId] = [REVIEW_ACCOUNT_ID, friend.id].sort()
         await tx.friendship.create({ data: { fromId, toId, status: 'ACCEPTED' } })
       }
-    }, { isolationLevel: 'Serializable', timeout: 30000 })
+    }, { isolationLevel: 'Serializable' })
 
     if (teardown) {
       console.log('Reviewer demo teardown complete')

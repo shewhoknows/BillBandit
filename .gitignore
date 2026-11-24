@@ -42,3 +42,4 @@ BillBandit/BillBandit.xcodeproj/xcshareddata/xcschemes/*-QA.local.xcscheme
 
 # Local evidence and scratch output
 .scratch/
+/scripts/release/test-output/
