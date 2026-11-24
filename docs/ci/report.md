@@ -4,9 +4,9 @@ Measured November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWNER-
 
 | Metric | Before | Candidate |
 | --- | ---: | ---: |
-| API PR result | 68 s p50 and 77 s p95 across 13 baseline PRs | Two earlier full API runs passed in 43 s and 71 s. The current strict runs report timing failures separately from correct API results. |
+| API PR result | 68 s p50 and 77 s p95 across 13 baseline PRs | 40 s on the final full API PR. Earlier successful candidates took 43 s and 71 s. |
 | API job waiting | 5 s target | 3 s p50, 68 s p95, 99 s worst across 61 started jobs on GitHub-hosted runners |
-| API setup | 53 s p50 across baseline jobs | Cold dependency and checkout setup still reached 16–18 s in strict samples. |
+| API setup | 53 s p50 across baseline jobs | 7.34–14.16 s on the final hosted run. Earlier cold samples reached 23 s. |
 | API E2E | Zero scripts in Actions | The seven existing scripts run in five shards. The slow ledger script now runs in two sections with the same 23 check IDs. |
 | Deployment image | 98.17 s build and 2 s startup | 35.50 s build and 1 s startup |
 | Ledger model | 737 s, timed out with 3 GiB heap | 650 s full model with 8 GiB heap. 22 s bounded model job. |
@@ -18,16 +18,20 @@ with nearest-rank percentiles. The 13 candidate workflow runs exclude
 jobs that did not start or were cancelled. Standard GitHub-hosted runners
 cannot meet a 5 s p95 waiting target. API CI fails if waiting exceeds 68 s
 or if setup and runner time reach their existing 15 s and 35 s limits.
-The 30 s E2E shard limit remains. The 43 s and 71 s samples are too few
-to establish a sustained p50 or p95. The older 5 s gate failed seven waiting
+The 30 s E2E shard limit remains. The final run passed all seven required
+jobs in 40 s. It waited 2–3 s per job. The slowest budget measurement
+was 33.04 s. The longest GitHub job timestamp span was 35 s, which
+includes post-step completion. The limited samples cannot establish
+a sustained p50 or p95. The older 5 s gate failed seven waiting
 checks in one run. Its waits ranged from 37 s to 99 s.
 [Strict baseline](https://github.com/My-apps-factory/BillBandit/actions/runs/45368005114)
 [Hosted waiting budget](https://github.com/My-apps-factory/BillBandit/actions/runs/45373847061)
 [Reduced setup round trips](https://github.com/My-apps-factory/BillBandit/actions/runs/45374393220)
+[Final required checks](https://github.com/My-apps-factory/BillBandit/actions/runs/45376270657)
 
 The 30-day baseline had six Railway push runs that used 355 runner seconds
 and no PRs. The two earlier successful API candidates used 209 and 235
-parallel runner seconds per PR. At 20 PRs, six merge groups, and six main
+parallel runner seconds per PR. The final run used 200 runner seconds. At 20 PRs, six merge groups, and six main
 pushes, those full API samples imply about 118 runner minutes per month.
 Main full TLA+ would add about 71 runner minutes over six pushes. Six
 bounded model runs at the observed 98 runner seconds would add about ten
@@ -56,11 +60,11 @@ Compute hours equal summed action minutes divided by 60. See the
 - The API test runner keeps script execution because `bun test` discovered
   zero existing E2E scripts. The all-Bun script trial timed out in the
   identity and Vietnam cases. The mixed runner preserved the assertions
-  and passed. The split ledger ranges retain all 23 original check IDs.
-  The consistency check runs for the groups in each section. Both local
-  split runs passed in 5.38 s and 5.06 s after a 20.30 s hosted combined
-  observation. These are different machines. Compare hosted measurements
-  separately.
+  and passed. The final artifacts cover all eight files exactly once. The ledger
+  sections retain all 23 original check IDs. Both sections run the
+  consistency check on their own groups. A single hosted file took
+  20.30 s before the split. The final hosted sections took 13.97 s and
+  15.14 s. The five shards took 12.85–17.66 s. [Exact coverage artifacts](https://github.com/My-apps-factory/BillBandit/actions/runs/45376270657)
 - `bun.lock` is now the one dependency lockfile. A side-by-side Docker
   replay built and started both images against empty PostgreSQL 16.
   Each applied all 15 migrations, served its own revision, and rejected
@@ -78,8 +82,10 @@ Compute hours equal summed action minutes divided by 60. See the
   first authorized merge. [Railway variables](https://docs.railway.com/variables/reference)
 - Blobless sparse checkout, a frozen Bun install, and exact lock and
   Prisma-schema `node_modules` caching reduce setup. Main still needs to
-  seed the production cache. A sustained hit rate above 95% and cold setup
-  below 15 s remain unverified on the standard image.
+  seed the production cache. A sustained hit rate above 95% and a sustained
+  cold-setup result below 15 s remain unverified. GitHub supplies the standard
+  image. The workflow installs the exact tools that image lacks.
+  [Standard runner image](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md)
 
 ## Model coverage and merge queue
 
@@ -139,6 +145,6 @@ including `queue-seconds.json`, `container-proofs/`, `tla-hosted/`,
 readbacks for the disabled Cloud workflows.
 
 Fetch a hosted API E2E result with
-`gh run download 45374393220 -R My-apps-factory/BillBandit --pattern 'api-e2e-*'`.
+`gh run download 45376270657 -R My-apps-factory/BillBandit --pattern 'api-e2e-*'`.
 Each summary records the revision, environment, seed, replay and outcome.
 [Two-week test failure log](test-failure-log.md)

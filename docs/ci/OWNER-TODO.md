@@ -25,8 +25,10 @@ and are disabled. This list starts after the PRs in [report.md](report.md).
    editor, open **Main: TestFlight**. Leave the workflow disabled until its
    PR merges. Under **Environment → Environment Variables**, set
    `BILLBANDIT_UI_FIXTURE_DIR=/tmp/billbandit-ui-fixtures`. Use the existing
-   `BillBandit` full Test action and verify all 20 tests in a
-   no-distribution run before enabling internal delivery. Under
+   `BillBandit` full Test action. For a no-distribution rehearsal, duplicate
+   the workflow, keep only Test, and use a manual-only start. Verify all
+   20 tests and the fixture log in that run. Return to Main: TestFlight.
+   Under
    **Post-Actions → + → TestFlight Internal Testing**, select
    **BillBandit Internal QA**. Review the group and confirm the next Cloud
    build number exceeds the latest uploaded build number. Save. Enable when
