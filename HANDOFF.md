@@ -8,6 +8,16 @@
 
 ## 1. What this is
 
+### 2026-11-24 — Build 35 TestFlight findings (branch `fix/build35-testflight-findings`, from `main` 136e120)
+
+- Owner's iPhone 16 Pro, TestFlight build 35, tested over iPhone Mirroring. Group create, expense, totals, Activity, Profile XP and Home worked. Four findings; three fixed in the app, one needs the server.
+- Fixed: failure notices now sit in their own window (`FailureNoticeWindow`, RootTabView.swift) above every full-screen cover. Before, a notice that arrived while New group or Add expense was opening sat behind the cover, took no taps there, and returned after the cover closed. That looked like a repeated "iCloud profile sync stopped".
+- Fixed: the delete and leave group dialogs promised "Its history stays in Activity". The read model loads only unarchived groups the person still belongs to (`loadRawGroups`), so the history disappears. The dialogs now say the activity leaves the list. Keeping history after delete or leave would be a server read-model change.
+- Fixed: an unknown CloudKit failure read "temporary problem … retry automatically" on every launch. It now names the code ("iCloud error N") so the TestFlight cause can be traced. The production `BBFriendProfile` schema could not be checked: no CloudKit management token on this Mac.
+- Fixed: the reward toast lets taps through (`allowsHitTesting(false)`), so it cannot block Add expense or Settle up.
+- Open (server): "Old iCloud data not moved" shows for every account with legacy CloudKit zones. `resolvePeople` needs a `cloudkit` ExternalIdentity per person, and production never creates one (gap noted in docs/state-machines/identity-friends-import.md). Review sessions skip CloudKit, so App Review does not see it. A fix goes through `main`, which auto-deploys Railway, so it was not started.
+- E2E evidence and replay: `.scratch/b35-fixes-e2e/` (README, shots). Toast and the new iCloud text were not exercised at runtime. No push, upload, deploy or production change.
+
 ### 2026-11-24 — Xcode 27.2 build 35
 
 - App Review would not accept build 34 because it was made with Xcode 27.1 beta. Build 35 uses release Xcode 27.2, build `27B52`. Its signed Debug build and full local reviewer-flow E2E passed. The App Store-signed IPA has `DTXcodeBuild` `27B52` and retains the Sign in with Apple entitlement. Evidence is in `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/phase3/`.

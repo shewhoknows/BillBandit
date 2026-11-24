@@ -722,7 +722,13 @@ final class CloudCollaborationService: ObservableObject {
         case .invalidArguments, .serverRejectedRequest:
             return "Cloud sync needs an app update. Your data is saved on this device."
         default:
-            return "Cloud sync hit a temporary problem. It will retry automatically."
+            // Unknown failures used to read as "temporary" even when they
+            // repeated on every launch. Name the code so it can be traced.
+            let nsError = error as NSError
+            let code = CloudUploadFailurePolicy.cloudCode(for: error)
+                .map { "iCloud error \($0.rawValue)" }
+                ?? "\(nsError.domain) \(nsError.code)"
+            return "Cloud sync could not finish (\(code)). It will try again the next time you open BillBandit."
         }
     }
 }
