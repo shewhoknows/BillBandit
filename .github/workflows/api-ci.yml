@@ -1,0 +1,56 @@
+name: API CI
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  checks:
+    name: API checks
+    runs-on: ${{ vars.BILLBANDIT_CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          filter: blob:none
+          persist-credentials: false
+      - uses: ./.github/actions/api-toolchain
+        with:
+          seed-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Lint, format and typecheck
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          base="$BASE_SHA"
+          if [[ "$GITHUB_EVENT_NAME" == push ]] && ! git cat-file -e "$base^{commit}"; then
+            base=$(git hash-object -t tree /dev/null)
+          fi
+          python3 .github/scripts/api-check.py "$base" "$GITHUB_SHA"
+
+  build:
+    name: API build
+    runs-on: ${{ vars.BILLBANDIT_CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          filter: blob:none
+          persist-credentials: false
+      - uses: ./.github/actions/api-toolchain
+      - name: Build Next on Bun
+        run: timeout 35s bun run build:ci
