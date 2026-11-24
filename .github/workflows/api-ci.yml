@@ -156,6 +156,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+          compression-level: 1
       - name: Enforce API job budgets
         if: ${{ !cancelled() }}
         run: python3 .github/scripts/api-job-budget.py check

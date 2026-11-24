@@ -1,10 +1,10 @@
 {
-  "any-member-delete-e2e.ts": 14.0,
-  "identity-friends-import-e2e.ts": 16.0,
-  "ledger-kernel-e2e.ts": 17.0,
-  "ledger-membership-e2e.ts": 14.0,
-  "polish-e2e.ts": 13.5,
-  "settlement-e2e.ts": 12.7,
-  "simplify-debts-e2e.ts": 14.0,
-  "vietnam-trip-qa.ts": 11.0
+  "any-member-delete-e2e.ts": 13.305,
+  "identity-friends-import-e2e.ts": 16.335,
+  "ledger-kernel-e2e.ts": 15.995,
+  "ledger-membership-e2e.ts": 14.34,
+  "polish-e2e.ts": 13.347,
+  "settlement-e2e.ts": 12.729,
+  "simplify-debts-e2e.ts": 12.622,
+  "vietnam-trip-qa.ts": 11.14
 }
