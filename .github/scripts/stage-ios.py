@@ -9,6 +9,28 @@ def asc(*args):
     return json.loads(subprocess.check_output(["asc", *args, "--output", "json"], text=True))
 
 
+def archive_actions(run):
+    return [action["attributes"] for action in
+            asc("xcode-cloud", "actions", "list", "--run-id", run)["data"]
+            if action["attributes"]["actionType"] == "ARCHIVE"]
+
+
+def inspect_run(run):
+    status = asc("xcode-cloud", "status", "--run-id", run)
+    if status["executionProgress"] != "COMPLETE":
+        raise RuntimeError(f"Cloud run {run} has not completed.")
+    archives = archive_actions(run)
+    builds = asc("xcode-cloud", "build-runs", "builds", "--run-id", run)["data"]
+    print(json.dumps({
+        "mode": "inspection-only",
+        "run": run,
+        "sourceCommit": (status.get("sourceCommit") or {}).get("commitSha"),
+        "completionStatus": status["completionStatus"],
+        "successfulArchives": sum(action["completionStatus"] == "SUCCEEDED" for action in archives),
+        "builds": [{"id": build["id"], "state": build["attributes"]["processingState"]} for build in builds],
+    }, indent=2))
+
+
 def wait_for_archive(workflow, tag, commit, deadline):
     while time.monotonic() < deadline:
         runs = asc("xcode-cloud", "build-runs", "list", "--workflow-id", workflow, "--sort=-number", "--limit", "25")
@@ -30,6 +52,9 @@ def wait_for_archive(workflow, tag, commit, deadline):
             run = matches[0]
             if run["attributes"]["completionStatus"] != "SUCCEEDED":
                 raise RuntimeError(f"Cloud run {run['id']} failed: {run['attributes']['completionStatus']}")
+            archives = archive_actions(run["id"])
+            if len(archives) != 1 or archives[0]["completionStatus"] != "SUCCEEDED":
+                raise RuntimeError("The Cloud run did not produce one successful archive action.")
             return run["id"]
         time.sleep(20)
     raise RuntimeError("The Cloud archive did not finish within the release staging window.")
@@ -75,9 +100,19 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--app", required=True)
-    parser.add_argument("--tag", required=True)
-    parser.add_argument("--commit", required=True)
-    parser.add_argument("--workflow-id", required=True)
+    parser.add_argument("--app")
+    parser.add_argument("--tag")
+    parser.add_argument("--commit")
+    parser.add_argument("--workflow-id")
     parser.add_argument("--dry-run", action="store_true")
-    main(parser.parse_args())
+    parser.add_argument("--run-id")
+    args = parser.parse_args()
+    release = (args.app, args.tag, args.commit, args.workflow_id)
+    if args.run_id:
+        if not args.dry_run or any(release):
+            parser.error("--run-id requires --dry-run and no release arguments")
+        inspect_run(args.run_id)
+    elif not all(release):
+        parser.error("release staging requires --app, --tag, --commit and --workflow-id")
+    else:
+        main(args)

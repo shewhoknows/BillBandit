@@ -1,13 +1,23 @@
 #!/bin/bash
 set -euo pipefail
 
-expected=$'Xcode 27.2\nBuild version 27B52'
 actual=$(xcodebuild -version)
-if [[ "$actual" != "$expected" ]]; then
-  printf 'Expected the release toolchain:\n%s\nFound:\n%s\n' "$expected" "$actual" >&2
+printf '%s\n' "$actual"
+version_line=${actual%%$'\n'*}
+build_line=${actual#*$'\n'}
+developer_dir=${DEVELOPER_DIR:-$(xcode-select -p)}
+if [[ ! "$version_line" =~ ^Xcode[[:space:]]([0-9]+)\.([0-9]+)(\.[0-9]+)?$ ]]; then
+  printf 'Expected a release Xcode version.\n' >&2
   exit 1
 fi
-printf '%s\n' "$actual"
+major=${BASH_REMATCH[1]}
+minor=${BASH_REMATCH[2]}
+if [[ ! "$build_line" =~ ^Build[[:space:]]version[[:space:]][0-9]+[A-Z][0-9]+$ ||
+      "$developer_dir" =~ [Bb][Ee][Tt][Aa]|[Pp][Rr][Ee][Vv][Ii][Ee][Ww]|-[Rr][Cc] ||
+      "$major" -lt 27 || ( "$major" -eq 27 && "$minor" -lt 2 ) ]]; then
+  printf 'Expected release Xcode 27.2 or later.\n' >&2
+  exit 1
+fi
 
 if [[ -z "${CI_TAG:-}" ]]; then
   exit 0
