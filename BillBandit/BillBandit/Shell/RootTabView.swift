@@ -1852,7 +1852,10 @@ struct RootTabView: View {
         }
         .overlay(alignment: .bottom) {
             if let outcome = rewardFeedback.current {
+                // Taps pass through: the toast must never block the
+                // buttons it briefly covers (Add expense, Settle up).
                 RewardToastView(outcome: outcome)
+                    .allowsHitTesting(false)
                     .padding(.horizontal, 18)
                     .padding(.bottom, 76)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
@@ -1862,15 +1865,11 @@ struct RootTabView: View {
         .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
                    value: rewardFeedback.current?.id)
         // No silent failures: a change the server refused after its screen
-        // closed, or background work that stopped, is shown here until the
-        // person presses OK. Refresh problems show as a small line.
+        // closed, or background work that stopped, is shown until the person
+        // presses OK. Notices live in FailureNoticeWindow, above every
+        // full-screen cover; refresh problems show here as a small line.
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
-                if let notice = failureCenter.current {
-                    FailureNoticeView(notice: notice) { failureCenter.dismissCurrent() }
-                        .id(notice.id)
-                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-                }
                 if socialSync.showsRefreshProblem {
                     RefreshProblemLine {
                         Task { await ServerSocialSyncService.shared.refresh() }
@@ -1882,10 +1881,12 @@ struct RootTabView: View {
             .padding(.top, 6)
             .zIndex(30)
         }
-        .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
-                   value: failureCenter.current?.id)
         .animation(.easeOut(duration: 0.2), value: socialSync.showsRefreshProblem)
-        .onAppear { failureCenter.start() }
+        .onAppear {
+            failureCenter.start()
+            FailureNoticeWindow.shared.show()
+        }
+        .onDisappear { FailureNoticeWindow.shared.hide() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { failureCenter.scheduleLedgerCheck() }
         }
@@ -2213,6 +2214,87 @@ private struct RefreshProblemLine: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("refreshProblemLine")
         .accessibilityHint("Tries to refresh friends and groups again")
+    }
+}
+
+/// Failure notices sit in their own window above every full-screen cover and
+/// sheet. In the main window a notice could open behind a cover (New group,
+/// Add expense), take no taps there, and pop up again after the cover closed
+/// (TestFlight build 35). The window takes touches only inside the notice.
+@MainActor
+final class FailureNoticeWindow {
+    static let shared = FailureNoticeWindow()
+
+    private var window: NoticePassthroughWindow?
+
+    private init() {}
+
+    func show() {
+        if let window {
+            window.isHidden = false
+            return
+        }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })
+            ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
+        else { return }
+        let window = NoticePassthroughWindow(windowScene: scene)
+        // Above the app's window (and so above its covers and sheets).
+        window.windowLevel = .normal + 1
+        let host = UIHostingController(rootView: FailureNoticeLayer(window: window))
+        host.view.backgroundColor = .clear
+        window.rootViewController = host
+        window.isHidden = false
+        self.window = window
+    }
+
+    /// Signed out: no notices outside the signed-in app.
+    func hide() {
+        window?.interactiveFrame = .null
+        window?.isHidden = true
+    }
+}
+
+final class NoticePassthroughWindow: UIWindow {
+    /// The notice's frame in window coordinates; `.null` while none shows.
+    var interactiveFrame: CGRect = .null
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !interactiveFrame.isNull, interactiveFrame.contains(point) else { return nil }
+        return super.hitTest(point, with: event)
+    }
+}
+
+private struct FailureNoticeLayer: View {
+    @ObservedObject private var failureCenter = AppFailureCenter.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let window: NoticePassthroughWindow
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let notice = failureCenter.current {
+                FailureNoticeView(notice: notice) { failureCenter.dismissCurrent() }
+                    .id(notice.id)
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global)
+                    } action: { frame in
+                        window.interactiveFrame = frame
+                    }
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .preferredColorScheme(.light)
+        .tint(Color.Brand.cobalt)
+        .animation(reduceMotion ? .easeOut(duration: 0.16) : BrandMotion.revealSpring,
+                   value: failureCenter.current?.id)
+        .onChange(of: failureCenter.current == nil) { _, isEmpty in
+            if isEmpty { window.interactiveFrame = .null }
+        }
     }
 }
 

@@ -78,7 +78,7 @@ struct GroupsScreen: View {
                 }
                 Button("Cancel", role: .cancel) { groupPendingSharedRemoval = nil }
             } message: {
-                Text("Everyone must be settled first. The group leaves every member's list. Its history stays in Activity.")
+                Text("Everyone must be settled first. The group, its expenses and its activity leave every member's list.")
             }
             .alert(
                 groupsPendingLocalDeletion.count == 1 ? "Delete this group?" : "Delete these groups?",
