@@ -11,7 +11,7 @@ Measured on November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWN
 | API E2E | 0 scripts in GitHub Actions | 7 existing scripts passed. Five independent shards. |
 | API static gate | Lint and typecheck combined, 63 s median on runner across event types | 17–29 s on runner across observed green CI samples. Includes Oxlint, original Next ESLint, TypeScript 7, and changed-line format. |
 | API build | No PR build job | 34–35 s on runner in the two full successful API runs |
-| iOS PR and release | 0 Cloud runs | 0 Cloud runs. Local unsigned build reference was 63.12 s before and 61.90 s with the Cloud smoke scheme. |
+| iOS PR and release | 0 Cloud runs | One 76.49 s build-only Cloud run. The local unsigned build was 63.12 s before and 61.90 s with the smoke scheme. |
 | Standard GitHub Actions compute | $0 per PR and per month for the public repo | $0 per PR and per month for the public repo |
 | Blacksmith and Xcode Cloud | $0 incremental observed | $0 incremental observed. Owner enrollment and runner usage remain pending. |
 
@@ -24,8 +24,9 @@ Availability, queue and runner lifecycle time still matter. See
 [sharded E2E](https://github.com/My-apps-factory/BillBandit/actions/runs/45366628920)
 and [sparse checkout run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367281300).
 
-The strict-budget candidate kept all correctness results and failed the seven
-jobs on waiting. GitHub queued them for 37–99 s. Two jobs also exceeded the
+The strict-budget candidate took 127 s wall time and 213 runner seconds.
+The correctness commands passed. All seven jobs failed the waiting budget.
+GitHub queued them for 37–99 s. Two jobs also exceeded the
 setup limit, and one reached 38.04 s through the runner-budget check. All
 seven API scripts passed and their artifacts had exact coverage. This run
 shows why the Blacksmith and warm-runner measurements are still required.
@@ -58,7 +59,9 @@ establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode
   A PR can narrow only script-specific changes and known directories outside
   the API. A change to shared code, migrations, package metadata, config, or
   an unknown path selects all scripts. Merge groups and main always select
-  the full suite. GitHub's merge queue still needs owner activation.
+  the full suite. The final read showed an active queue and the seven API
+  contexts. The workflow stack still needs to land, and the owner must add
+  the model and iOS contexts before enforcing the full suite.
 - The first one-runner E2E job failed after 65 s on runner. It timed out
   during identity import and ledger. All five sharded jobs passed in the
   candidate. Shard artifacts identify each assigned and executed file.
@@ -87,11 +90,15 @@ establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode
   budget. It fails if it does not complete. The first hosted model run
   timed out the combined small-model lane and was cancelled during the large
   ledger lane. Splitting the iOS model groups let the three shorter jobs pass
-  in 23 s, 24 s, and 32 s. Together they checked 17 models.
+  in 23 s, 24 s, and 32 s. Together they checked 17 models. The ledger
+  job failed at its 12-minute command limit after 737 s on runner.
+  The hosted suite therefore has 17 confirmed results out of 18.
   [Split model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123)
 - The iOS smoke scheme builds locally with release Xcode. A beta, a malformed
-  tag, and a version mismatch fail the post-clone guard. Cloud needs a product
-  and source-repository connection. The full UI suite also needs its
+  tag, and a version mismatch fail the post-clone guard. The product was
+  connected during the audit. App Store Connect reported one manual
+  build-only run on commit `136e120`: 9.60 s waiting and 66.89 s building.
+  The full UI suite still needs its
   disposable fixture backend and repairs for existing failing tests.
   Cloud UI, signed archive, internal upload, live build selection and Cloud
   merge-queue enforcement remain unverified.

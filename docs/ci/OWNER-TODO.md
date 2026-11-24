@@ -1,8 +1,9 @@
 # Owner actions for BillBandit CI
 
 All prices are USD. GitHub transferred the public repository to
-`My-apps-factory/BillBandit` during the audit. On November 24, 2026,
-GitHub reported the organization as owner and no active rules for `main`.
+`My-apps-factory/BillBandit` during the audit. The final read on November 24,
+2026 showed an active merge queue and the seven API check contexts.
+App Store Connect showed a connected product and a successful build-only run.
 
 1. **Restore Railway deploy credentials.** In Railway, open the BillBandit
    project. Open **Settings → Tokens** and create a Project Token for the
@@ -15,11 +16,15 @@ GitHub reported the organization as owner and no active rules for `main`.
    verification. Incremental cost is $0 for the credential. Deployment uses
    the existing Railway plan. [Railway project tokens](https://docs.railway.com/cli/login)
 
-2. **Enforce the GitHub merge queue.** Review the PRs in the order in the
+2. **Complete the GitHub merge-queue rollout.** Review the PRs in the order in the
    [report](report.md). Keep existing required checks during rollout. After the
-   new workflows report, open **Settings → Rules → Rulesets → New branch
-   ruleset**. Target the default branch. Set **Active**. Require a pull request,
-   required status checks, and a merge queue. Leave the bypass list empty.
+   new workflows report, open **Settings → Rules → Rulesets** and edit the
+   active default-branch ruleset. GitHub already reports the queue and the
+   seven API check contexts. Land the reviewed API workflow stack so it can
+   emit those checks on merge-group SHAs. An independent docs change cannot
+   supply the API checks while the workflow is absent from main. Retarget the
+   reviewed API stack PR to main for the initial rollout if needed. Keep the
+   merge queue and required checks active for ordinary changes.
    Require `API checks`, `API build`, and each `API E2E (0)` through
    `API E2E (4)`. Require `TLA+ (ledger-kernel)`, `TLA+ (ios-ledger-sync)`,
    `TLA+ (ios-settlement-shell)`, and `TLA+ (other-models)`. Allow enough queue
@@ -51,13 +56,14 @@ GitHub reported the organization as owner and no active rules for `main`.
    [Blacksmith pricing](https://www.blacksmith.sh/pricing)
    [Blacksmith runner setup](https://info.blacksmith.sh/blog/speed-up-github-actions-with-blacksmith)
 
-4. **Create the Xcode Cloud product.** In release Xcode 27.2, sign in under
+4. **Finish Xcode Cloud setup.** Product creation is complete. In release Xcode 27.2, sign in under
    **Xcode → Settings → Accounts** with the BillBandit Apple Developer team.
    Open `BillBandit/BillBandit.xcodeproj` from the checkout.
-   Open **Report navigator → Cloud → Get Started**. Choose BillBandit and
-   connect the existing App Store Connect app `com.billbandit.app`.
-   Select GitHub, authorize the Xcode Cloud integration for
-   `My-apps-factory/BillBandit`, return to Xcode, and finish product setup.
+   The onboarding path is **Report navigator → Cloud → Get Started**.
+   Choose BillBandit, link the App Store Connect app `com.billbandit.app`,
+   and authorize GitHub for `My-apps-factory/BillBandit`.
+   This product exists and its **PR build** workflow passed a manual build.
+   Edit that workflow to use the checked-in smoke test plan.
    Start with the smoke workflow and leave distribution off. In App Store
    Connect, open **Apps → BillBandit → Xcode Cloud → Workflows** and add the
    configurations in [Xcode Cloud](xcode-cloud.md).
