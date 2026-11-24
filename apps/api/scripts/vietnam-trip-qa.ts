@@ -221,7 +221,15 @@ function startNextServer(databaseURL: string): { server: ChildProcess; readiness
   writeFileSync(stderrPath, '', { encoding: 'utf8', mode: 0o600 })
   const stdoutFd = openSync(stdoutPath, 'a', 0o600)
   const stderrFd = openSync(stderrPath, 'a', 0o600)
-  const args = ['run', '--cwd', apiRoot, 'dev', '-p', String(port), ...(ciRun ? ['-H', '127.0.0.1'] : [])]
+  const args = [
+    'run',
+    '--cwd',
+    apiRoot,
+    'dev',
+    '-p',
+    String(port),
+    ...(ciRun ? ['-H', '127.0.0.1'] : []),
+  ]
   const server = spawn('bun', args, {
     cwd: repositoryRoot,
     env: {

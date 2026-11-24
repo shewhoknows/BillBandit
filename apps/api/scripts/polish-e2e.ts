@@ -122,7 +122,16 @@ async function startNext(databaseURL: string): Promise<ChildProcess> {
   writeFileSync(err, '', { mode: 0o600 })
   const outFd = openSync(out, 'a', 0o600)
   const errFd = openSync(err, 'a', 0o600)
-  const args = ['run', '--cwd', apiRoot, 'dev', '-p', String(port), '-H', ciRun ? '127.0.0.1' : '0.0.0.0']
+  const args = [
+    'run',
+    '--cwd',
+    apiRoot,
+    'dev',
+    '-p',
+    String(port),
+    '-H',
+    ciRun ? '127.0.0.1' : '0.0.0.0',
+  ]
   const server = spawn('bun', args, {
     cwd: repositoryRoot,
     env: { ...process.env, DATABASE_URL: databaseURL, MOBILE_JWT_SECRET: mobileSecret, NEXTAUTH_SECRET: mobileSecret, NODE_ENV: 'development' },

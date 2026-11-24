@@ -237,8 +237,12 @@ async function main() {
 
   console.log('# Simplify-debts setting E2E')
   console.log(`Revision: ${revision()}`)
-  console.log(`Environment: API ${devApiBase}, DB ${devDatabaseUrl.replace(/\/\/[^@]*@/, '//')}, node ${process.version}, ${new Date().toISOString()}`)
-  console.log('Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... bun run scripts/simplify-debts-e2e.ts')
+  console.log(
+    `Environment: API ${devApiBase}, DB ${devDatabaseUrl.replace(/\/\/[^@]*@/, '//')}, node ${process.version}, ${new Date().toISOString()}`,
+  )
+  console.log(
+    'Replay: cd apps/api && DEV_DATABASE_URL=... DEV_API_BASE=... bun run scripts/simplify-debts-e2e.ts',
+  )
   console.log(`Group: ${groupId}\n| Step | Result |\n| --- | --- |`)
   for (const row of results) console.log(`| ${row.name} | ${row.result.replaceAll('|', '/').replaceAll('\n', ' ')} |`)
   const failed = results.filter((row) => row.result !== 'PASS').length

@@ -466,8 +466,16 @@ async function main() {
 
   console.log('# identity-friends-import E2E')
   console.log(`revision: ${revision}`)
-  console.log(`environment: api=${devApiBase} db=${devDatabaseUrl} node=${process.version} health=${health.status} run=${run} at=${new Date().toISOString()}`)
-  console.log('replay: cd apps/api && DEV_DATABASE_URL=' + devDatabaseUrl + ' DEV_API_BASE=' + devApiBase + ' bun run scripts/identity-friends-import-e2e.ts')
+  console.log(
+    `environment: api=${devApiBase} db=${devDatabaseUrl} node=${process.version} health=${health.status} run=${run} at=${new Date().toISOString()}`,
+  )
+  console.log(
+    'replay: cd apps/api && DEV_DATABASE_URL=' +
+      devDatabaseUrl +
+      ' DEV_API_BASE=' +
+      devApiBase +
+      ' bun run scripts/identity-friends-import-e2e.ts',
+  )
   console.log('| Step | Result | Evidence |\n| --- | --- | --- |')
   for (const row of results) console.log(`| ${row.name} | ${row.result.replaceAll('|', '/').replaceAll('\n', ' ')} | ${row.evidence.replaceAll('|', '/')} |`)
   const failed = results.filter((row) => row.result !== 'PASS').length
