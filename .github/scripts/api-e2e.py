@@ -159,7 +159,7 @@ def run(args):
         if args.case not in suite:
             raise ValueError(f"Unknown E2E case: {args.case}")
     plan = split(chosen, args.total_shards, args.history)
-    chosen = plan[args.shard]
+    chosen = list(plan[args.shard])
     if args.list:
         print(json.dumps(chosen))
         return True
