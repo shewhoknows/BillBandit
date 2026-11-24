@@ -1,56 +1,56 @@
 # BillBandit on Xcode Cloud
 
-At the start of this audit, App Store Connect returned zero Xcode Cloud products
-for `com.billbandit.app`. The product was connected during the audit. At
-09:52 UTC on November 24, the API showed one enabled workflow, **PR build**,
-with a single Build action and no Test action.
+The product uses `My-apps-factory/BillBandit` and
+`BillBandit/BillBandit.xcodeproj`. The three workflows use the fixed release
+Xcode 27.2 (27B52). The post-clone guard prints the compiler version. It accepts
+release versions from 27.2 onward and rejects beta labels, prerelease build
+suffixes, and older versions. A release tag must match both app marketing
+versions in the project.
 
-The API lists the fixed **Xcode 27.2** entry as build **27B52**. The post-clone
-script enforces that exact version and rejects a mismatched marketing version
-on a release tag.
-
-Use the fixed **Xcode 27.2** entry under Environment for every workflow.
-Choose a compatible macOS entry without a beta label. Use the shared project
-at `BillBandit/BillBandit.xcodeproj` and leave clean builds off where Apple
-permits caching. Use one iPhone 18 Pro / iOS 27.2 destination. Keep test
-repetition disabled.
-
-| Workflow | Start condition | Actions | Post-actions |
+| Workflow | Source | Actions | State |
 | --- | --- | --- | --- |
-| BillBandit PR smoke | Pull Request Changes, target branch `main`, require approval for untrusted sources where available | Test, scheme `BillBanditSmoke`, test plan `BillBanditSmoke`. This action also builds the app. | None |
-| BillBandit main internal | Branch Changes, branch `main` | Test, scheme `BillBandit`, and Archive, scheme `BillBandit` | TestFlight Internal Testing to the existing internal group |
-| BillBandit App Store | Tag Changes, custom starts with `v` | Archive, scheme `BillBandit`, App Store Connect distribution | Upload to App Store Connect. Select the processed build through release staging. |
+| PR build | Pull request changes | Build. Switch to the `BillBanditSmoke` Test action after the shared scheme lands. | Enabled, Build only |
+| Main: TestFlight | Exact branch `main` | Build, full `BillBandit` Test, internal-only Archive | Created and disabled |
+| Release: App Store | Tag name starts with `v` | App Store eligible Archive | Created and disabled |
 
-Owner access and onboarding are in [OWNER-TODO.md](OWNER-TODO.md) after the
-owner handoff PR lands. After onboarding, go to App Store Connect → Apps →
-BillBandit → Xcode Cloud → Workflows → **+**. For each row, name the workflow,
-select Environment, add the Start Condition, add the Actions, and add the
-specified Post-actions. Save each configuration after reviewing the destination.
-The installed ASC CLI supports `asc xcode-cloud workflows create --file` after
-a product and source repository exist. The deployment account must configure
-workflow IDs from that product.
+App Store Connect returned both new workflows pinned to macOS Golden Gate
+27.2.1 and Xcode 27.2. Main uses one iPhone 18 Pro / iOS 27.2 destination.
+It requires all three actions to pass. The owner adds the internal TestFlight
+post-action and fixture environment in the workflow editor. The public create
+API supplies the actions and distribution audience. The owner list gives the
+remaining clicks. [Apple workflow creation](https://developer.apple.com/documentation/appstoreconnectapi/post-v1-ciworkflows)
+[Apple distribution post-actions](https://developer.apple.com/documentation/xcode/creating-a-workflow-that-builds-your-app-for-distribution)
 
-Use the smoke workflow first. It includes the existing signed-out onboarding
-and authority tests. The full scheme has UI tests that read local JSON session
-fixtures and depend on a disposable API and its offline-control proxy. Xcode
-Cloud runs the test action on a separate test machine. It does not get the
-developer's local files or servers. Keep the main workflow's internal
-distribution off until the full fixture handoff is implemented and all tests
-pass on Cloud. The repository handoff records five existing UI failures
-and two unavailable fixtures. The full scheme remains the acceptance gate. See
-[Apple's workflow reference](https://developer.apple.com/documentation/xcode/xcode-cloud-workflow-reference)
-and [custom build scripts](https://developer.apple.com/documentation/xcode/writing-custom-build-scripts).
+The shared smoke scheme uses existing signed-out onboarding and authority tests.
+The full scheme uses the [disposable fixtures](ios-fixtures.md) for session,
+ledger history, and offline behavior. Verify the full test action on a
+no-distribution run before relying on its result. Keep test repetition disabled.
+[Apple workflow actions](https://developer.apple.com/documentation/xcode/configuring-your-xcode-cloud-workflow-s-actions)
 
-For App Store releases, `Stage iOS release` starts when a protected version tag
-lands. The protected GitHub environment holds App Store Connect credentials.
-The workflow requires the tagged commit to belong to `main`, then waits for
-one successful Cloud run for the same tag and commit. It resolves the
-processed iOS build from that run, attaches it to the prepared App Store
-version, and runs ASC validation. The owner submits through App Store Connect.
-See [Apple's build number guidance](https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds/).
+The PR push to `ci/xcode-cloud` triggered a build-only run at commit
+`186ce465afbedc47f23a3036a80e9cb1a2b23770`. Run
+`f7087ff7-f4e8-40ac-9745-e58c38e55a48` succeeded after 20.11 s waiting and
+67.27 s building, 87.38 s total. The first build-only reference was 76.49 s.
+The local unsigned build took 63.12 s before this work and 61.90 s with the
+smoke scheme. The hosted Test action has yet to run.
+[PR build checks](https://github.com/My-apps-factory/BillBandit/pull/39/checks)
 
-The existing build-only workflow completed one manual run at commit
-`136e120`. The run was `f5d4f4b4-038b-4edc-8ef9-dbf6fa5ac03f`. It spent
-9.60 s waiting and 66.89 s building, for 76.49 s total. It ran before
-this smoke scheme. Cloud UI, signed archives, and delivery remain unmeasured.
-The local unsigned build measures compile time on this Mac.
+## Protected release staging
+
+`Stage iOS release` takes a protected version tag from `main`, then finds
+one successful Cloud archive for the exact tag and commit. It resolves the
+processed iOS build, attaches it to the prepared App Store version, and runs
+ASC validation. The owner submits through App Store Connect.
+
+Run this inspection against a known completed Cloud run:
+
+```sh
+ASC_READ_ONLY=1 PATH="/opt/homebrew/bin:$PATH" python3 .github/scripts/stage-ios.py \
+  --dry-run --run-id f7087ff7-f4e8-40ac-9745-e58c38e55a48
+```
+
+The inspection returned `SUCCEEDED`, zero successful archive actions, and
+an empty build list. It made three read-only API calls. The release tag path
+requires a successful archive and processed build before it can attach
+anything. The existing build-only run does not establish upload or selection
+behavior.
