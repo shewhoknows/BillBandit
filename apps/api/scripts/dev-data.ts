@@ -284,8 +284,10 @@ async function main() {
     }
     case 'friend': {
       if (!positional[0]) throw new Error('Give a name: npm run dev:data -- friend Riya')
-      const friend = await ensureFriend(you, positional[0])
-      console.log(`+ ${friend.name} is your friend (id=${friend.id})`)
+      for (const name of positional) {
+        const friend = await ensureFriend(you, name)
+        console.log(`+ ${friend.name} is your friend (id=${friend.id})`)
+      }
       break
     }
     case 'group': {

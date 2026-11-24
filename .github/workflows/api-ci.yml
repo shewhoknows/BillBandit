@@ -1,0 +1,196 @@
+name: API CI
+
+on:
+  pull_request:
+    branches: [main, 'ci/**']
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: api-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  checks:
+    name: API checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: |
+            .github
+            apps/api
+          persist-credentials: false
+      - uses: ./.github/actions/api-toolchain
+        with:
+          seed-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Lint, format and typecheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          base="$BASE_SHA"
+          if ! git cat-file -e "$base^{commit}"; then
+            git fetch --no-tags --depth=1 --filter=blob:none origin "$base"
+          fi
+          python3 .github/scripts/api-job-budget.py run 'API checks' \
+            python3 .github/scripts/api-check.py "$base" "$GITHUB_SHA"
+      - name: Enforce API job budgets
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/api-job-budget.py check
+
+  build:
+    name: API build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: |
+            .github
+            apps/api
+          persist-credentials: false
+      - uses: ./.github/actions/api-toolchain
+      - name: Build Next on Bun
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/scripts/api-job-budget.py run 'API build' \
+            timeout 35s bun run --bun --cwd apps/api next build
+      - name: Enforce API job budgets
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/api-job-budget.py check
+
+  image:
+    name: API image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          filter: blob:none
+          persist-credentials: false
+      - name: Build the Railway Dockerfile
+        shell: bash
+        run: |
+          evidence="$RUNNER_TEMP/api-image"
+          context="$RUNNER_TEMP/api-image-context"
+          mkdir -p "$evidence" "$context"
+          git archive "$GITHUB_SHA" | tar -xf - -C "$context"
+          /usr/bin/time -p -o "$evidence/build-time.txt" docker build \
+            --platform linux/amd64 --progress plain --tag billbandit-api-ci "$context" \
+            2>&1 | tee "$evidence/build.log"
+      - uses: ./.github/actions/api-toolchain
+      - name: Run the image against empty and pre-migrated PostgreSQL
+        run: |
+          /usr/bin/time -p -o "$RUNNER_TEMP/api-image/smoke-time.txt" \
+            python3 .github/scripts/api-image-smoke.py --image billbandit-api-ci \
+            --revision "$GITHUB_SHA" --evidence "$RUNNER_TEMP/api-image"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: ${{ !cancelled() }}
+        with:
+          name: api-image
+          path: ${{ runner.temp }}/api-image/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+
+  e2e:
+    name: API E2E (${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    env:
+      SHARD: ${{ matrix.shard }}
+      TOTAL_SHARDS: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout: |
+            .github
+            apps/api
+          persist-credentials: false
+      - name: Read exact-base timing artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIMING_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          if git cat-file -e "$TIMING_SHA^{commit}" &&
+              ! git cat-file -e "$TIMING_SHA:.github/workflows/api-ci.yml" 2>/dev/null; then
+            exit 0
+          fi
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/api-ci.yml/runs?branch=main&event=push&status=success&head_sha=$TIMING_SHA&per_page=1" \
+            --jq '.workflow_runs[0].id // empty')
+          if [[ -n "$run" ]]; then
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+              --jq '[.artifacts[] | select(.expired == false and (.name | startswith("api-e2e-")))] | length')
+            if [[ "$count" -eq "$TOTAL_SHARDS" ]]; then
+              gh run download "$run" --pattern 'api-e2e-*' --dir "$RUNNER_TEMP/e2e-history"
+            fi
+          fi
+      - name: Select E2E scripts
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          args=()
+          if [[ -n "$BASE_SHA" ]]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}"; then
+              git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
+            fi
+            args=(--base "$BASE_SHA")
+          fi
+          selected=$(python3 -B .github/scripts/api-e2e.py --list "${args[@]}" \
+            --shard "$SHARD" --total-shards "$TOTAL_SHARDS" --history "$RUNNER_TEMP/e2e-history")
+          printf 'Selected scripts: %s\n' "$selected"
+          printf 'selected=%s\n' "$selected" >> "$GITHUB_OUTPUT"
+      - if: steps.select.outputs.selected != '[]'
+        uses: ./.github/actions/api-toolchain
+      - name: Run E2E with a disposable database per script
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED: ${{ steps.select.outputs.selected }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          args=()
+          if [[ -n "$BASE_SHA" ]]; then
+            args=(--base "$BASE_SHA")
+          fi
+          command=(true)
+          if [[ "$SELECTED" != '[]' ]]; then
+            command=(python3 -B .github/scripts/api-e2e.py "${args[@]}" \
+              --shard "$SHARD" --total-shards "$TOTAL_SHARDS" --history "$RUNNER_TEMP/e2e-history")
+          fi
+          python3 .github/scripts/api-job-budget.py run "API E2E ($SHARD)" "${command[@]}"
+      - name: Upload test evidence
+        if: ${{ !cancelled() && steps.select.outputs.selected != '' && steps.select.outputs.selected != '[]' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: api-e2e-${{ matrix.shard }}
+          path: .scratch/ci/api-e2e/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+      - name: Enforce API job budgets
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/api-job-budget.py check
