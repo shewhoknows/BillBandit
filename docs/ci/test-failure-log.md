@@ -1,0 +1,15 @@
+# Two-week test failure log
+
+Window: November 24 to December 8, 2026. Add an entry when a test failure is
+fixed. Record the failing revision, run or artifact, failure, repair and replay.
+Classify each fix as a caught regression or a change detector. Keep all
+existing assertions during the window.
+
+| Date | Evidence | Failure and repair | Classification |
+| --- | --- | --- | --- |
+| Nov 24 | `.scratch/ci/proof/bun-e2e/summary.json` and `mixed-e2e/summary.json` | The all-Bun trial timed out in the identity concurrency and Vietnam fixture scripts. Running those scripts with Node and retaining Bun for installation and the other scripts let all seven pass. | Caught harness regression |
+| Nov 24 | [Single-runner API E2E](https://github.com/My-apps-factory/BillBandit/actions/runs/45365721088) and [sharded API E2E](https://github.com/My-apps-factory/BillBandit/actions/runs/45366628920) | Four concurrent Next processes on one runner hit the existing execution budget in two scripts. Five independent shards ran the same assertions and all passed. | Caught CI scheduling regression |
+| Nov 24 | `.scratch/ci/proof/tla-counterexample-status.txt` | The old runner returned exit 0 on an existing model counterexample. The new wrapper returned exit 1. | Caught false-green CI regression |
+
+A deliberately injected HTTP status change in the selection replay is a
+gate check. It is excluded from the failure counts. No tests were removed.
