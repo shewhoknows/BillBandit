@@ -1623,6 +1623,27 @@ async function buildImportResult(
   }
 }
 
+// Older servers could fail identity validation before saving any metadata or
+// records. Expose that failed checkpoint so the client can resend its export;
+// do not fabricate a summary for partially imported or completed ledgers.
+async function buildStoredImportResult(rootDb: CloudKitImportDb, row: ImportRow): Promise<CloudKitImportResult> {
+  if (row.state === 'FAILED') {
+    const records = await rootDb.ledgerImportRecord.count({ where: { importId: row.id } })
+    if (records === 0) {
+      return {
+        importId: row.id, source: CLOUDKIT_IMPORT_SOURCE, sourceKey: row.sourceKey,
+        sourceChecksum: row.sourceChecksum, status: 'needs-repair', counts: emptyCounts(),
+        serverGroupIds: [], serverGroupId: null,
+        migration: { status: 'blocked', source: CLOUDKIT_IMPORT_SOURCE, migrationId: row.id,
+          importedAt: null, dualWriteEnabled: false, recoveryReadOnly: true },
+        migrationMarkers: [], startedAt: row.startedAt?.toISOString() ?? null,
+        completedAt: null, needsRepairReason: row.failureReason,
+      }
+    }
+  }
+  return buildImportResult(rootDb, row, await loadStoredNormalized(rootDb, row))
+}
+
 async function runNormalizedImport(
   rootDb: CloudKitImportDb,
   accountId: string,
@@ -1676,8 +1697,7 @@ export async function resumeCloudKitImport(input: CloudKitImportLookup & { expor
 export async function getCloudKitImport(input: CloudKitImportLookup): Promise<CloudKitImportResult> {
   const rootDb = input.db ?? defaultPrisma
   const row = await loadImportRow(rootDb, input.accountId, input.importId)
-  const normalized = await loadStoredNormalized(rootDb, row)
-  return buildImportResult(rootDb, row, normalized)
+  return buildStoredImportResult(rootDb, row)
 }
 
 export async function listCloudKitImports(input: { accountId: string; db?: CloudKitImportDb }): Promise<CloudKitImportResult[]> {
@@ -1687,7 +1707,7 @@ export async function listCloudKitImports(input: { accountId: string; db?: Cloud
     select: rowSelect(),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   }) as ImportRow[]
-  return Promise.all(rows.map(async (row) => buildImportResult(rootDb, row, await loadStoredNormalized(rootDb, row))))
+  return Promise.all(rows.map((row) => buildStoredImportResult(rootDb, row)))
 }
 
 export function cloudKitImportErrorStatus(error: unknown): number {

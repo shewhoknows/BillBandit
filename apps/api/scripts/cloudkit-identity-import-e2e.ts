@@ -57,6 +57,10 @@ type Account = { id: string; label: string; token: string }
 const PHASE = (process.env.PHASE ?? 'fix').toLowerCase()
 const statePath = process.env.STATE
 const prior = statePath && existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) as Json : null
+if (!['stuck', 'fix'].includes(PHASE)) throw new Error('PHASE must be stuck or fix')
+if (statePath && (!prior?.priyaExport || !prior?.stuckImportId)) {
+  throw new Error('STATE must contain the original frozen export and 409 import ID from a successful stuck phase')
+}
 const run: string = prior?.run ?? `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`
 const artifactDir = resolve(process.env.ARTIFACT_DIR ?? join(apiRoot, '../../.scratch/e2e/cloudkit-identity-import', run))
 mkdirSync(artifactDir, { recursive: true })
@@ -264,7 +268,9 @@ async function main() {
   const priya = await account('priya'); const arjun = await account('arjun'); const meera = await account('meera')
   const mallory = await account('mallory'); const rohan = await account('rohan'); const sam = await account('sam')
   const labels: Record<string, string> = { [priya.id]: 'Priya', [arjun.id]: 'Arjun', [meera.id]: 'Meera', [rohan.id]: 'Rohan' }
-  const priyaExport = clientExport(P, priya.id, priyaRecords())
+  // Activity IDs are generated during export. Persist the entire body across
+  // phases so recovery really resends the original frozen checkpoint.
+  const priyaExport = prior?.priyaExport ?? clientExport(P, priya.id, priyaRecords())
   writeFileSync(join(artifactDir, 'legacy-export-priya.json'), JSON.stringify({ export: priyaExport }, null, 2))
   evidenceLog.export = { sourceKey: priyaExport.sourceKey, records: priyaExport.records.length, claims: priyaExport.claims.length }
   // Warm up route compilation so later parallel steps measure the server, not the compiler.
@@ -272,6 +278,7 @@ async function main() {
   await request(priya.token, '/api/mobile/auth/me')
 
   if (PHASE === 'stuck') {
+    let stuckImportId = ''
     await step('Build 35: Priya\'s first import -> 409 needs-repair ("Old iCloud data not moved")', async () => {
       const r = await postImport(priya, priyaExport)
       keep('response', r)
@@ -281,8 +288,11 @@ async function main() {
       keep('row', row)
       note(`row=${row?.state} records=${row ? await db.ledgerImportRecord.count({ where: { importId: row.id } }) : 0}`)
       assert.equal(row?.state, 'FAILED')
+      assert.equal(r.data.status, 'needs-repair')
+      assert.equal(r.data.importId, row?.id)
+      stuckImportId = row!.id
     })
-    writeFileSync(join(artifactDir, 'state.json'), JSON.stringify({ run, cast, ids }, null, 2))
+    writeFileSync(join(artifactDir, 'state.json'), JSON.stringify({ run, cast, ids, priyaExport, stuckImportId }, null, 2))
   } else {
     // Without a stuck run against the old server, make the row the old server leaves.
     if (!prior) {
@@ -328,9 +338,15 @@ async function main() {
       assert.equal(stuck.length, 1)
       assert.equal(stuck[0].status, 'needs-repair')
       importId = stuck[0].importId
+      if (prior) assert.equal(importId, prior.stuckImportId)
+      const detail = await request(priya.token, `/api/mobile/migrations/cloudkit/${importId}`)
+      keep('detail', detail)
+      assert.equal(detail.status, 409)
+      assert.equal(detail.data.importId, importId)
+      assert.equal(detail.data.status, 'needs-repair')
     })
     await step('Recovery: the app resends the same frozen export -> 200 completed on the same import', async () => {
-      const r = await postImport(priya, priyaExport)
+      const r = await postImport(priya, priyaExport, importId)
       keep('response', r)
       note(`status=${r.status} importId=${r.data.importId === importId ? 'same' : r.data.importId} counts=${JSON.stringify(r.data.counts)}`)
       assert.equal(r.status, 200, JSON.stringify(r.data))

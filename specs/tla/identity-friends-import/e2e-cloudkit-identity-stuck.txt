@@ -1,0 +1,11 @@
+# CloudKit identity import E2E (phase stuck)
+revision: script from fix/cloudkit-identity-linking; server under test = origin/main 136e120 (worktree billbandit-cloudkit-base on port 3141)
+environment: api=http://127.0.0.1:3141 db=postgresql://prateekranka@localhost:5432/bb_cloudkit_identity_e2e_20261124 node=v22.23.2 health=200 run=mwuutg4522bf at=2026-11-24T15:33:12.869Z
+artifacts: /Users/prateekranka/worktrees/billbandit-cloudkit-import/.scratch/e2e/cloudkit-identity-import/final
+replay: cd apps/api && DEV_DATABASE_URL=postgresql://prateekranka@localhost:5432/bb_cloudkit_identity_e2e_20261124 DEV_API_BASE=http://127.0.0.1:3141 PHASE=stuck npx tsx scripts/cloudkit-identity-import-e2e.ts
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| Build 35: Priya's first import -> 409 needs-repair ("Old iCloud data not moved") | PASS | status=409 code=needs-repair reason=CloudKit identity _e2fd0ec0fcd6df3a5f483d23649e138f is not linked to an API account; row=FAILED records=0 |
+
+1/1 PASS

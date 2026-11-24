@@ -1,0 +1,30 @@
+# identity-friends-import E2E
+revision: ffa4963727a635b2f4fbe7400053a6b0e29ecd05+dirty
+environment: api=http://127.0.0.1:3142 db=postgresql://prateekranka@localhost:5432/bb_cloudkit_identity_e2e_20261124 node=v22.23.2 health=200 run=mwuuu5db5p9 at=2026-11-24T15:33:48.503Z
+replay: cd apps/api && DEV_DATABASE_URL=postgresql://prateekranka@localhost:5432/bb_cloudkit_identity_e2e_20261124 DEV_API_BASE=http://127.0.0.1:3142 npx tsx scripts/identity-friends-import-e2e.ts
+| Step | Result | Evidence |
+| --- | --- | --- |
+| Deletion: friends via code (setup) | PASS |  |
+| Deletion: a reversed payment stays reversed for the other member | PASS | before={"byMember":[{"memberId":"cmwuuu5v3002ma2mp6p287vs9","byCurrency":[{"minorUnits":"5000","currencyCode":"INR","currencyExponent":2}]},{"memberId":"cmwuuu5v4002oa2mpczuyvyz4","byCurrency":[{"minorUnits":"-5000","currencyCode":"INR","currencyExponent":2}]}],"transfers":[{"from":"cmwuuu5v4002oa2mpczuyvyz4","to":"cmwuuu5v3002ma2mp6p287vs9","amount":"5000"}]}; after={"byMember":[{"memberId":"cmwuuu5v3002ma2mp6p287vs9","byCurrency":[{"minorUnits":"5000","currencyCode":"INR","currencyExponent":2}]},{"memberId":"cmwuuu5v4002oa2mpczuyvyz4","byCurrency":[{"minorUnits":"-5000","currencyCode":"INR","currencyExponent":2}]}],"transfers":[{"from":"cmwuuu5v4002oa2mpczuyvyz4","to":"cmwuuu5v3002ma2mp6p287vs9","amount":"5000"}]} |
+| Deletion: old token refused everywhere | PASS | 401,401,401,401 |
+| Deletion: friend list and invitation of deleted user are gone | PASS |  |
+| Friends: own code refused (409), no row | PASS |  |
+| Friends: expired code refused (410), inviter gets a new code, old code dead | PASS | old=ND9ME new=GKUMN oldAfterRotate=404 |
+| Friends: claim again is 200, unfriend, re-claim is 201; one row | PASS |  |
+| Friends: both people claim each other at the same moment (5 pairs) -> one row each, no 5xx | PASS | statuses=201,201,200,201,201,200,201,200,201,200 rows=1,1,1,1,1 |
+| Friends: two phones of one account claim the same code at once (5 tries) -> no 5xx, one row | PASS | statuses=201,200,200,201,200,200,201,200,200,201,200,200,201,200,200 |
+| Friends: deleted inviter's code is refused (404) | PASS |  |
+| Rate limit: a successful claim does not reset the failure count | PASS | statuses=404,404,404,404,404,404,404,404,404,200,429,429 |
+| Rate limit: 60 wrong codes in parallel -> at most 10 are looked up | PASS | 404=9 429=51 other=0 |
+| Apple: first sign-in from two devices at once -> one account, no 401 (5 rounds) | PASS | rounds=200,200,200 / 200,200,200 / 200,200,200 / 200,200,200 / 200,200,200 |
+| Apple: re-sign-in after deletion gives a fresh account; old token stays dead | PASS | old=cmwuuu74y00aga2mpyliw7kk5 new=cmwuuu76u00apa2mp5r1ztfis |
+| Username: two accounts claim one handle at once -> exactly one wins | PASS | 200,409 |
+| CloudKit: import completes with exact money | PASS | expenses=2/30999 splits=4/30999 payments=1/2000 |
+| CloudKit: same export again is a no-op (completed, same money) | PASS | expenses=2/30999 splits=4/30999 payments=1/2000 |
+| CloudKit: crash mid-import, then resume -> completes once | PASS | expenses=2/30999 splits=4/30999 payments=1/2000 |
+| CloudKit: changed pending payment after interruption imports once | PASS |  |
+| CloudKit: changed export resumes when no record was imported | PASS |  |
+| CloudKit: changed imported expense is reported and not overwritten | PASS |  |
+| CloudKit: three runs of a new export at once -> no 5xx, no double money | PASS | statuses=200,200,200; expenses=2/30999 splits=4/30999 payments=1/2000 |
+
+22/22 PASS

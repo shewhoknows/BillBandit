@@ -9,7 +9,7 @@ has a TLA+ model in `specs/tla/<part>/` that the TLC model checker checked.
 |---|---|---|---|
 | Server: expenses, groups, members, idempotency | `ledger-kernel.md` | `apps/api/lib/ledger/mutation/state-machines.ts` | `LedgerKernel.tla`, `GroupMembership.tla` |
 | Server: settle up, reversals, completion flags, realtime outbox | `settlement.md` | `apps/api/lib/settlement/state.ts` | `SettlementLedger.tla`, `SettlementCompletion.tla`, `SettlementOutbox.tla` |
-| Server: account deletion, Apple sign-in, friend codes, CloudKit import | `identity-friends-import.md` | `apps/api/lib/identity-friends-state.ts` | `AccountDeletion.tla`, `AppleSignIn.tla`, `FriendClaimLimit.tla`, `CloudKitImport.tla` |
+| Server: account deletion, Apple sign-in, friend codes, CloudKit import | `identity-friends-import.md` | `apps/api/lib/identity-friends-state.ts` | `AccountDeletion.tla`, `AppleSignIn.tla`, `FriendClaimLimit.tla`, `CloudKitImport.tla`, `CloudKitIdentity.tla` |
 | iOS: offline queue, sync, cache, account switch | `ios-ledger-sync.md` | `PendingLedgerOperationState.canTransition`, `ServerLedgerQueueOrder` | `LedgerQueueSync.tla` |
 | iOS: settle-up screen, account gate | `ios-settlement-shell.md` | `SettlementStore` (derived `isUpdating`, `writeGatesOpen`, `canReverse`) | `SettleShell.tla`, `AccountGate.tla` |
 | iOS: failure notices ("no silent failures") | `ios-failure-notices.md` | `AppFailureCenter`, `PendingLedgerOperation.failureAcknowledgedAt` | `FailureNotices.tla` |
@@ -32,6 +32,7 @@ has a TLA+ model in `specs/tla/<part>/` that the TLC model checker checked.
   npx tsx scripts/ledger-kernel-e2e.ts        # also adds dev_zoya
   npx tsx scripts/any-member-delete-e2e.ts    # needs dev_zoya, so run it after ledger-kernel-e2e
   npx tsx scripts/identity-friends-import-e2e.ts
+  PHASE=fix npx tsx scripts/cloudkit-identity-import-e2e.ts   # see its header for the two-server replay
   npx tsx scripts/simplify-debts-e2e.ts
   ```
 
@@ -107,14 +108,12 @@ Security and realtime:
 
 ## Open items (not fixed — need a decision or UI work)
 
-- **CloudKit import:** it moves data from the old iCloud version of the app
-  to the server. It needs a link between each old iCloud user and a server
-  account, and nothing creates those links, so every real import stops as
-  "needs repair". An incomplete import can now adopt changed pending records.
-  A changed or missing imported record is reported for repair and is not overwritten.
-  The app tells the person once. New users are not affected: the
-  current app never makes the old iCloud group folders, so for them there is
-  nothing to move and the import ends at once with no message.
+- **CloudKit import, legacy friends (branch `fix/cloudkit-identity-linking`):**
+  imports now complete (identity links, `identity-friends-import.md` §6).
+  Friends who are not linked server friends at import time become placeholder
+  members. Nothing yet lets the importer hand a placeholder to the friend's
+  real account later; that needs a ledger re-pointing operation and owner
+  sign-off. The app does not mark placeholder members as "not on BillBandit".
 - **Queue delay:** a group's later changes can wait up to 300 s behind an
   earlier change that is in retry.
 - `scripts/vietnam-trip-qa.ts` starts its server on port 31301 but calls
