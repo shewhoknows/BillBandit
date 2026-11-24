@@ -30,7 +30,7 @@ import { dirname, resolve } from 'node:path'
 import { Prisma } from '@prisma/client'
 
 import { createLedgerTestDatabase } from './support/e2e-database'
-import { frankfurterFetcher, refreshExchangeRates, supportedRateCurrencies } from '../lib/rates/exchange-rates'
+import { supportedRateCurrencies } from '../lib/rates/exchange-rates'
 
 const repositoryRoot = resolve(dirname(new URL(import.meta.url).pathname), '../..', '..')
 const apiRoot = resolve(repositoryRoot, 'apps/api')
@@ -493,28 +493,47 @@ async function main() {
     })
 
     // ---- 10. Exchange rates ----
-    let rateSource = 'live Frankfurter'
-    try {
-      await refreshExchangeRates({ db: fixture.db, fetcher: frankfurterFetcher })
-    } catch {
-      // Offline run: seed fixed reference rates so the route can still be checked.
-      rateSource = 'fixed offline fixture'
-      const perINR: Record<string, number> = {
-        USD: 0.01139, EUR: 0.00977, GBP: 0.00852, JPY: 1.722, CAD: 0.01589, AUD: 0.01742, VND: 273.14, SGD: 0.01536,
-        AED: 0.04183, CNY: 0.0811, BRL: 0.0615, MXN: 0.2093, KWD: 0.003489, BHD: 0.004294, OMR: 0.004381, INR: 1,
-      }
-      const codes = supportedRateCurrencies()
-      const now = new Date()
-      await fixture.db.$transaction(codes.flatMap((base) => codes.filter((quote) => quote !== base).map((quote) =>
-        fixture.db.exchangeRate.create({
-          data: {
-            base, quote, rate: new Prisma.Decimal((perINR[quote] / perINR[base]).toPrecision(10)),
-            rateDate: new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`), source: 'fixture', fetchedAt: now,
-          },
-        })
-      )))
+    // Seed both directions at the current time so the API does not need to refresh rates.
+    const perINR: Record<string, number> = {
+      USD: 0.01139,
+      EUR: 0.00977,
+      GBP: 0.00852,
+      JPY: 1.722,
+      CAD: 0.01589,
+      AUD: 0.01742,
+      VND: 273.14,
+      SGD: 0.01536,
+      AED: 0.04183,
+      CNY: 0.0811,
+      BRL: 0.0615,
+      MXN: 0.2093,
+      KWD: 0.003489,
+      BHD: 0.004294,
+      OMR: 0.004381,
+      INR: 1,
     }
-    await step(`Rates come back for the default currency (${rateSource})`, async () => {
+    const codes = supportedRateCurrencies()
+    const now = new Date()
+    const rateDate = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`)
+    await fixture.db.$transaction(
+      codes.flatMap((base) =>
+        codes
+          .filter((quote) => quote !== base)
+          .map((quote) =>
+            fixture.db.exchangeRate.create({
+              data: {
+                base,
+                quote,
+                rate: new Prisma.Decimal((perINR[quote] / perINR[base]).toPrecision(10)),
+                rateDate,
+                source: 'fixture',
+                fetchedAt: now,
+              },
+            }),
+          ),
+      ),
+    )
+    await step('Rates come back for the default currency (fixed fixture)', async () => {
       const bad = await request('/api/mobile/rates?base=XYZ', { token: me.token })
       assert.equal(bad.status, 400)
       const body = expect(await request('/api/mobile/rates', { token: me.token }), 200, 'rates')
