@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "id": "8963745D-CA03-4916-94C7-072600C7CCD0",
+      "name": "Smoke",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "testRepetitionMode": "none"
+  },
+  "testTargets": [
+    {
+      "target": {
+        "containerPath": "container:BillBandit.xcodeproj",
+        "identifier": "A10000000000000000000005",
+        "name": "BillBanditUITests"
+      },
+      "selectedTests": [
+        "BillBanditUITests/testMandatoryAppleSignInAppearsBeforeAppAccess()",
+        "ServerAuthorityUITests/testSignedOutShellDoesNotExposeSharedSettlementControl()"
+      ]
+    }
+  ],
+  "version": 1
+}
