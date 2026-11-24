@@ -58,6 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          fetch-depth: 2
           filter: blob:none
           sparse-checkout: |
             .github
@@ -65,7 +66,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/api-toolchain
       - name: Build Next on Bun
-        run: timeout 35s bun run build:ci
+        run: timeout 35s bun run --bun --cwd apps/api next build
       - name: Enforce API job budgets
         if: ${{ !cancelled() }}
         env:
