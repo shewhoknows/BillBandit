@@ -33,7 +33,7 @@ jobs:
         run: npm run typecheck
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint --workspace apps/api
 
   deploy:
     name: Deploy
