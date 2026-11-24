@@ -296,7 +296,8 @@ async function main() {
     const databaseURL = fixture.url
 
     if (startedServer) {
-      if (await portIsOccupied(port)) throw new Error(`Port ${port} is already occupied; refusing to stop another process`)
+      if (await portIsOccupied(port))
+        throw new Error(`Port ${port} is already occupied; refusing to stop another process`)
       const started = startNextServer(databaseURL)
       server = started.server
       server.unref()

@@ -556,7 +556,11 @@ async function main() {
     if ((ciRun || !succeeded) && server?.pid) {
       if (ciRun) server.kill('SIGTERM')
       else {
-        try { process.kill(-server.pid, 'SIGTERM') } catch { /* already gone */ }
+        try {
+          process.kill(-server.pid, 'SIGTERM')
+        } catch {
+          /* already gone */
+        }
       }
     }
     await fixture.db.$disconnect().catch(() => undefined)
