@@ -1,7 +1,7 @@
 # CI baseline
 
 GitHub returned 37 workflow runs and 73 job records, including one rerun.
-The sample covers July 30 to November 23, 2026 UTC and ends at [run 45160305590](https://github.com/shewhoknows/BillBandit/actions/runs/45160305590).
+The sample covers July 30 to November 23, 2026 UTC and ends at [run 45160305590](https://github.com/My-apps-factory/BillBandit/actions/runs/45160305590).
 
 All values are seconds, p50 / p95. p50 is the median. p95 uses the nearest rank.
 
@@ -33,12 +33,11 @@ and reuse, then measure the runner and tool changes.
 
 ## Railway failure
 
-In [run 45160305590](https://github.com/shewhoknows/BillBandit/actions/runs/45160305590/job/137644223096),
+In [run 45160305590](https://github.com/My-apps-factory/BillBandit/actions/runs/45160305590/job/137644223096),
 lint and typecheck passed. Railway CLI 5.75.0 received a configured, masked
 `RAILWAY_TOKEN` and exited 1 with `Invalid RAILWAY_TOKEN`. The production SHA
 check never ran. The log cannot tell whether the token expired, was revoked,
-or had the wrong project or environment scope. The owner must replace it with
-a project token for the production environment.
+or had the wrong project or environment scope. The owner later confirmed Railway deploys from the GitHub integration. The CI change removes the second deploy path.
 
 Job metadata records 17 failed Railway deploy steps and two historical
 typecheck failures. Eight available failure logs show the token rejection.
@@ -54,7 +53,7 @@ For each run, save the jobs endpoint response with `filter=all` as
 
 ```sh
 python3 docs/ci/measure-actions.py .scratch/ci/audit
-gh run view 45160305590 -R shewhoknows/BillBandit --log-failed
+gh run view 45160305590 -R My-apps-factory/BillBandit --log-failed
 ```
 
 The original run data, job data, and available failure logs are in
