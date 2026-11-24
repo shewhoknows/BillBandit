@@ -72,9 +72,14 @@ jobs:
           evidence="$PWD/.scratch/ci/tla"
           printf 'revision=%s\n' "$GITHUB_SHA" > "$evidence/replay.txt"
           java -version >> "$evidence/replay.txt" 2>&1
-          printf 'ONLY=%s\nTLC_WORKERS=%s\ncommand=sh specs/tla/check-all.sh\n' "$ONLY" "$(nproc)" >> "$evidence/replay.txt"
           export OUT="$evidence/results.txt" TLC_LOG_DIR="$evidence/logs"
           export TLA2TOOLS="$evidence/tla2tools.jar" TLC_WORKERS="$(nproc)"
+          export TLC_HEAP=3g TLC_FP_MEMORY=0.25
+          if [[ "$LANE" == ledger-kernel ]]; then
+            export TLC_HEAP=8g TLC_FP_MEMORY=0.40
+          fi
+          printf 'ONLY=%s\nTLC_WORKERS=%s\nTLC_HEAP=%s\nTLC_FP_MEMORY=%s\ncommand=sh specs/tla/check-all.sh\n' \
+            "$ONLY" "$TLC_WORKERS" "$TLC_HEAP" "$TLC_FP_MEMORY" >> "$evidence/replay.txt"
           if [[ "$LANE" == ledger-kernel ]]; then
             timeout 12m sh specs/tla/check-all.sh
           else

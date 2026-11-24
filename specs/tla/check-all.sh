@@ -39,7 +39,7 @@ for cfg in ${ONLY:-"$ROOT"/*/*after*.cfg "$ROOT"/*/*fixed*.cfg}; do
   else
     log=$(mktemp) || exit 1
   fi
-  if ! (cd "$dir" && java -XX:+UseParallelGC -Xmx3g -cp "$JAR" tlc2.TLC -workers "${TLC_WORKERS:-2}" -metadir "$state" $flags -config "$name.cfg" "$(basename "$spec")" > "$log" 2>&1); then
+  if ! (cd "$dir" && java -XX:+UseParallelGC "-Xmx${TLC_HEAP:-3g}" -cp "$JAR" tlc2.TLC -workers "${TLC_WORKERS:-2}" -fpmem "${TLC_FP_MEMORY:-0.25}" -metadir "$state" $flags -config "$name.cfg" "$(basename "$spec")" > "$log" 2>&1); then
     failed=1
   fi
   verdict=$(grep -hE 'No error has been found|is violated|were violated|Error:' "$log" | head -1)
