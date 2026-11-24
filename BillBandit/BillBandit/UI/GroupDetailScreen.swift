@@ -318,8 +318,8 @@ struct GroupDetailScreen: View {
             Button("Cancel", role: .cancel) {}
         } message: { action in
             Text(action == .delete
-                 ? "Everyone must be settled first. The group leaves every member's list. Its history stays in Activity."
-                 : "Your own balance must be zero first. You will stop seeing this group. Its history stays in Activity.")
+                 ? "Everyone must be settled first. The group, its expenses and its activity leave every member's list."
+                 : "Your own balance must be zero first. You will stop seeing this group and its activity.")
         }
         .alert(
             membershipResult?.title ?? "",

@@ -3,6 +3,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 root = pathlib.Path(__file__).resolve().parents[2]
@@ -33,15 +34,20 @@ def check_format(edits):
     good = True
     for file, ranges in edits.items():
         source = (root / file).read_text()
-        result = subprocess.run(
-            ["bun", "run", "--bun", "oxfmt", "--stdin-filepath", file],
-            cwd=root, input=source, text=True, stdout=subprocess.PIPE,
-        )
+        # oxfmt under Bun cuts stdout at 64 KiB when it is a pipe, so a large file
+        # looked unformatted. Write to a temporary file instead.
+        with tempfile.TemporaryFile("w+") as output:
+            result = subprocess.run(
+                ["bun", "run", "--bun", "oxfmt", "--stdin-filepath", file],
+                cwd=root, input=source, text=True, stdout=output,
+            )
+            output.seek(0)
+            formatted_text = output.read()
         if result.returncode:
             good = False
             continue
         actual = source.splitlines(keepends=True)
-        formatted = result.stdout.splitlines(keepends=True)
+        formatted = formatted_text.splitlines(keepends=True)
         for op, first, end, _, _ in difflib.SequenceMatcher(None, actual, formatted, autojunk=False).get_opcodes():
             if op != "equal" and any(first < limit and low < max(first + 1, end) for low, limit in ranges):
                 print(f"::error file={file},line={first + 1}::Format changed lines with Oxfmt.")
