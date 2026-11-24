@@ -30,7 +30,10 @@ def select(suite, base):
     selected = set()
     for path in paths.split("\0") if paths else []:
         if path in {f"apps/api/scripts/{case}" for case in suite}:
-            selected.add(pathlib.Path(path).name)
+            name = pathlib.Path(path).name
+            selected.add(name)
+            if name == "ledger-kernel-e2e.ts":
+                selected.add("ledger-membership-e2e.ts")
         elif not path.startswith(("docs/", "site/", "BillBandit/", "mockups/")):
             return suite
     return sorted(selected)
@@ -100,6 +103,8 @@ def run_case(case, database, scratch, evidence):
         "VIETNAM_TRIP_UPSTREAM_PORT": str(port),
         "VIETNAM_TRIP_EVIDENCE_DIR": str(logs),
     })
+    if case == "ledger-kernel-e2e.ts":
+        env["BILLBANDIT_LEDGER_E2E_SCOPE"] = "kernel"
     server = None
     start = time.monotonic()
     result = 1
