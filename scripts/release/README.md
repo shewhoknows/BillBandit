@@ -26,7 +26,7 @@ DEVELOPER_DIR=/Applications/Xcode-27.2.0.app/Contents/Developer \
   scripts/release/release.sh --verify-ipa /path/to/BillBandit.ipa --version 1.0 --build 36
 ```
 
-Either local-only flag archives, exports, and verifies. Both print the live upload, wait, and selection commands. The script uses installed signing assets and a local export. It applies build settings to the archive without editing the project file. The Xcode check matches the bundle's build ID to the xcodes release catalog and checks the installed SDK build. Xcode 27.2 build 27B52 also allows its verified bundled SDK 24B8118.
+Either local-only flag archives, exports, and verifies. Both print the live upload, wait, and selection commands. The script uses installed signing assets and blocks network access for the Xcode export process. Xcode can otherwise create an upload reservation during a local export. The script applies build settings to the archive without editing the project file. The Xcode check matches the bundle's build ID to the xcodes release catalog and checks the installed SDK build. Xcode 27.2 build 27B52 also allows its verified bundled SDK 24B8118.
 
 Use the printed resume command to keep the same build number. Keep the source commit, Xcode and SDK, and ignored `scripts/release/test-output/` directory. The script reuses completed artifacts, checks the existing Apple build or upload before retrying, and reads the version back after selection. If Apple shows only an unfinished upload reservation, inspect its status before retrying or choosing a new build number.
 

@@ -18,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 OUTPUT = HERE / "test-output"
 ASC = "/opt/homebrew/bin/asc"
+OFFLINE = ["/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)"]
 APP = "6792712181"
 BUNDLE = "com.billbandit.app"
 TEAM = "4JRB53LG5C"
@@ -168,6 +169,11 @@ def free_disk():
     return f"{gb:.1f} GB free"
 
 
+def offline_export():
+    read(*OFFLINE, "/usr/bin/true")
+    return "Process sandbox available for network-free Xcode export"
+
+
 def git_state(expected):
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
     branch = read("git", "branch", "--show-current", env=env).decode().strip()
@@ -246,6 +252,7 @@ def checks(expected):
         ("review-code", reviewer_code),
         ("sim-guard", lambda: simulator_guard(xcode)),
         ("disk", free_disk),
+        ("offline-export", offline_export),
         ("git", lambda: f"Clean {expected} at origin/{expected} ({git_state(expected)[:12]})"),
         ("signing", lambda: f"{signing_profile()[2]} with matching Apple Distribution identity and Sign in with Apple"),
     ]
@@ -294,7 +301,7 @@ def log_command(command, log, *, env=None, timeout=15, capture=False):
                                 stderr=output, timeout=timeout)
         if capture:
             output.write(result.stdout)
-    require(result.returncode == 0, f"{command[1]} {command[2]} exited {result.returncode}. See {log}")
+    require(result.returncode == 0, f"Command exited {result.returncode}. See {log}")
     return json.loads(result.stdout) if capture else None
 
 
@@ -364,7 +371,7 @@ def store_ipa(xcode, version, build, artifacts, log_dir):
         export_options.write_bytes(plistlib.dumps(options))
         pending = log_dir / ipa.name
         no_concurrent_xcodebuild()
-        log_command([ASC, "xcode", "export", "--archive-path", str(archive), "--ipa-path", str(pending),
+        log_command([*OFFLINE, ASC, "xcode", "export", "--archive-path", str(archive), "--ipa-path", str(pending),
                      "--export-options", str(export_options), "--timeout", "8m"],
                     log_dir / "export.log", env=env, timeout=510)
         verify_ipa(pending, xcode, version, build)
@@ -442,6 +449,9 @@ def run_release(version, build, only_local, xcode, artifacts, log_dir, branch, r
     if not record and not accepted.exists() and not states.intersection({"PROCESSING", "COMPLETE"}):
         require("AWAITING_UPLOAD" not in states,
                 "ASC has an unfinished upload reservation. Wait for its state to change before retrying")
+        if not submitted.exists():
+            require(not build_record(version, build) and not upload_states(version, build),
+                    "Build number was used on ASC during the local build. Pick a new build number")
         submitted.touch()
         log_command(upload, log_dir / "upload.log", timeout=900)
         accepted.touch()
