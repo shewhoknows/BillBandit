@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
 import { dirname, resolve } from 'node:path'
@@ -167,18 +167,24 @@ async function waitForHealth(server: ChildProcess | null, readinessPaths: string
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
+      closeWatchers()
       reject(new Error('Next.js server did not emit a readiness line within 90 seconds'))
     }, 90_000)
     const ready = (line: string) => {
       if (settled || !/ready|started server/i.test(line)) return
       settled = true
       clearTimeout(timer)
+      closeWatchers()
       resolvePromise()
     }
-    const watchers = readinessPaths.map((path) => watch(path, { persistent: false }, () => {
-      try { ready(readFileSync(path, 'utf8')) } catch { /* the child may still be creating the file */ }
-    }))
-    const closeWatchers = () => watchers.forEach((entry) => entry.close())
+    // Poll rather than fs.watch: under Bun on macOS the watcher stops reporting
+    // later appends, so the readiness line was missed.
+    const poll = setInterval(() => {
+      for (const path of readinessPaths) {
+        try { ready(readFileSync(path, 'utf8')) } catch { /* the child may still be creating the file */ }
+      }
+    }, 200)
+    const closeWatchers = () => clearInterval(poll)
     server.once('exit', closeWatchers)
     server.once('error', (error) => {
       if (settled) return
