@@ -18,7 +18,7 @@ git -C "$source" fetch --depth=1 https://github.com/My-apps-factory/BillBandit.g
 git -C "$source" checkout --quiet FETCH_HEAD
 test "$(git -C "$source" rev-parse HEAD)" = "$CI_COMMIT"
 
-if ! command -v npm >/dev/null; then
+if ! command -v npm >/dev/null || ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 ? 1 : 0)'; then
   brew install node@22
   export PATH="$(brew --prefix node@22)/bin:$PATH"
 fi
