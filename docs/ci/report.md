@@ -1,178 +1,144 @@
 # BillBandit CI and delivery report
 
-Measured on November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWNER-TODO.md)
-
-## Time and cost
+Measured November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWNER-TODO.md)
 
 | Metric | Before | Candidate |
 | --- | ---: | ---: |
-| API PR wall time | 68 s p50, 77 s p95, 13 runs | 43 s and 71 s on two successful full API PR runs |
-| API PR runner time | 65 s median | 209 s and 235 s summed across parallel jobs |
-| API E2E | 0 scripts in GitHub Actions | 7 existing scripts passed. Five independent shards. |
-| API static gate | Lint and typecheck combined, 63 s median on runner across event types | 17–29 s on runner across observed green CI samples. Includes Oxlint, original Next ESLint, TypeScript 7, and changed-line format. |
-| API build | No PR build job | 34–35 s on runner in the two full successful API runs |
-| iOS PR and release | 0 Cloud runs | Three successful build-only Cloud observations of 76.49 s, 99.38 s and 83.40 s. The local unsigned build was 63.12 s before and 61.90 s with the smoke scheme. |
-| Standard GitHub Actions compute | $0 per PR and per month for the public repo | $0 per PR and per month for the public repo |
-| Blacksmith and Xcode Cloud | $0 incremental observed | $0 incremental observed. Owner enrollment and runner usage remain pending. |
+| API PR result | 68 s p50 and 77 s p95 across 13 baseline PRs | Two earlier full API runs passed in 43 s and 71 s. The current strict runs report timing failures separately from correct API results. |
+| API job waiting | 5 s target | 3 s p50, 68 s p95, 99 s worst across 61 started jobs on GitHub-hosted runners |
+| API setup | 53 s p50 across baseline jobs | Cold dependency and checkout setup still reached 16–18 s in strict samples. |
+| API E2E | Zero scripts in Actions | The seven existing scripts run in five shards. The slow ledger script now runs in two sections with the same 23 check IDs. |
+| Deployment image | 98.17 s build and 2 s startup | 35.50 s build and 1 s startup |
+| Ledger model | 737 s, timed out with 3 GiB heap | 650 s full model with 8 GiB heap. 22 s bounded model job. |
+| iOS | Zero Cloud runs at audit start | Build-only runs measured 76.49 s, 99.38 s, 83.40 s, and 87.38 s. |
+| Standard GitHub-hosted compute | $0 per PR and per month | $0 per PR and per month |
 
-The two full API PR observations have a 57 s median and 71 s nearest-rank
-p95. This sample cannot establish ongoing p50 or p95. The first sharded run
-queued jobs for 2–3 s. The later run had 3–40 s queue waits. The slowest job
-took 40 s and 41 s on the runner. The API build command stayed inside its
-35 s limit and the E2E shard commands stayed inside their 30 s limits.
-Availability, queue and runner lifecycle time still matter. See
-[sharded E2E](https://github.com/My-apps-factory/BillBandit/actions/runs/45366628920)
-and [sparse checkout run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367281300).
+The queue figures use the Actions job `started_at` minus `created_at`,
+with nearest-rank percentiles. The 13 candidate workflow runs exclude
+jobs that did not start or were cancelled. Standard GitHub-hosted runners
+cannot meet a 5 s p95 waiting target. API CI fails if waiting exceeds 68 s
+or if setup and runner time reach their existing 15 s and 35 s limits.
+The 30 s E2E shard limit remains. The 43 s and 71 s samples are too few
+to establish a sustained p50 or p95. The older 5 s gate failed seven waiting
+checks in one run. Its waits ranged from 37 s to 99 s.
+[Strict baseline](https://github.com/My-apps-factory/BillBandit/actions/runs/45368005114)
+[Hosted waiting budget](https://github.com/My-apps-factory/BillBandit/actions/runs/45373847061)
+[Reduced setup round trips](https://github.com/My-apps-factory/BillBandit/actions/runs/45374393220)
 
-The strict-budget candidate took 127 s wall time and 213 runner seconds.
-The correctness commands passed. All seven jobs failed the waiting budget.
-GitHub queued them for 37–99 s. Two jobs also exceeded the
-setup limit, and one reached 38.04 s through the runner-budget check. All
-seven API scripts passed and their artifacts had exact coverage. This run
-shows why the Blacksmith and warm-runner measurements are still required.
-See [strict budgets](https://github.com/My-apps-factory/BillBandit/actions/runs/45368005114).
+The 30-day baseline had six Railway push runs that used 355 runner seconds
+and no PRs. The two earlier successful API candidates used 209 and 235
+parallel runner seconds per PR. At 20 PRs, six merge groups, and six main
+pushes, those full API samples imply about 118 runner minutes per month.
+Main full TLA+ would add about 71 runner minutes over six pushes. Six
+bounded model runs at the observed 98 runner seconds would add about ten
+runner minutes. Standard GitHub runner charges stay at $0 for the public
+repo. [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
 
-The 30-day baseline contains six Railway push runs that used 355 runner
-seconds in total. It contains zero PR runs in that period. At that same
-push volume, six post-merge API runs at 222 runner seconds per run would
-use 22.2 runner minutes, before deployment, model checking, or merge groups.
-For a planning example with 20 PRs, six merge groups, and six main runs,
-applying that same full API sample to all 32 events costs about 118 runner
-minutes per month. The observed model job times add about 71 runner minutes
-across six full merge groups, plus about 71 across six main runs. PR selection
-can reduce the API estimate. An enrolled
-Blacksmith account with its full free-minute allocation would pay $0 for
-that volume. Its paid 2-vCPU rate is $0.004/min after applicable free usage.
-Optional storage and 4-vCPU rates are separate. See
-[GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
-and [Blacksmith pricing](https://www.blacksmith.sh/pricing).
+The fastest observed Cloud build action took 66.89 s. The PR #39 build
+took 67.27 s after a 20.11 s wait. Twenty builds at 72.47 s each would
+consume about 0.4 Xcode Cloud hours per month in a build-only scenario.
+They cost $0 incremental if the team has that much of its included
+25 hours left. The test, archive, and upload action times are unmeasured.
+Compute hours equal summed action minutes divided by 60. See the
+[workflow evidence](xcode-cloud.md) and [Apple compute tiers](https://developer.apple.com/xcode-cloud/get-started/).
 
-An iOS monthly estimate requires separate action minutes for PR smoke,
-merge-queue tests, main tests and archives, and release archives. Compute-hour
-usage is `(PR count × PR action minutes + queue count × queue action minutes +
-main count × main action minutes + tag count × tag action minutes) / 60`.
-Apple includes 25 hours of team
-usage. Twenty PRs at the median observed build action of 72.47 s would use
-about 24 minutes of build-only compute in a month. This is about 0.4 hours
-and $0 incremental if the team has that much included capacity left.
-Cloud smoke queue, signing, simulator and processing times are unmeasured.
-The local unsigned build is a compile reference on this Mac. It cannot
-establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode-cloud/get-started/)
+## API coverage and deployment
 
-## Coverage and remaining speed limits
+- The API workflow uses independent static checks, Next build and five
+  E2E shards. Shared API code, migrations, lockfile, config and unknown
+  paths select all scripts. A change to one script selects it. Changes to
+  the shared ledger scenario file select both of its sections. Merge groups
+  and main always select the full suite. Every shard uses disposable databases,
+  random order, and a replay artifact with exact coverage. Exact-base main
+  artifacts supply later file weights. The local negative replay forced a
+  wrong PR selection for an HTTP 201-to-202 regression. Full selection
+  failed two existing tests.
+- The API test runner keeps script execution because `bun test` discovered
+  zero existing E2E scripts. The all-Bun script trial timed out in the
+  identity and Vietnam cases. The mixed runner preserved the assertions
+  and passed. The split ledger ranges retain all 23 original check IDs.
+  The consistency check runs for the groups in each section. Both local
+  split runs passed in 5.38 s and 5.06 s after a 20.30 s hosted combined
+  observation. These are different machines. Compare hosted measurements
+  separately.
+- `bun.lock` is now the one dependency lockfile. A side-by-side Docker
+  replay built and started both images against empty PostgreSQL 16.
+  Each applied all 15 migrations, served its own revision, and rejected
+  unauthenticated group access with HTTP 401. Node remains the runtime for
+  deployed Next and Prisma. Bun installs and invokes the scripts. CI retains
+  Next ESLint for three rules and TypeScript 5 for Next's JavaScript API.
+  [Toolchain comparison](toolchain.md)
+  [Container comparison](https://github.com/My-apps-factory/BillBandit/actions/runs/45373847266)
+- Railway deploys production through its GitHub integration on `main`.
+  The bootstrap PR removes `deploy.yml` and its `railway up` call. This
+  leaves one deployment path and removes the token
+  rejection. Railway injects the source commit SHA in `RAILWAY_GIT_COMMIT_SHA`.
+  The unchanged health route reports that SHA. The Docker replay verified
+  it against both images. Live deploy and health verification follow the
+  first authorized merge. [Railway variables](https://docs.railway.com/variables/reference)
+- Blobless sparse checkout, a frozen Bun install, and exact lock and
+  Prisma-schema `node_modules` caching reduce setup. Main still needs to
+  seed the production cache. A sustained hit rate above 95% and cold setup
+  below 15 s remain unverified on the standard image.
 
-- API CI runs lint, typecheck, build, and test shards independently.
-  A PR can narrow only script-specific changes and known directories outside
-  the API. A change to shared code, migrations, package metadata, config, or
-  an unknown path selects all scripts. Merge groups and main always select
-  the full suite. The final read showed an active queue and the seven API
-  contexts. The workflow stack still needs to land, and the owner must add
-  the model and iOS contexts before enforcing the full suite.
-- The first one-runner E2E job failed after 65 s on runner. It timed out
-  during identity import and ledger. All five sharded jobs passed in the
-  candidate. Shard artifacts identify each assigned and executed file.
-  Main runs publish times. Future runs use successful artifacts from the
-  exact base SHA when available. A local negative replay hid a group creation
-  response change from the PR diff. Full selection caught HTTP 202 in two
-  existing tests that require HTTP 201.
-- Cold dependency setup reduced a 53 s median baseline setup bucket.
-  Bun, exact lock caches, blobless fetch, and sparse checkout are configured.
-  Main has yet to seed this cache. A >95% hit rate, <5 s runner waiting,
-  and a baked and warm Blacksmith image remain unverified.
-- The locally measured Oxlint engine ran faster than ESLint. Next ESLint
-  remains for three unmatched React rules. TypeScript 7.0.2 passed side by
-  side with TypeScript 5.9.3. The Bun Next build passed locally and on Ubuntu.
-  The all-Bun E2E run timed out in two scripts. The current runner uses
-  Node for the abort-sensitive identity case and the two fixture scripts.
-  Direct `bun test` discovery selected zero existing E2E files.
-  The scripts own servers, databases, and process environment. Preserve
-  their exit status and isolation with script execution. The Railway
-  Docker build still uses npm and Node.
-- TLC checked all 18 existing after/fixed models locally in 901.34 s with the
-  old wrapper. The full ledger model reached 61,894,947 distinct states.
-  The new wrapper returned 1 on a known counterexample where the old wrapper
-  printed the violation and returned 0. The full ledger model is a separate
-  required job with a 12-minute limit. That job exceeds the fast-feedback
-  budget. It fails if it does not complete. The first hosted model run
-  timed out the combined small-model lane and was cancelled during the large
-  ledger lane. Splitting the iOS model groups let the three shorter jobs pass
-  in 23 s, 24 s, and 32 s. Together they checked 17 models. The ledger
-  job failed at its 12-minute command limit after 737 s on runner.
-  Its last progress entry showed 59,378,793 distinct states with 3,584,724
-  states still queued. Giving the ledger lane 8 GiB of heap and 40% of its
-  heap for fingerprints completed the ledger job in 650 s. The worker count,
-  spec, assertions and timeout stayed fixed. All 18 models passed on GitHub.
-  The ledger explored 61,894,947 distinct states and exhausted its queue.
-  The other lanes took 15–32 s. The ledger is still the merge-queue floor
-  among the measured jobs and exceeds the general 35 s target.
-  [Split model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123)
-  [Memory-tuned model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45370032889)
-- The iOS smoke scheme builds locally with release Xcode. A beta, a malformed
-  tag, and a version mismatch fail the post-clone guard. The product was
-  connected during the audit. The first manual run on `136e120` took 9.60 s
-  waiting and 66.89 s building. The automatic run on fixture commit `0585fc7`
-  took 24.84 s waiting and 74.54 s building. Its GitHub build check and commit
-  status were both published on that SHA. The automatic run on the simulator
-  QA commit `cc36ada` took 10.94 s waiting and 72.47 s building. The three
-  builds give a 66.89 s fastest observed build action. The Cloud Test action
-  remains unmeasured.
-  [Automatic build check](https://github.com/My-apps-factory/BillBandit/pull/49/checks)
-- The iOS fixture runner seeded a disposable database and three test fixtures
-  in 4.50 s on this Mac. It passed 11 API checks. A separate replay verified
-  an empty account, the canonical expense history and HTTP 503 while the
-  proxy was offline. The Debug unsigned simulator candidate passed a focused
-  signed-out flow in 8.04 s after the original crashed in CloudKit startup.
-  An authenticated TesterArmy trial reached the group form and reported that
-  sign-in was required because the launch lacked the fixture session.
-  The owner needs to run the checked-in full XCTest scheme on Cloud with
-  fixture provisioning enabled to verify that session handoff.
-  Cloud UI, signed archive, internal upload, live build selection and Cloud
-  merge-queue enforcement remain unverified.
-  [Fixture proof](https://github.com/My-apps-factory/BillBandit/pull/49)
-  [Simulator proof](https://github.com/My-apps-factory/BillBandit/pull/50)
-- The deploy PR pins the Railway CLI and improves the credential diagnostics.
-  A missing token made zero CLI calls in the replay. A failing CLI exit
-  stays a failure. The rejected production credential remains an owner
-  action. The production SHA verification still gates deployment success.
+## Model coverage and merge queue
 
-See [toolchain comparison](toolchain.md) and [test failure log](test-failure-log.md).
+The bounded ledger uses one owner operation, one member operation and
+two attempts per operation. The full ledger uses two owner operations,
+one member operation and the same attempt count. Both use the same spec,
+both fixes, and all six original invariants. The bounded job visited
+36,526 distinct states and emptied the queue. Coverage recorded Issue,
+Send, Refresh, Begin, Unblock, Commit and Archive. It recorded applied
+create, edit and delete, plus finalize. It checks same-key contention
+and replay, stale revisions, and the freeze and deletion invariants.
+The full run also explores traces with three distinct operation IDs,
+including two from the same owner. It visited 61,894,947 distinct states
+and emptied the queue. Additional heap brought that full run below the
+unchanged 12-minute command cap. The faster pre-merge check changes
+the input bounds. The larger configuration runs after a push to main.
+All other 17 models retain their existing bounds on the queue and main.
+A local run with the original fixes disabled reproduced the
+`ReplayStable` counterexample in the smaller configuration.
+[Original timed-out run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123)
+[Full run](https://github.com/My-apps-factory/BillBandit/actions/runs/45370032889)
+[Bounded run](https://github.com/My-apps-factory/BillBandit/actions/runs/45373896095)
 
-## Review order
+The [active ruleset](https://github.com/My-apps-factory/BillBandit/rules/27974223)
+lists exactly the seven API names in [required-checks.txt](required-checks.txt).
+Each has both `pull_request` and `merge_group` triggers. No API context
+mismatches. The four Model checking jobs also have both triggers. GitHub
+currently does not require them, and the native Xcode Cloud check is still
+Build only on PRs. A full iOS Test result on a merge-group SHA is unverified.
+Those are the gaps between the active ruleset and full-suite enforcement.
+Actual queue admission and main cache seeding require the owner to land #47.
 
-| PR | Scope | Depends on |
-| --- | --- | --- |
-| [#37](https://github.com/My-apps-factory/BillBandit/pull/37) | Audit and replay | — |
-| [#38](https://github.com/My-apps-factory/BillBandit/pull/38) | Railway failure diagnostics | — |
-| [#39](https://github.com/My-apps-factory/BillBandit/pull/39) | Xcode Cloud smoke and workflow setup | — |
-| [#40](https://github.com/My-apps-factory/BillBandit/pull/40) | Bun, Oxlint, Oxfmt and TypeScript pins | — |
-| [#41](https://github.com/My-apps-factory/BillBandit/pull/41) | Static checks, build and caches | #40 |
-| [#42](https://github.com/My-apps-factory/BillBandit/pull/42) | E2E and measured shard layout | #41 |
-| [#43](https://github.com/My-apps-factory/BillBandit/pull/43) | TLA+ gates and artifacts | — |
-| [#44](https://github.com/My-apps-factory/BillBandit/pull/44) | Tag-based iOS staging | #39 |
-| [#45](https://github.com/My-apps-factory/BillBandit/pull/45) | Local hk hooks | #41 |
-| [#46](https://github.com/My-apps-factory/BillBandit/pull/46) | Owner actions, cost report, and test failure log | — |
-| [#47](https://github.com/My-apps-factory/BillBandit/pull/47) | Required API job budgets | #42 |
-| [#48](https://github.com/My-apps-factory/BillBandit/pull/48) | Hosted ledger model passes with more TLC heap | #43 |
-| [#49](https://github.com/My-apps-factory/BillBandit/pull/49) | Disposable iOS UI fixtures | #42 |
-| [#50](https://github.com/My-apps-factory/BillBandit/pull/50) | CloudKit startup isolation for simulator QA | #49 |
+## Merge order
 
-Stacked PRs target their dependency's branch. Retarget to `main` after the
-dependency lands. The CI sessions pushed topic branches and opened PRs.
-The owner controls all merges, settings and distribution.
+Each remaining PR targets `main`. Keep the default branch protected. Review the
+combined API bootstrap first because its diff supplies all seven required
+checks on the candidate revision.
 
-## Evidence
+| Order | PR | Scope |
+| ---: | --- | --- |
+| 1 | [#47](https://github.com/My-apps-factory/BillBandit/pull/47) | Required API stack, Bun lock, timing budgets, hooks and single Railway deployment |
+| 2 | [#37](https://github.com/My-apps-factory/BillBandit/pull/37) | Historical audit |
+| 3 | [#48](https://github.com/My-apps-factory/BillBandit/pull/48) | Model checking and separate bounded and full ledger configurations |
+| 4 | [#39](https://github.com/My-apps-factory/BillBandit/pull/39) | iOS Cloud, fixture consumer, simulator startup guard and release staging |
+| 5 | [#46](https://github.com/My-apps-factory/BillBandit/pull/46) | Owner actions, report and two-week test failure log |
 
-The audit worktree keeps evidence under `.scratch/ci/`. The per-job audit ledger is `audit/job-buckets.tsv`.
+The API fixture producer is in #47. The iOS fixture consumer is in #39.
+The narrower PRs #38, #40–#45, #49 and #50 were superseded by the
+consolidated diffs. The owner controls all merges.
 
-| Evidence | Location |
-| --- | --- |
-| Baseline runs, jobs and failure logs | `audit/` |
-| API run metadata and command output | `proof/e2e-shards-runner.json`, `proof/sparse-api-hosted.json`, `proof/gh-e2e-shards/`, `proof/strict-budget-shards/` |
-| Selection failure and replay | `proof/selection-negative.log`, `selection-proof/.scratch/ci/selection-negative/` |
-| TLC model output and counterexample | `proof/tla-old-results.txt`, `proof/tla-new-results.txt`, `proof/tla-counterexample-status.txt`, `proof/tla-memory/` |
-| iOS builds, staging and fixture proof | `proof/ios-base.log`, `proof/ios-cloud.log`, `proof/ios-cloud-guards.log`, `proof/asc-stage-replay.log`, `proof/ios-fixture-replay/` |
-| Hook installation and timing | `proof/hk-replay.log` |
+## Replay evidence
 
-Fetch the GitHub API E2E artifacts with
-`gh run download 45366628920 --pattern 'api-e2e-*'`. Each summary contains
-the revision, environment, seed, result, times and the replay selection.
+Evidence remains in `.scratch/ci/` in the audit worktree. The historical
+per-job ledger is `audit/job-buckets.tsv`. New evidence is in `review/`,
+including `queue-seconds.json`, `container-proofs/`, `tla-hosted/`,
+`ledger-split-coverage.txt`, `ios-stage-pr39-dry-run.json`, and the
+readbacks for the disabled Cloud workflows.
+
+Fetch a hosted API E2E result with
+`gh run download 45374393220 -R My-apps-factory/BillBandit --pattern 'api-e2e-*'`.
+Each summary records the revision, environment, seed, replay and outcome.
+[Two-week test failure log](test-failure-log.md)

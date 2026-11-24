@@ -12,6 +12,7 @@ existing assertions during the window.
 | Nov 24 | `.scratch/ci/proof/tla-counterexample-status.txt` | The old runner returned exit 0 on an existing model counterexample. The new wrapper returned exit 1. | Caught false-green CI regression |
 | Nov 24 | [TLC timeout](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123) and [TLC completion](https://github.com/My-apps-factory/BillBandit/actions/runs/45370032889) | The ledger ran out of time at the original heap size. An 8 GiB heap let the full model complete in 650 s under the same timeout. | Caught CI resource regression |
 | Nov 24 | [Simulator startup repair](https://github.com/My-apps-factory/BillBandit/pull/50) | The unsigned simulator crashed during eager CloudKit startup. Lazy initialization and the Debug QA guard let the signed-out flow pass. | Caught simulator startup regression |
+| Nov 24 | [Ledger split baseline](https://github.com/My-apps-factory/BillBandit/actions/runs/45374393220) and [split result](https://github.com/My-apps-factory/BillBandit/actions/runs/45375043792) | The ledger script took 20.30 s. The split retained all 23 check IDs and the consistency check on both sets of groups. Hosted sections took 18.40 s and 13.95 s. | Caught CI timing regression |
 
 A deliberately injected HTTP status change in the selection replay is a
 gate check. It is excluded from the failure counts. No tests were removed.
