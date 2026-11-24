@@ -2,11 +2,17 @@
 
 > **Living document.** Read this first when picking up the project.
 > **Update it after every phase** (status, decisions, gotchas, next actions) — it is the
-> shared memory for all agents working on this repo. Last updated: **2026-11-23, build 34 demo restored. See the current evidence report for production and App Store Connect state.**
+> shared memory for all agents working on this repo. Last updated: **2026-11-24, build 35 release preparation. See the current evidence report for production and App Store Connect state.**
 
 ---
 
 ## 1. What this is
+
+### 2026-11-24 — Xcode 27.2 build 35
+
+- App Review would not accept build 34 because it was made with Xcode 27.1 beta. Build 35 uses release Xcode 27.2, build `27B52`. Its signed Debug build and full local reviewer-flow E2E passed. The App Store-signed IPA has `DTXcodeBuild` `27B52` and retains the Sign in with Apple entitlement. Evidence is in `/Users/prateekranka/worktrees/billbandit-reviewer-login/.scratch/submit-20261122/evidence/phase3/`.
+- The iOS build-number commit is on `release/1.0-33`. The production Railway service tracks `main` and automatically deploys on pushes. The phase 3 instruction prohibits changing Railway, so the main push must not proceed unless the owner resolves that conflict. The phase 3 report records the latest upload and version-selection status.
+- Do not submit or send the Resolution Center reply in phase 3. The owner handles submission. Do not change the production review code, App Review notes, sign-in fields, or attachment.
 
 ### 2026-11-23 — Production demo restored
 
