@@ -130,6 +130,7 @@ jobs:
             apps/api
           persist-credentials: false
       - name: Read exact-base timing artifacts
+        if: ${{ github.event_name != 'pull_request' || github.base_ref == 'main' }}
         env:
           GH_TOKEN: ${{ github.token }}
           TIMING_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
