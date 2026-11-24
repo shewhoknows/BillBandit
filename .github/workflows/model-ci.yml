@@ -1,0 +1,88 @@
+name: Model checking
+
+on:
+  pull_request:
+    branches: [main, 'ci/**']
+  merge_group:
+    types: [checks_requested]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: models-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  models:
+    name: TLA+ (${{ matrix.lane }})
+    runs-on: ${{ vars.BILLBANDIT_CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [ledger-kernel, other-models]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          filter: blob:none
+          persist-credentials: false
+      - name: Select models
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LANE: ${{ matrix.lane }}
+        shell: bash
+        run: |
+          if [[ -n "$BASE_SHA" ]] && git diff --quiet "$BASE_SHA" HEAD -- specs/tla/ .github/workflows/model-ci.yml; then
+            echo 'No model inputs changed. Merge groups and main run every model.'
+            exit 0
+          fi
+          ledger="$PWD/specs/tla/ledger-kernel/LedgerKernel_after.cfg"
+          mapfile -t all < <(git ls-files 'specs/tla/*/*after*.cfg' 'specs/tla/*/*fixed*.cfg')
+          cases=()
+          for model in "${all[@]}"; do
+            if [[ "$LANE" == ledger-kernel && "$PWD/$model" == "$ledger" ]] ||                [[ "$LANE" == other-models && "$PWD/$model" != "$ledger" ]]; then
+              cases+=("$PWD/$model")
+            fi
+          done
+          test "${#cases[@]}" -gt 0
+          printf 'cases=%s\n' "${cases[*]}" >> "$GITHUB_OUTPUT"
+      - name: Download pinned TLC
+        if: steps.select.outputs.cases != ''
+        run: |
+          mkdir -p .scratch/ci/tla
+          curl -fsSL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar -o .scratch/ci/tla/tla2tools.jar
+          printf '%s  %s\n' 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88 .scratch/ci/tla/tla2tools.jar | sha256sum -c -
+      - name: Check models
+        if: steps.select.outputs.cases != ''
+        env:
+          ONLY: ${{ steps.select.outputs.cases }}
+          LANE: ${{ matrix.lane }}
+        run: |
+          evidence="$PWD/.scratch/ci/tla"
+          printf 'revision=%s\n' "$GITHUB_SHA" > "$evidence/replay.txt"
+          java -version >> "$evidence/replay.txt" 2>&1
+          printf 'ONLY=%s\nTLC_WORKERS=%s\ncommand=sh specs/tla/check-all.sh\n' "$ONLY" "$(nproc)" >> "$evidence/replay.txt"
+          export OUT="$evidence/results.txt" TLC_LOG_DIR="$evidence/logs"
+          export TLA2TOOLS="$evidence/tla2tools.jar" TLC_WORKERS="$(nproc)"
+          if [[ "$LANE" == ledger-kernel ]]; then
+            timeout 12m sh specs/tla/check-all.sh
+          else
+            timeout 35s sh specs/tla/check-all.sh
+          fi
+      - name: Upload model evidence
+        if: ${{ !cancelled() && steps.select.outputs.cases != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: tla-${{ matrix.lane }}
+          path: |
+            .scratch/ci/tla/results.txt
+            .scratch/ci/tla/replay.txt
+            .scratch/ci/tla/logs/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
