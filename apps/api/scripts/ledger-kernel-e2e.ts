@@ -466,7 +466,9 @@ async function main() {
   console.log(`Revision: ${revision}`)
   console.log(`Environment: API ${devApiBase}, database ${new URL(devDatabaseUrl).pathname.slice(1)} on ${new URL(devDatabaseUrl).host}, node ${process.version}`)
   console.log(`Run at: ${new Date().toISOString()}`)
-  console.log(`Replay: cd apps/api && DEV_DATABASE_URL=${devDatabaseUrl} DEV_API_BASE=${devApiBase} BILLBANDIT_LEDGER_E2E_SCOPE=${scope} bun run scripts/ledger-kernel-e2e.ts`)
+  console.log(
+    `Replay: cd apps/api && DEV_DATABASE_URL=${devDatabaseUrl} DEV_API_BASE=${devApiBase} BILLBANDIT_LEDGER_E2E_SCOPE=${scope} bun run scripts/ledger-kernel-e2e.ts`,
+  )
   console.log(`Groups: ${groupsUsed.length} (first ${groupsUsed[0]})`)
   console.log('\n| Step | Check | Result |\n| --- | --- | --- |')
   for (const row of results) console.log(`| ${row.id} | ${row.name} | ${row.result.replaceAll('|', '/').replaceAll('\n', ' ')} |`)
