@@ -95,7 +95,8 @@ function mobileToken(user: { id: string; email: string; name: string }): string 
     "const user = JSON.parse(process.env.POLISH_USER ?? '{}')",
     'process.stdout.write(createMobileToken(user))',
   ].join(';')
-  return execFileSync(process.execPath, ['--import', 'tsx', '--eval', helper], {
+  const args = process.versions.bun ? ['--eval', helper] : ['--import', 'tsx', '--eval', helper]
+  return execFileSync(process.execPath, args, {
     cwd: apiRoot,
     env: {
       ...process.env,

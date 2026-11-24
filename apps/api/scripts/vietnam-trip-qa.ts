@@ -136,7 +136,8 @@ function realMobileToken(user: { id: string; email: string; name: string }): str
     "const user = JSON.parse(process.env.VIETNAM_TRIP_USER ?? '{}')",
     'process.stdout.write(createMobileToken(user))',
   ].join(';')
-  const token = execFileSync(process.execPath, ['--import', 'tsx', '--eval', helper], {
+  const args = process.versions.bun ? ['--eval', helper] : ['--import', 'tsx', '--eval', helper]
+  const token = execFileSync(process.execPath, args, {
     cwd: apiRoot,
     env: {
       ...process.env,
