@@ -146,7 +146,7 @@ def check_api(args, pg, network, database, schema, before, evidence):
         api = args.source / 'apps/api'
         for name in ('Kabir', 'Zoya'):
             run_tool(
-                ['node', '--import', 'tsx', 'scripts/dev-data.ts', 'friend', name],
+                ['bun', 'run', 'scripts/dev-data.ts', 'friend', name],
                 api, env, evidence / f'dev-data-{name}.log',
             )
         run_tool(
