@@ -1,0 +1,46 @@
+name: Stage iOS release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-stage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    name: Select App Store build
+    runs-on: ubuntu-24.04
+    environment: app-store-staging
+    timeout-minutes: 48
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Check tag ancestry
+        run: git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main
+      - name: Install pinned ASC
+        run: |
+          curl -fsSL https://github.com/rorkai/App-Store-Connect-CLI/releases/download/7.1.0/asc_7.1.0_linux_amd64 -o "$RUNNER_TEMP/asc"
+          printf '%s  %s\n' cc179424a37bc76a2094a721075108a8f5260beca367c8051b77f50cf4f70222 "$RUNNER_TEMP/asc" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/asc"
+          printf '%s\n' "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Stage successful Xcode Cloud archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+          RELEASE_WORKFLOW_ID: ${{ vars.BILLBANDIT_APP_STORE_WORKFLOW_ID }}
+        run: |
+          if [[ -z "$RELEASE_WORKFLOW_ID" || -z "$ASC_KEY_ID" || -z "$ASC_ISSUER_ID" || -z "$ASC_PRIVATE_KEY_B64" ]]; then
+            echo '::error::Configure the app-store-staging environment and Xcode Cloud workflow ID.'
+            exit 1
+          fi
+          python3 .github/scripts/stage-ios.py --app 6792712181 --tag "$GITHUB_REF_NAME" \
+            --commit "$(git rev-parse HEAD)" --workflow-id "$RELEASE_WORKFLOW_ID"

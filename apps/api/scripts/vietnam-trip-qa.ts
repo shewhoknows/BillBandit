@@ -10,7 +10,15 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, watch, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
 import { dirname, resolve } from 'node:path'
@@ -24,6 +32,9 @@ const apiRoot = resolve(repositoryRoot, 'apps/api')
 const defaultEvidenceRoot = resolve(repositoryRoot, '.scratch/vietnam-trip/evidence')
 const baseURL = process.env.VIETNAM_TRIP_BASE_URL?.trim() || 'http://127.0.0.1:31300'
 const evidenceRoot = process.env.VIETNAM_TRIP_EVIDENCE_DIR?.trim() || defaultEvidenceRoot
+const ciRun = process.env.BILLBANDIT_CI_E2E === '1'
+const uiFixtureDir = process.env.BILLBANDIT_UI_FIXTURE_DIR?.trim()
+const port = ciRun ? Number(process.env.VIETNAM_TRIP_UPSTREAM_PORT) : 31301
 const startedServer = process.env.START_VIETNAM_TRIP_SERVER === '1'
 const suffix = `${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`
 const handleSuffix = randomBytes(2).toString('hex')
@@ -126,18 +137,17 @@ function createDatabaseIfNeeded(): { url: string; databaseName: string | null; o
 
 function realMobileToken(user: { id: string; email: string; name: string }): string {
   // Run the checked-in createMobileToken implementation from the API workspace.
-  // tsx needs the API tsconfig for its @/* path alias; token output stays in
+  // Bun reads the API tsconfig for its @/* path alias; token output stays in
   // this process and is written only to the chmod 600 session file.
   const helper = [
     "import { createMobileToken } from './lib/mobile-auth.ts'",
     "const user = JSON.parse(process.env.VIETNAM_TRIP_USER ?? '{}')",
     'process.stdout.write(createMobileToken(user))',
   ].join(';')
-  const token = execFileSync(process.execPath, ['--import', 'tsx', '--eval', helper], {
+  const token = execFileSync('bun', ['--eval', helper], {
     cwd: apiRoot,
     env: {
       ...process.env,
-      TSX_TSCONFIG_PATH: resolve(apiRoot, 'tsconfig.json'),
       VIETNAM_TRIP_USER: JSON.stringify(user),
       MOBILE_JWT_SECRET: mobileSecret,
       NEXTAUTH_SECRET: mobileSecret,
@@ -165,18 +175,28 @@ async function waitForHealth(server: ChildProcess | null, readinessPaths: string
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
+      closeWatchers()
       reject(new Error('Next.js server did not emit a readiness line within 90 seconds'))
     }, 90_000)
     const ready = (line: string) => {
       if (settled || !/ready|started server/i.test(line)) return
       settled = true
       clearTimeout(timer)
+      closeWatchers()
       resolvePromise()
     }
-    const watchers = readinessPaths.map((path) => watch(path, { persistent: false }, () => {
-      try { ready(readFileSync(path, 'utf8')) } catch { /* the child may still be creating the file */ }
-    }))
-    const closeWatchers = () => watchers.forEach((entry) => entry.close())
+    // Poll rather than fs.watch: under Bun on macOS the watcher stops reporting
+    // later appends, so the readiness line was missed.
+    const poll = setInterval(() => {
+      for (const path of readinessPaths) {
+        try {
+          ready(readFileSync(path, 'utf8'))
+        } catch {
+          /* the child may still be creating the file */
+        }
+      }
+    }, 200)
+    const closeWatchers = () => clearInterval(poll)
     server.once('exit', closeWatchers)
     server.once('error', (error) => {
       if (settled) return
@@ -219,7 +239,16 @@ function startNextServer(databaseURL: string): { server: ChildProcess; readiness
   writeFileSync(stderrPath, '', { encoding: 'utf8', mode: 0o600 })
   const stdoutFd = openSync(stdoutPath, 'a', 0o600)
   const stderrFd = openSync(stderrPath, 'a', 0o600)
-  const server = spawn('npm', ['--workspace', 'apps/api', 'run', 'dev', '--', '-p', '31301'], {
+  const args = [
+    'run',
+    '--cwd',
+    apiRoot,
+    'dev',
+    '-p',
+    String(port),
+    ...(ciRun ? ['-H', '127.0.0.1'] : []),
+  ]
+  const server = spawn('bun', args, {
     cwd: repositoryRoot,
     env: {
       ...process.env,
@@ -228,7 +257,7 @@ function startNextServer(databaseURL: string): { server: ChildProcess; readiness
       NEXTAUTH_SECRET: mobileSecret,
       NODE_ENV: 'development',
     },
-    detached: true,
+    detached: !ciRun,
     stdio: ['ignore', stdoutFd, stderrFd],
   })
   closeSync(stdoutFd)
@@ -275,7 +304,121 @@ function expenseBody(input: {
   }
 }
 
+async function prepareUIFixtures(
+  db: PrismaClient,
+  directory: string,
+  accounts: {
+    aliceID: string
+    aliceToken: string
+    bobID: string
+    bobToken: string
+    outsiderToken: string
+  },
+) {
+  const { aliceID, aliceToken, bobID, bobToken, outsiderToken } = accounts
+  const group = expectStatus(
+    await request('/api/mobile/groups', {
+      token: aliceToken,
+      method: 'POST',
+      body: {
+        name: 'Shared overview QA',
+        currency: 'VND',
+        category: 'TRIP',
+        memberAccountIds: [bobID],
+      },
+    }),
+    201,
+    'overview fixture group',
+  )
+  const groupId = expectString((group.group as JsonRecord).id, 'overview group id')
+  const expenseId = randomUUID()
+  const expenseTitle = 'Shared overview QA dinner'
+  const expense = {
+    groupId,
+    expenseId,
+    amount: '1000',
+    paidById: bobID,
+    splitType: 'EXACT' as const,
+    splits: [
+      { userId: aliceID, amount: '500' },
+      { userId: bobID, amount: '500' },
+    ],
+  }
+  const created = expectStatus(
+    await request('/api/mobile/expenses', {
+      token: aliceToken,
+      method: 'POST',
+      body: expenseBody({
+        ...expense,
+        operationId: randomUUID(),
+        expectedRevision: 0,
+        description: 'Overview draft',
+      }),
+    }),
+    201,
+    'overview fixture expense',
+  )
+  expectStatus(
+    await request(`/api/mobile/expenses/${expenseId}`, {
+      token: aliceToken,
+      method: 'PUT',
+      body: expenseBody({
+        ...expense,
+        operationId: randomUUID(),
+        expectedRevision: expectNumber(created.revision, 'overview create revision'),
+        description: expenseTitle,
+      }),
+    }),
+    200,
+    'overview fixture edit',
+  )
+  const activity = await db.activityLog.findMany({
+    where: { metadata: { path: ['expenseId'], equals: expenseId } },
+  })
+  const createdActivity = activity.find(({ type }) => type === 'EXPENSE_CREATED')
+  const editedActivity = activity.find(({ type }) => type === 'EXPENSE_UPDATED')
+  assert.equal(activity.length, 2)
+  assert.equal(createdActivity?.userId, aliceID)
+  assert.equal(editedActivity?.userId, aliceID)
+  assert.ok(createdActivity)
+  expectStatus(
+    await request('/api/mobile/auth/username', {
+      token: outsiderToken,
+      method: 'POST',
+      body: { username: `vqa_ui_${handleSuffix}` },
+    }),
+    200,
+    'UI fixture username',
+  )
+  const empty = expectStatus(
+    await request('/api/mobile/groups', { token: outsiderToken }),
+    200,
+    'isolated UI session',
+  )
+  assert.deepEqual(empty.groups, [])
+  const fixtures = {
+    'ui-session.json': { baseURL, token: outsiderToken },
+    'qa-session.json': { baseURL, aliceID, aliceToken, bobID, bobToken },
+    'overview-fixture.json': {
+      expenseTitle,
+      creatorName: 'Alice Vietnam QA',
+      payerName: 'Bob Vietnam QA',
+      editorName: 'Alice Vietnam QA',
+      addedAt: createdActivity.createdAt.toISOString(),
+    },
+  }
+  for (const [name, value] of Object.entries(fixtures)) {
+    writeFileSync(resolve(directory, name), JSON.stringify(value) + '\n', {
+      mode: 0o600,
+      flag: 'wx',
+    })
+  }
+}
+
 async function main() {
+  if (uiFixtureDir && (!ciRun || !startedServer || new URL(baseURL).hostname !== '127.0.0.1')) {
+    throw new Error('UI fixtures require the managed loopback CI server.')
+  }
   ensureEvidenceRoot()
   process.env.MOBILE_JWT_SECRET = mobileSecret
   process.env.NEXTAUTH_SECRET = mobileSecret
@@ -291,7 +434,8 @@ async function main() {
     const databaseURL = fixture.url
 
     if (startedServer) {
-      if (await portIsOccupied(31301)) throw new Error('Port 31301 is already occupied; refusing to stop another process')
+      if (await portIsOccupied(port))
+        throw new Error(`Port ${port} is already occupied; refusing to stop another process`)
       const started = startNextServer(databaseURL)
       server = started.server
       server.unref()
@@ -603,6 +747,7 @@ async function main() {
       method: 'PUT',
       body: { offline: false, dropNextExpenseResponse: true },
     })
+    if (ciRun) expectStatus(proxyControl, 200, 'configure CI fault proxy')
     if (proxyControl.status === 200) {
       let dropped = false
       try {
@@ -677,6 +822,17 @@ async function main() {
     assert.equal((uiGroup.members as Array<unknown>).length, 2)
     mark(checks, 'Empty VND UI group has two members and no expenses')
 
+    if (uiFixtureDir) {
+      await prepareUIFixtures(fixture.db, uiFixtureDir, {
+        aliceID,
+        aliceToken,
+        bobID,
+        bobToken,
+        outsiderToken,
+      })
+      mark(checks, 'UI fixture session and overview history')
+    }
+
     const qaSession = {
       baseURL,
       aliceToken,
@@ -705,7 +861,7 @@ async function main() {
       '',
       `- Revision: ${execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, encoding: 'utf8' }).trim()}`,
       `- Base URL: ${baseURL}`,
-      `- API port: 31301${server?.pid ? ` (PID ${server.pid})` : ''}`,
+      `- API port: ${port}${server?.pid ? ` (PID ${server.pid})` : ''}`,
       `- Database URL: ${databaseURL.replace(/([?&]schema=).*/, '$1[task-schema]')}`,
       `- Schema: ${fixture.schema}`,
       `- Financial QA group: ${groupName} (${groupID})`,
@@ -716,7 +872,7 @@ async function main() {
       '## Commands',
       '',
       '```sh',
-      `VIETNAM_TRIP_EVIDENCE_DIR='${evidenceRoot}' START_VIETNAM_TRIP_SERVER=1 node --import tsx apps/api/scripts/vietnam-trip-qa.ts`,
+      `VIETNAM_TRIP_EVIDENCE_DIR='${evidenceRoot}' START_VIETNAM_TRIP_SERVER=1 bun run apps/api/scripts/vietnam-trip-qa.ts`,
       '```',
       '',
       '## Covered behavior',
@@ -740,10 +896,15 @@ async function main() {
     writeFileSync(reportPath, report, { encoding: 'utf8', mode: 0o600 })
     chmodSync(reportPath, 0o600)
 
-    const scratchSessionPath = resolve(repositoryRoot, '.scratch/vietnam-trip/qa-session.json')
-    mkdirSync(dirname(scratchSessionPath), { recursive: true, mode: 0o700 })
-    writeFileSync(scratchSessionPath, JSON.stringify(qaSession, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-    chmodSync(scratchSessionPath, 0o600)
+    if (!ciRun) {
+      const scratchSessionPath = resolve(repositoryRoot, '.scratch/vietnam-trip/qa-session.json')
+      mkdirSync(dirname(scratchSessionPath), { recursive: true, mode: 0o700 })
+      writeFileSync(scratchSessionPath, JSON.stringify(qaSession, null, 2) + '\n', {
+        encoding: 'utf8',
+        mode: 0o600,
+      })
+      chmodSync(scratchSessionPath, 0o600)
+    }
 
     console.log(`Vietnam trip backend QA passed: ${checks.length} checks; API ${baseURL}; group ${groupID}; evidence ${reportPath}`)
   } catch (error) {
@@ -771,7 +932,8 @@ async function main() {
     await fixture?.db.$disconnect().catch(() => undefined)
     // Keep the disposable schema and detached server for simulator QA. The root
     // agent can drop the schema and database after the mobile flow completes.
-    if (!startedServer) await fixture?.close().catch(() => undefined)
+    if (ciRun && !uiFixtureDir) server?.kill('SIGTERM')
+    if ((ciRun && !uiFixtureDir) || !startedServer) await fixture?.close().catch(() => undefined)
   }
 }
 
