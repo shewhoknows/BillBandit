@@ -1,0 +1,44 @@
+name: API toolchain
+description: Install Bun and restore pinned API dependencies
+inputs:
+  seed-cache:
+    description: Save dependency cache from main
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - id: bun
+      shell: bash
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+      run: |
+        archive="$RUNNER_TEMP/bun-1.3.14-linux-x64.zip"
+        bin="$RUNNER_TEMP/billbandit-bin"
+        curl --fail --silent --show-error --location \
+          https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip -o "$archive"
+        printf '%s  %s\n' 951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f "$archive" | sha256sum -c -
+        mkdir -p "$bin"
+        unzip -p "$archive" bun-linux-x64/bun > "$bin/bun"
+        chmod +x "$bin/bun"
+        test "$("$bin/bun" --version)" = 1.3.14
+        printf '%s\n' "$bin" >> "$GITHUB_PATH"
+        if [[ -n "$BASE_SHA" ]] && git cat-file -e "$BASE_SHA^{commit}" &&
+            ! git cat-file -e "$BASE_SHA:.github/workflows/api-ci.yml" 2>/dev/null; then
+          echo 'pre-cache-base=true' >> "$GITHUB_OUTPUT"
+        fi
+    - if: steps.bun.outputs.pre-cache-base != 'true' || inputs.seed-cache == 'true'
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+      id: dependencies
+      with:
+        path: node_modules
+        key: api-bun-1.3.14-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'apps/api/prisma/schema.prisma') }}
+    - if: steps.dependencies.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        bun install --frozen-lockfile --ignore-scripts
+        bun run --bun --cwd apps/api db:generate
+    - if: inputs.seed-cache == 'true' && steps.dependencies.outputs.cache-hit != 'true'
+      uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+      with:
+        path: node_modules
+        key: ${{ steps.dependencies.outputs.cache-primary-key }}

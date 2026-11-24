@@ -11,12 +11,12 @@
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "dev:server": "tsx scripts/dev-server.ts",
-    "dev:data": "tsx scripts/dev-data.ts",
-    "review:reset": "tsx scripts/review-reset.ts",
+    "dev:server": "bun scripts/dev-server.ts",
+    "dev:data": "bun scripts/dev-data.ts",
+    "review:reset": "bun scripts/review-reset.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "review:teardown": "tsx scripts/review-reset.ts --teardown"
+    "review:teardown": "bun scripts/review-reset.ts --teardown"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",
@@ -36,7 +36,6 @@
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
     "prisma": "^5.14.0",
-    "tsx": "^4.16.2",
     "typescript": "^5"
   }
 }
