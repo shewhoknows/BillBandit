@@ -20,8 +20,9 @@ GitHub reported the organization as owner and no active rules for `main`.
    new workflows report, open **Settings → Rules → Rulesets → New branch
    ruleset**. Target the default branch. Set **Active**. Require a pull request,
    required status checks, and a merge queue. Leave the bypass list empty.
-   Require `API checks`, `API build`, each `API E2E (0)` through
-   `API E2E (4)`, and each of the four TLA+ contexts. Allow enough queue
+   Require `API checks`, `API build`, and each `API E2E (0)` through
+   `API E2E (4)`. Require `TLA+ (ledger-kernel)`, `TLA+ (ios-ledger-sync)`,
+   `TLA+ (ios-settlement-shell)`, and `TLA+ (other-models)`. Allow enough queue
    status-check time for the model runner's fixed limit. Verify a queued PR
    produces `merge_group` jobs for its queue SHA. Verify the queue blocks a
    failed group. Before enabling delivery, require the full iOS result for

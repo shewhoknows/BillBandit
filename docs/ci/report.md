@@ -24,6 +24,13 @@ Availability, queue and runner lifecycle time still matter. See
 [sharded E2E](https://github.com/My-apps-factory/BillBandit/actions/runs/45366628920)
 and [sparse checkout run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367281300).
 
+The strict-budget candidate kept all correctness results and failed the seven
+jobs on waiting. GitHub queued them for 37–99 s. Two jobs also exceeded the
+setup limit, and one reached 38.04 s through the runner-budget check. All
+seven API scripts passed and their artifacts had exact coverage. This run
+shows why the Blacksmith and warm-runner measurements are still required.
+See [strict budgets](https://github.com/My-apps-factory/BillBandit/actions/runs/45368005114).
+
 The 30-day baseline contains six Railway push runs that used 355 runner
 seconds in total. It contains zero PR runs in that period. At that same
 push volume, six post-merge API runs at 222 runner seconds per run would
@@ -79,7 +86,9 @@ establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode
   required job with a 12-minute limit. That job exceeds the fast-feedback
   budget. It fails if it does not complete. The first hosted model run
   timed out the combined small-model lane and was cancelled during the large
-  ledger lane. The candidate now isolates the two largest iOS model groups.
+  ledger lane. Splitting the iOS model groups let the three shorter jobs pass
+  in 23 s, 24 s, and 32 s. Together they checked 17 models.
+  [Split model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123)
 - The iOS smoke scheme builds locally with release Xcode. A beta, a malformed
   tag, and a version mismatch fail the post-clone guard. Cloud needs a product
   and source-repository connection. The full UI suite also needs its
@@ -106,6 +115,8 @@ See [toolchain comparison](toolchain.md) and [test failure log](test-failure-log
 | [#43](https://github.com/My-apps-factory/BillBandit/pull/43) | TLA+ gates and artifacts | — |
 | [#44](https://github.com/My-apps-factory/BillBandit/pull/44) | Tag-based iOS staging | #39 |
 | [#45](https://github.com/My-apps-factory/BillBandit/pull/45) | Local hk hooks | #41 |
+| [#46](https://github.com/My-apps-factory/BillBandit/pull/46) | Owner actions, cost report, and test failure log | — |
+| [#47](https://github.com/My-apps-factory/BillBandit/pull/47) | Required API job budgets | #42 |
 
 Stacked PRs target their dependency's branch. Retarget to `main` after the
 dependency lands. The CI sessions pushed topic branches and opened PRs.
@@ -118,7 +129,7 @@ The audit worktree keeps evidence under `.scratch/ci/`.
 | Evidence | Location |
 | --- | --- |
 | Baseline runs, jobs and failure logs | `audit/` |
-| API run metadata and command output | `proof/e2e-shards-runner.json`, `proof/sparse-api-hosted.json`, `proof/gh-e2e-shards/` |
+| API run metadata and command output | `proof/e2e-shards-runner.json`, `proof/sparse-api-hosted.json`, `proof/gh-e2e-shards/`, `proof/strict-budget-shards/` |
 | Selection failure and replay | `proof/selection-negative.log`, `selection-proof/.scratch/ci/selection-negative/` |
 | TLC model output and counterexample | `proof/tla-old-results.txt`, `proof/tla-new-results.txt`, `proof/tla-counterexample-status.txt` |
 | iOS builds and staging contract | `proof/ios-base.log`, `proof/ios-cloud.log`, `proof/ios-cloud-guards.log`, `proof/asc-stage-replay.log` |
