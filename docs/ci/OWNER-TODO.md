@@ -31,8 +31,14 @@ App Store Connect showed a connected product and a successful build-only run.
    status-check time for the model runner's fixed limit. Verify a queued PR
    produces `merge_group` jobs for its queue SHA. Verify the queue blocks a
    failed group. Before enabling delivery, require the full iOS result for
-   the queue SHA too. Use a no-distribution Cloud workflow or status bridge for
-   `gh-readonly-queue/main/*` and prove the context reaches the queue SHA.
+   the queue SHA too. In Xcode Cloud, create a no-distribution workflow named
+   **BillBandit merge queue**. Copy the full Test action and environment from
+   the main workflow. Under **Start Conditions → Branch Changes**, choose the
+   custom branch name starting with `gh-readonly-queue/main/`. Inspect the
+   GitHub checks on the exact merge-group SHA, then require the resulting
+   Xcode Cloud Test context in the ruleset. The build-only workflow currently
+   publishes a GitHub check and a commit status on PR head SHAs. If the queue
+   SHA receives no native Test check, it needs a status bridge before rollout.
    Never attach a publishing workflow to the queue ref. GitHub's merge queue
    and standard Actions runners cost $0 for this public organization repo.
    Public cache and artifact usage remains subject to account limits.
@@ -56,16 +62,14 @@ App Store Connect showed a connected product and a successful build-only run.
    [Blacksmith pricing](https://www.blacksmith.sh/pricing)
    [Blacksmith runner setup](https://info.blacksmith.sh/blog/speed-up-github-actions-with-blacksmith)
 
-4. **Finish Xcode Cloud setup.** Product creation is complete. In release Xcode 27.2, sign in under
-   **Xcode → Settings → Accounts** with the BillBandit Apple Developer team.
-   Open `BillBandit/BillBandit.xcodeproj` from the checkout.
-   The onboarding path is **Report navigator → Cloud → Get Started**.
-   Choose BillBandit, link the App Store Connect app `com.billbandit.app`,
-   and authorize GitHub for `My-apps-factory/BillBandit`.
-   This product exists and its **PR build** workflow passed a manual build.
-   Edit that workflow to use the checked-in smoke test plan.
-   Start with the smoke workflow and leave distribution off. In App Store
-   Connect, open **Apps → BillBandit → Xcode Cloud → Workflows** and add the
+4. **Finish Xcode Cloud setup.** The owner connected `com.billbandit.app` to
+   `My-apps-factory/BillBandit`. The **PR build** workflow passed manual and
+   automatic builds. In App Store Connect, open **Apps → BillBandit → Xcode
+   Cloud → Workflows → PR build → Edit Workflow**. Set the PR start condition
+   to target `main`. After the smoke scheme lands, choose **Actions → + →
+   Test**, select the `BillBanditSmoke` scheme and test plan, and choose one
+   iPhone 18 Pro / iOS 27.2 destination. The Test action builds the app.
+   Run smoke with distribution off, then use **Workflows → +** to add the
    configurations in [Xcode Cloud](xcode-cloud.md).
    Confirm the fixed Xcode 27.2 selection. Check automatic distribution
    signing and the capabilities for the existing ID. Ensure the next
@@ -75,18 +79,21 @@ App Store Connect showed a connected product and a successful build-only run.
    [Apple onboarding](https://developer.apple.com/documentation/xcode/configuring-your-first-xcode-cloud-workflow)
    [Build numbers](https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds/)
 
-5. **Enable iOS full-suite and internal delivery.** Provide a disposable
-   fixture API reachable from the Cloud test machine. It needs the UI
-   session, trip accounts and group, overview fixture, and offline-control
-   proxy described in the existing UI tests and handoff. Provision and
-   destroy test data per run. Use test-only credentials and keep them out of
-   PR workflows and artifacts. Complete the Cloud fixture handoff and repair
-   the documented stale UI tests before requiring the iOS queue check.
+5. **Enable iOS full-suite and internal delivery.** After #49 and #50 land,
+   configure the full `BillBandit` Test action for main and merge-queue
+   workflows. In each workflow, open **Environment → Environment Variables**
+   and add `BILLBANDIT_UI_FIXTURE_DIR` with value `/tmp/billbandit-ui-fixtures`.
+   Leave it unset in PR smoke and App Store archive. The repository provisions
+   PostgreSQL, the loopback proxy and three test fixtures on the test host.
+   Start a full Test action with distribution off. Confirm the pre-build log
+   reports all fixtures ready, the simulator can reach the test API, and the
+   result bundle shows all 20 test methods passing. Keep tokens and fixture
+   files out of uploads. [Fixture setup and replay](ios-fixtures.md)
    In App Store Connect, open **TestFlight → Internal Testing**, select
    the internal group, and verify membership. In the main Cloud workflow,
    add **TestFlight Internal Testing** using that group after the full
-   suite passes. No new TestFlight fee. A separately hosted test fixture
-   has an unmeasured cost until the owner chooses a host.
+   suite passes. No new TestFlight fee. The fixture uses the existing Cloud
+   test machine. Its additional compute time is unmeasured.
    [Xcode Cloud workflows](https://developer.apple.com/documentation/xcode/xcode-cloud-workflow-reference)
 
 6. **Protect and enable App Store staging.** Create tag rulesets under

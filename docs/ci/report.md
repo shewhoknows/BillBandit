@@ -11,7 +11,7 @@ Measured on November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWN
 | API E2E | 0 scripts in GitHub Actions | 7 existing scripts passed. Five independent shards. |
 | API static gate | Lint and typecheck combined, 63 s median on runner across event types | 17–29 s on runner across observed green CI samples. Includes Oxlint, original Next ESLint, TypeScript 7, and changed-line format. |
 | API build | No PR build job | 34–35 s on runner in the two full successful API runs |
-| iOS PR and release | 0 Cloud runs | One 76.49 s build-only Cloud run. The local unsigned build was 63.12 s before and 61.90 s with the smoke scheme. |
+| iOS PR and release | 0 Cloud runs | Two successful build-only Cloud observations of 76.49 s and 99.38 s. The local unsigned build was 63.12 s before and 61.90 s with the smoke scheme. |
 | Standard GitHub Actions compute | $0 per PR and per month for the public repo | $0 per PR and per month for the public repo |
 | Blacksmith and Xcode Cloud | $0 incremental observed | $0 incremental observed. Owner enrollment and runner usage remain pending. |
 
@@ -93,16 +93,35 @@ establish a Cloud floor. [Apple compute tiers](https://developer.apple.com/xcode
   in 23 s, 24 s, and 32 s. Together they checked 17 models. The ledger
   job failed at its 12-minute command limit after 737 s on runner.
   Its last progress entry showed 59,378,793 distinct states with 3,584,724
-  states still queued. The hosted suite has 17 confirmed results out of 18.
+  states still queued. Giving the ledger lane 8 GiB of heap and 40% of its
+  heap for fingerprints completed the ledger job in 650 s. The worker count,
+  spec, assertions and timeout stayed fixed. All 18 models passed on GitHub.
+  The ledger explored 61,894,947 distinct states and exhausted its queue.
+  The other lanes took 15–32 s. The ledger is still the merge-queue floor
+  among the measured jobs and exceeds the general 35 s target.
   [Split model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45367398123)
+  [Memory-tuned model run](https://github.com/My-apps-factory/BillBandit/actions/runs/45370032889)
 - The iOS smoke scheme builds locally with release Xcode. A beta, a malformed
   tag, and a version mismatch fail the post-clone guard. The product was
-  connected during the audit. App Store Connect reported one manual
-  build-only run on commit `136e120`: 9.60 s waiting and 66.89 s building.
-  The full UI suite still needs its
-  disposable fixture backend and repairs for existing failing tests.
+  connected during the audit. The first manual run on `136e120` took 9.60 s
+  waiting and 66.89 s building. The automatic run on fixture commit `0585fc7`
+  took 24.84 s waiting and 74.54 s building. Its GitHub build check and commit
+  status were both published on that SHA. The two builds still give no
+  measurement of the complete Cloud Test action.
+  [Automatic build check](https://github.com/My-apps-factory/BillBandit/pull/49/checks)
+- The iOS fixture runner seeded a disposable database and three test fixtures
+  in 4.50 s on this Mac. It passed 11 API checks. A separate replay verified
+  an empty account, the canonical expense history and HTTP 503 while the
+  proxy was offline. The Debug unsigned simulator candidate passed a focused
+  signed-out flow in 8.04 s after the original crashed in CloudKit startup.
+  An authenticated TesterArmy trial reached the group form and reported that
+  sign-in was required because the launch lacked the fixture session.
+  The owner needs to run the checked-in full XCTest scheme on Cloud with
+  fixture provisioning enabled to verify that session handoff.
   Cloud UI, signed archive, internal upload, live build selection and Cloud
   merge-queue enforcement remain unverified.
+  [Fixture proof](https://github.com/My-apps-factory/BillBandit/pull/49)
+  [Simulator proof](https://github.com/My-apps-factory/BillBandit/pull/50)
 - The deploy PR pins the Railway CLI and improves the credential diagnostics.
   A missing token made zero CLI calls in the replay. A failing CLI exit
   stays a failure. The rejected production credential remains an owner
@@ -125,6 +144,9 @@ See [toolchain comparison](toolchain.md) and [test failure log](test-failure-log
 | [#45](https://github.com/My-apps-factory/BillBandit/pull/45) | Local hk hooks | #41 |
 | [#46](https://github.com/My-apps-factory/BillBandit/pull/46) | Owner actions, cost report, and test failure log | — |
 | [#47](https://github.com/My-apps-factory/BillBandit/pull/47) | Required API job budgets | #42 |
+| [#48](https://github.com/My-apps-factory/BillBandit/pull/48) | Hosted ledger model passes with more TLC heap | #43 |
+| [#49](https://github.com/My-apps-factory/BillBandit/pull/49) | Disposable iOS UI fixtures | #42 |
+| [#50](https://github.com/My-apps-factory/BillBandit/pull/50) | CloudKit startup isolation for simulator QA | #49 |
 
 Stacked PRs target their dependency's branch. Retarget to `main` after the
 dependency lands. The CI sessions pushed topic branches and opened PRs.
@@ -139,8 +161,8 @@ The audit worktree keeps evidence under `.scratch/ci/`. The per-job audit ledger
 | Baseline runs, jobs and failure logs | `audit/` |
 | API run metadata and command output | `proof/e2e-shards-runner.json`, `proof/sparse-api-hosted.json`, `proof/gh-e2e-shards/`, `proof/strict-budget-shards/` |
 | Selection failure and replay | `proof/selection-negative.log`, `selection-proof/.scratch/ci/selection-negative/` |
-| TLC model output and counterexample | `proof/tla-old-results.txt`, `proof/tla-new-results.txt`, `proof/tla-counterexample-status.txt` |
-| iOS builds and staging contract | `proof/ios-base.log`, `proof/ios-cloud.log`, `proof/ios-cloud-guards.log`, `proof/asc-stage-replay.log` |
+| TLC model output and counterexample | `proof/tla-old-results.txt`, `proof/tla-new-results.txt`, `proof/tla-counterexample-status.txt`, `proof/tla-memory/` |
+| iOS builds, staging and fixture proof | `proof/ios-base.log`, `proof/ios-cloud.log`, `proof/ios-cloud-guards.log`, `proof/asc-stage-replay.log`, `proof/ios-fixture-replay/` |
 | Hook installation and timing | `proof/hk-replay.log` |
 
 Fetch the GitHub API E2E artifacts with
