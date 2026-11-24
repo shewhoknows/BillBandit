@@ -21,6 +21,16 @@ import {
 } from './types'
 import { assertImportRecordTransition, assertImportTransition } from '../../identity-friends-state'
 import {
+  ensureLegacyPersonAccount,
+  legacyPersonAccountId,
+  legacyPersonKey,
+  linkCloudKitIdentity,
+  linkedCloudKitAccount,
+  lockCloudKitKey,
+  normalizeCloudKitSubject,
+  resolveLegacyFriendAccount,
+} from './identity'
+import {
   moneyContextFromFields,
   normalizeCloudKitExport,
   parseExactMoney,
@@ -48,18 +58,33 @@ function isPrismaClient(db: CloudKitImportDb): db is PrismaClient {
   return '$transaction' in db && typeof db.$transaction === 'function'
 }
 
+// Prisma's default interactive-transaction timeout is 5 s. A real legacy
+// export (hundreds of records, one reservation query each) can take longer on
+// a remote database, and a timed-out prepare answers 500 on every retry.
+const TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 } as const
+
 function withTransaction<T>(
   db: CloudKitImportDb,
   callback: (tx: DbTransaction) => Promise<T>
 ): Promise<T> {
-  return isPrismaClient(db) ? db.$transaction(callback) : callback(db)
+  return isPrismaClient(db) ? db.$transaction(callback, TRANSACTION_OPTIONS) : callback(db)
 }
+
+/**
+ * How a legacy person maps to an API account (identity-friends-import.md §6):
+ * owner = the authenticated importer; friend = a linked account that is an
+ * accepted friend of the importer; placeholder = an importer-scoped account
+ * nobody can sign in as. Frozen once the person record is IMPORTED.
+ */
+type PersonResolution = 'owner' | 'friend' | 'placeholder'
 
 type ResolvedPerson = {
   source: CloudKitSourceRecord
-  cloudKitRecordName: string
+  cloudKitRecordName: string | null
   accountId: string
   displayName: string
+  resolution: PersonResolution
+  placeholderKey: string | null
 }
 
 type SemanticState = {
@@ -102,7 +127,7 @@ type ImportRow = {
  * then sees the first run's rows.
  */
 async function lockImportKey(tx: DbTransaction, key: string): Promise<void> {
-  await tx.$queryRaw`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtextextended(${`cloudkit-import:${key}`}, 0))`
+  await lockCloudKitKey(tx, key)
 }
 
 function isUniqueConstraint(error: unknown): boolean {
@@ -301,51 +326,98 @@ function inlineSplitFields(split: JsonObject, path: string): JsonObject {
   return split
 }
 
+/** Person logical key -> account id, for person records already IMPORTED. */
+async function frozenPeople(
+  tx: DbTransaction,
+  accountId: string,
+  people: CloudKitSourceRecord[]
+): Promise<Map<string, string>> {
+  if (people.length === 0) return new Map()
+  const rows = await tx.ledgerImportRecord.findMany({
+    where: {
+      accountId,
+      sourceSystem: CLOUDKIT_IMPORT_SOURCE,
+      sourceRecordType: CLOUDKIT_RECORD_TYPES.PERSON,
+      state: 'IMPORTED',
+      sourceRecordKey: { in: people.map((person) => person.logicalKey) },
+    },
+    select: { sourceRecordKey: true, targetId: true },
+  })
+  return new Map(rows.filter((row) => row.targetId).map((row) => [row.sourceRecordKey, row.targetId!]))
+}
+
 async function resolvePeople(
   tx: DbTransaction,
   accountId: string,
   normalized: NormalizedCloudKitExport,
   people: CloudKitSourceRecord[]
 ): Promise<Map<string, ResolvedPerson>> {
+  const owner = normalized.ownerCloudKitRecordName
+  const ownerLink = await linkedCloudKitAccount(tx, owner)
+  if (ownerLink !== accountId) {
+    throw new CloudKitImportNeedsRepairError(
+      'the export owner\'s iCloud identity is not linked to the authenticated account',
+      ownerLink ? 'identity_conflict' : 'identity_not_claimed'
+    )
+  }
+  const frozen = await frozenPeople(tx, accountId, people)
   const result = new Map<string, ResolvedPerson>()
   for (const source of people) {
     const claim = personClaim(source, normalized.claims)
-    if (!claim) {
-      throw new CloudKitImportNeedsRepairError(`person ${source.sourceId} has no member claim`, 'missing_member_claim', { personRecordName: source.recordName })
-    }
     const sourceCloudUser = cloudUserFromPerson(source)
-    const cloudKitRecordName = claim.cloudKitRecordName ?? sourceCloudUser
-    if (!cloudKitRecordName) {
-      throw new CloudKitImportNeedsRepairError(`person ${source.sourceId} has no CloudKit identity`, 'identity_not_claimed')
-    }
-    if (claim.cloudKitRecordName && sourceCloudUser && claim.cloudKitRecordName !== sourceCloudUser) {
+    if (claim?.cloudKitRecordName && sourceCloudUser && claim.cloudKitRecordName !== sourceCloudUser) {
       throw new CloudKitImportNeedsRepairError(`person ${source.sourceId} claim does not match its CloudKit identity`, 'identity_not_claimed')
     }
-    const external = await tx.externalIdentity.findUnique({
-      where: { provider_subject: { provider: 'cloudkit', subject: cloudKitRecordName } },
-      select: { accountId: true },
-    })
-    if (!external) {
-      throw new CloudKitImportNeedsRepairError(`CloudKit identity ${cloudKitRecordName} is not linked to an API account`, 'identity_not_claimed', { cloudKitRecordName })
+    const cloudKitRecordName = claim?.cloudKitRecordName ?? sourceCloudUser
+    const placeholderKey = legacyPersonKey(accountId, cloudKitRecordName, source.sourceId)
+    const placeholderId = legacyPersonAccountId(placeholderKey)
+
+    let resolution: PersonResolution
+    let resolvedAccountId: string
+    const frozenAccountId = frozen.get(source.logicalKey)
+    if (frozenAccountId) {
+      // Already imported: never re-decide, or one person's money could end
+      // up split across two accounts after a friendship or link appears.
+      resolvedAccountId = frozenAccountId
+      resolution = frozenAccountId === accountId ? 'owner' : frozenAccountId === placeholderId ? 'placeholder' : 'friend'
+    } else if (cloudKitRecordName === owner) {
+      resolution = 'owner'
+      resolvedAccountId = accountId
+    } else {
+      const friend = cloudKitRecordName ? await resolveLegacyFriendAccount(tx, accountId, cloudKitRecordName) : null
+      resolution = friend ? 'friend' : 'placeholder'
+      resolvedAccountId = friend ?? placeholderId
     }
-    if (claim.accountId && claim.accountId !== external.accountId) {
+    if (claim?.accountId && claim.accountId !== resolvedAccountId) {
       throw new CloudKitImportNeedsRepairError(`member claim for ${source.sourceId} points to a different account`, 'identity_not_claimed')
     }
-    const resolvedAccountId = external.accountId
-    const user = await tx.user.findUnique({ where: { id: resolvedAccountId }, select: { id: true, name: true, preferredName: true, email: true } })
-    if (!user) throw new CloudKitImportNeedsRepairError(`claimed account ${resolvedAccountId} does not exist`, 'identity_not_claimed')
+
+    const legacyName = stringField(source.fields, ['name', 'displayName'], `person.${source.sourceId}`)
+    let displayName = legacyName ?? 'Legacy member'
+    if (resolution !== 'placeholder' || frozenAccountId) {
+      const user = await tx.user.findUnique({ where: { id: resolvedAccountId }, select: { name: true, preferredName: true, email: true, deletedAt: true } })
+      if (!user) throw new CloudKitImportNeedsRepairError(`claimed account ${resolvedAccountId} does not exist`, 'identity_not_claimed')
+      displayName = legacyName ?? user.preferredName ?? user.name ?? user.email
+    }
     const resolved: ResolvedPerson = {
       source,
       cloudKitRecordName,
       accountId: resolvedAccountId,
-      displayName: stringField(source.fields, ['name', 'displayName'], `person.${source.sourceId}`) ?? user.name ?? user.preferredName ?? user.email,
+      displayName,
+      resolution,
+      placeholderKey: resolution === 'placeholder' ? placeholderKey : null,
     }
-    for (const reference of [source.sourceId, source.recordName]) result.set(reference, resolved)
+    for (const reference of [source.sourceId, source.recordName]) {
+      const previous = result.get(reference)
+      if (previous && previous.accountId !== resolved.accountId) {
+        throw new CloudKitImportNeedsRepairError(`person ${reference} resolves to two different accounts`, 'identity_not_claimed')
+      }
+      result.set(reference, resolved)
+    }
   }
 
-  const owner = Array.from(result.values()).find((person) => person.cloudKitRecordName === normalized.ownerCloudKitRecordName)
-  if (!owner || owner.accountId !== accountId) {
-    throw new CloudKitImportNeedsRepairError('the authenticated account does not own the CloudKit export', 'missing_source_owner', { ownerCloudKitRecordName: normalized.ownerCloudKitRecordName })
+  if (!Array.from(result.values()).some((person) => person.resolution === 'owner')) {
+    throw new CloudKitImportNeedsRepairError('the authenticated account does not own the CloudKit export', 'missing_source_owner', { ownerCloudKitRecordName: owner })
   }
   return result
 }
@@ -788,6 +860,9 @@ async function prepareImport(
     }
 
     try {
+      // The owner of a legacy export is the authenticated caller: link (or
+      // confirm) their own CloudKit identity before resolving people.
+      await linkCloudKitIdentity(tx, accountId, normalized.ownerCloudKitRecordName, 'cloudkit-import', now)
       await validateAndResolve(tx, accountId, normalized)
       await ensureRecordRows(tx, importRow, normalized, now)
       await ensureMetadataRow(tx, importRow, normalized, now)
@@ -903,12 +978,25 @@ async function ensureGroupMembers(
 }
 
 async function importPerson(
-  _tx: DbTransaction,
+  tx: DbTransaction,
   source: CloudKitSourceRecord,
-  state: SemanticState
+  state: SemanticState,
+  ownerAccountId: string,
+  importId: string
 ): Promise<{ targetType: string; targetId: string; inlineSplits: number }> {
   const person = state.peopleByRef.get(source.sourceId) ?? state.peopleByRef.get(source.recordName)
   if (!person) throw new CloudKitImportNeedsRepairError(`person ${source.sourceId} is not claimed`, 'missing_member_claim')
+  if (person.resolution === 'placeholder' && person.placeholderKey) {
+    const id = await ensureLegacyPersonAccount(tx, {
+      key: person.placeholderKey,
+      importerAccountId: ownerAccountId,
+      importId,
+      personSourceId: source.sourceId,
+      cloudKitRecordName: person.cloudKitRecordName,
+      displayName: person.displayName,
+    })
+    if (id !== person.accountId) throw new CloudKitImportNeedsRepairError(`placeholder for ${source.sourceId} changed`, 'identity_conflict')
+  }
   return { targetType: 'user', targetId: person.accountId, inlineSplits: 0 }
 }
 
@@ -1251,7 +1339,7 @@ async function processSourceRecord(
     return { targetType: row.targetType, targetId: row.targetId, inlineSplits: 0, reused: true }
   }
   const result = source.recordType === CLOUDKIT_RECORD_TYPES.PERSON
-    ? await importPerson(tx, source, state)
+    ? await importPerson(tx, source, state, accountId, importId)
     : source.recordType === CLOUDKIT_RECORD_TYPES.GROUP
       ? await importGroup(tx, source, state, accountId, now)
       : source.recordType === CLOUDKIT_RECORD_TYPES.EXPENSE
@@ -1275,42 +1363,94 @@ async function processSourceRecord(
   return { ...result, reused: row.importId !== importId }
 }
 
+async function failImportAtRecord(
+  rootDb: CloudKitImportDb,
+  accountId: string,
+  importId: string,
+  normalized: NormalizedCloudKitExport,
+  source: CloudKitSourceRecord | null,
+  error: CloudKitImportNeedsRepairError | CloudKitImportValidationError
+): Promise<void> {
+  await withTransaction(rootDb, async (tx) => {
+    await lockImportKey(tx, accountId)
+    const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true, sourceChecksum: true } })
+    if (!current || current.state !== 'RUNNING' || current.sourceChecksum !== normalized.sourceChecksum) return
+    if (source) {
+      const row = await tx.ledgerImportRecord.findUnique({
+        where: {
+          accountId_sourceSystem_sourceRecordKey: {
+            accountId,
+            sourceSystem: CLOUDKIT_IMPORT_SOURCE,
+            sourceRecordKey: source.logicalKey,
+          },
+        },
+        select: { id: true, state: true },
+      })
+      if (row && row.state !== 'IMPORTED') await tx.ledgerImportRecord.update({ where: { id: row.id }, data: { state: 'QUARANTINED', quarantineReason: error.message } })
+    }
+    assertImportTransition(current.state, 'FAILED')
+    await tx.ledgerImport.update({ where: { id: importId }, data: { state: 'FAILED', failureReason: error.message, completedAt: null } })
+  })
+}
+
+function isRepairError(error: unknown): error is CloudKitImportNeedsRepairError | CloudKitImportValidationError {
+  return error instanceof CloudKitImportNeedsRepairError || error instanceof CloudKitImportValidationError
+}
+
 async function processAllRecords(
   rootDb: CloudKitImportDb,
   accountId: string,
   importId: string,
   normalized: NormalizedCloudKitExport,
-  state: SemanticState,
+  initialState: SemanticState,
   now: Date
 ): Promise<void> {
   const ordered = [...normalized.records].sort((left, right) =>
     IMPORTABLE_RECORD_RANK[left.recordType] - IMPORTABLE_RECORD_RANK[right.recordType] || sourceRecordKey(left).localeCompare(sourceRecordKey(right))
   )
-  for (const source of ordered) {
+  const people = ordered.filter((source) => source.recordType === CLOUDKIT_RECORD_TYPES.PERSON)
+  const rest = ordered.filter((source) => source.recordType !== CLOUDKIT_RECORD_TYPES.PERSON)
+
+  // Phase 1: every person in one transaction, so one snapshot decides who is
+  // owner, friend or placeholder, and a crash leaves all or none of them.
+  let current: CloudKitSourceRecord | null = null
+  try {
+    await withTransaction(rootDb, async (tx) => {
+      for (const source of people) {
+        current = source
+        await processSourceRecord(tx, accountId, importId, source, initialState, normalized.sourceChecksum, now)
+      }
+    })
+  } catch (error) {
+    if (error instanceof SupersededImportError) return
+    if (isRepairError(error)) return failImportAtRecord(rootDb, accountId, importId, normalized, current, error)
+    throw error
+  }
+
+  // Phase 2 uses only the frozen person rows. A run that resolved people
+  // before another run committed phase 1 must not write money with its own,
+  // possibly different, answer.
+  let state: SemanticState
+  try {
+    state = await withTransaction(rootDb, (tx) => validateAndResolve(tx, accountId, normalized))
+  } catch (error) {
+    if (isRepairError(error)) return failImportAtRecord(rootDb, accountId, importId, normalized, null, error)
+    throw error
+  }
+  for (const person of people) {
+    const resolved = state.peopleByRef.get(person.sourceId) ?? state.peopleByRef.get(person.recordName)
+    if (!resolved || !(await isFrozenPerson(rootDb, accountId, person, resolved.accountId))) {
+      // Another run superseded this one (or failed it) between the phases.
+      return
+    }
+  }
+
+  for (const source of rest) {
     try {
       await withTransaction(rootDb, (tx) => processSourceRecord(tx, accountId, importId, source, state, normalized.sourceChecksum, now))
     } catch (error) {
       if (error instanceof SupersededImportError) return
-      if (error instanceof CloudKitImportNeedsRepairError || error instanceof CloudKitImportValidationError) {
-        await withTransaction(rootDb, async (tx) => {
-          await lockImportKey(tx, accountId)
-          const current = await tx.ledgerImport.findUnique({ where: { id: importId }, select: { state: true, sourceChecksum: true } })
-          if (!current || current.state !== 'RUNNING' || current.sourceChecksum !== normalized.sourceChecksum) return
-          const row = await tx.ledgerImportRecord.findUnique({
-            where: {
-              accountId_sourceSystem_sourceRecordKey: {
-                accountId,
-                sourceSystem: CLOUDKIT_IMPORT_SOURCE,
-                sourceRecordKey: source.logicalKey,
-              },
-            },
-            select: { id: true },
-          })
-          if (row) await tx.ledgerImportRecord.update({ where: { id: row.id }, data: { state: 'QUARANTINED', quarantineReason: error.message } })
-          await tx.ledgerImport.update({ where: { id: importId }, data: { state: 'FAILED', failureReason: error.message, completedAt: null } })
-        })
-        return
-      }
+      if (isRepairError(error)) return failImportAtRecord(rootDb, accountId, importId, normalized, source, error)
       throw error
     }
   }
@@ -1344,6 +1484,25 @@ async function processAllRecords(
       })
     }
   })
+}
+
+async function isFrozenPerson(
+  rootDb: CloudKitImportDb,
+  accountId: string,
+  person: CloudKitSourceRecord,
+  expectedAccountId: string
+): Promise<boolean> {
+  const row = await rootDb.ledgerImportRecord.findUnique({
+    where: {
+      accountId_sourceSystem_sourceRecordKey: {
+        accountId,
+        sourceSystem: CLOUDKIT_IMPORT_SOURCE,
+        sourceRecordKey: person.logicalKey,
+      },
+    },
+    select: { state: true, targetId: true },
+  })
+  return row?.state === 'IMPORTED' && row.targetId === expectedAccountId
 }
 
 async function loadImportRow(rootDb: CloudKitImportDb, accountId: string, importId: string): Promise<ImportRow> {
@@ -1550,4 +1709,23 @@ export function cloudKitImportErrorBody(error: unknown): Record<string, unknown>
     }
   }
   return { error: 'Internal server error' }
+}
+
+/**
+ * Link the caller's own CloudKit identity from their device. Used by clients
+ * that have no legacy zones (so never send an export) so that friends'
+ * imports can resolve them. Refuses, never moves, an existing link.
+ */
+export async function linkCloudKitIdentityForAccount(input: {
+  accountId: string
+  cloudKitRecordName: unknown
+  db?: CloudKitImportDb
+  now?: Date
+}): Promise<{ status: 'linked' | 'already_linked' }> {
+  const rootDb = input.db ?? defaultPrisma
+  const subject = normalizeCloudKitSubject(input.cloudKitRecordName)
+  const status = await withTransaction(rootDb, (tx) =>
+    linkCloudKitIdentity(tx, input.accountId, subject, 'device', input.now ?? new Date())
+  )
+  return { status }
 }

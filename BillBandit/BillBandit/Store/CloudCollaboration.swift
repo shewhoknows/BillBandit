@@ -833,6 +833,13 @@ private extension CloudCollaborationService {
         }
     }
 
+    struct LegacyImportErrorBody: Decodable {
+        let error: String?
+        let code: String?
+        let status: String?
+        let needsRepairReason: String?
+    }
+
     struct LegacyMigrationResponse: Decodable {
         let status: String?
     }
@@ -841,14 +848,14 @@ private extension CloudCollaborationService {
         case noAPIAccount
         case invalidCheckpoint
         case invalidResponse
-        case server(status: Int, message: String?)
+        case server(status: Int, message: String?, code: String?)
 
         var errorDescription: String? {
             switch self {
             case .noAPIAccount: return "An authenticated BillBandit API account is required."
             case .invalidCheckpoint: return "The legacy ledger migration checkpoint is unreadable."
             case .invalidResponse: return "BillBandit returned an unreadable migration response."
-            case let .server(_, message): return message ?? "BillBandit could not migrate the legacy ledger."
+            case let .server(_, message, _): return message ?? "BillBandit could not migrate the legacy ledger."
             }
         }
     }
@@ -880,12 +887,23 @@ private extension CloudCollaborationService {
             try? context.save()
             state = created
         }
-        if state.statusRaw == "needsRepair" { reportLegacyImportNeedsRepair(accountID: accountID) }
-        guard !state.isComplete, state.statusRaw != "needsRepair" else { return }
+        await linkCloudKitIdentityIfNeeded(accountID: accountID, cloudKitRecordName: ownerCloudUser)
+        guard isCurrentAccount() else { return }
+        if state.statusRaw == "needsRepair" {
+            reportLegacyImportNeedsRepair(accountID: accountID)
+            // Builds up to 35 stopped here for good, and every account with
+            // legacy zones ended here (the server could not link CloudKit
+            // identities). Resend the same frozen export after an app update
+            // or once a day; the server import is idempotent.
+            guard shouldRetryLegacyImportRepair(state) else { return }
+            UserDefaults.standard.set(Self.appBuild, forKey: "legacyImportRepairBuild.\(accountID)")
+        }
+        guard !state.isComplete else { return }
 
         do {
             let export: LegacyImportExport?
-            if state.statusRaw == "submitted" {
+            if state.statusRaw == "submitted" ||
+                (state.statusRaw == "needsRepair" && state.checkpointData != nil) {
                 guard let checkpointData = state.checkpointData,
                       let checkpoint = try? JSONDecoder().decode(
                           LegacyImportExport.self,
@@ -941,8 +959,9 @@ private extension CloudCollaborationService {
         } catch {
             guard isCurrentAccount() else { return }
             state.lastError = error.localizedDescription
-            if case let LegacyImportError.server(status, _) = error, status == 409 {
+            if case let LegacyImportError.server(status, _, code) = error, status == 409 {
                 state.statusRaw = "needsRepair"
+                if let code { state.lastError = code }
             } else {
                 // Temporary (offline, iCloud busy): tried again on the next
                 // foreground, so nothing to tell yet.
@@ -954,8 +973,44 @@ private extension CloudCollaborationService {
         }
     }
 
-    /// The old CloudKit data could not be moved and the app stops trying.
-    /// Say so once per account (it used to stop silently).
+    static var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    }
+
+    /// A blocked import is retried once per app build and then at most once a
+    /// day, except when the server said this account already holds another
+    /// completed import (that never changes).
+    func shouldRetryLegacyImportRepair(_ state: CloudKitLedgerImportState) -> Bool {
+        guard state.lastError != "completed_import_frozen" else { return false }
+        let key = "legacyImportRepairBuild.\(state.accountID)"
+        if UserDefaults.standard.string(forKey: key) != Self.appBuild { return true }
+        return state.updatedAt < Date.now.addingTimeInterval(-24 * 60 * 60)
+    }
+
+    /// Tell the server which CloudKit user this account is, once per account
+    /// and iCloud user, so a friend's legacy import can match this account.
+    /// A conflict (that iCloud user is linked to another account) is final.
+    func linkCloudKitIdentityIfNeeded(accountID: String, cloudKitRecordName: String) async {
+        let key = "cloudKitIdentityLinked.\(accountID)"
+        guard UserDefaults.standard.string(forKey: key) != cloudKitRecordName else { return }
+        guard let url = URL(string: "/api/mobile/migrations/cloudkit/identity",
+                            relativeTo: SettlementAPIConfiguration.baseURL)?.absoluteURL,
+              let token = SettlementTokenStore.read(), !token.isEmpty else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONEncoder().encode(["cloudKitRecordName": cloudKitRecordName])
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              http.statusCode == 200 || http.statusCode == 409 else { return }
+        UserDefaults.standard.set(cloudKitRecordName, forKey: key)
+    }
+
+    /// The old CloudKit data could not be moved. Say so once per account (it
+    /// used to stop silently); the import is still retried in the background.
     private func reportLegacyImportNeedsRepair(accountID: String) {
         let key = "legacyImportNeedsRepairNoticeShown.\(accountID)"
         guard !UserDefaults.standard.bool(forKey: key) else { return }
@@ -1156,13 +1211,16 @@ private extension CloudCollaborationService {
             throw LegacyImportError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message: String?
-            if let payload = try? JSONDecoder().decode([String: String].self, from: data) {
-                message = payload["error"]
-            } else {
-                message = nil
+            let payload = try? JSONDecoder().decode(LegacyImportErrorBody.self, from: data)
+            // A blocked import answers 409 with the full import body. Keep it,
+            // so the import id is known and later retries resume that import.
+            if http.statusCode == 409, payload?.status == "needs-repair",
+               let result = try? JSONDecoder().decode(LegacyImportResponse.self, from: data) {
+                return result
             }
-            throw LegacyImportError.server(status: http.statusCode, message: message)
+            throw LegacyImportError.server(status: http.statusCode,
+                                           message: payload?.error ?? payload?.needsRepairReason,
+                                           code: payload?.code)
         }
         guard let result = try? JSONDecoder().decode(LegacyImportResponse.self, from: data) else {
             throw LegacyImportError.invalidResponse
