@@ -80,6 +80,9 @@ jobs:
         with:
           fetch-depth: 2
           filter: blob:none
+          sparse-checkout: |
+            .github
+            apps/api
           persist-credentials: false
       - name: Read exact-base timing artifacts
         env:
