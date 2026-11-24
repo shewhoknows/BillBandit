@@ -2,10 +2,16 @@
 
 All prices are USD. The GitHub integration and Xcode Cloud product already
 point to `My-apps-factory/BillBandit`. The two distribution workflows exist
-and are disabled. Use the order in [report.md](report.md). The owner starts with #47. It has
-all seven current required check results. Open its GitHub PR and select
-**Merge when ready** to put it in the queue. Review its merge-group run
-before advancing the remaining PRs.
+and are disabled. Use the order in [report.md](report.md).
+
+Before queueing #47, open **GitHub → Settings → Rules → Rulesets →
+Protect main with merge queue**. Under **Required status checks**, add
+**API image** and keep the seven existing contexts. Select GitHub Actions
+as the source if GitHub offers that choice. Save the ruleset and confirm
+all eight checks pass on #47. Select **Merge when ready** on #47.
+Confirm the merge-group SHA received a successful **API image** result
+before advancing the remaining PRs. The new check uses standard runners
+at $0 incremental compute cost for this public repository.
 
 1. **Verify the first Railway deploy after #47 lands.** Open Railway →
    BillBandit → production API → Deployments. Confirm a single deployment
@@ -73,7 +79,7 @@ before advancing the remaining PRs.
    smoke result appears as `iOS Cloud Test` on a new PR event.
 
    In **GitHub → Settings → Rules → Rulesets**, edit **Protect main with
-   merge queue**. Keep the existing seven API checks. Add
+   merge queue**. Keep all eight API checks, including `API image`. Add
    `TLA+ (ledger-kernel)`, `TLA+ (ios-ledger-sync)`,
    `TLA+ (ios-settlement-shell)`, `TLA+ (other-models)` and
    `iOS Cloud Test`. Queue the next reviewed PR. Check that all five

@@ -4,11 +4,11 @@ Measured November 24, 2026. [Baseline audit](audit.md) · [Owner actions](OWNER-
 
 | Metric | Before | Candidate |
 | --- | ---: | ---: |
-| API PR result | 68 s p50 and 77 s p95 across 13 baseline PRs | 40 s on the final full API PR. Earlier successful candidates took 43 s and 71 s. |
+| API PR result | 68 s p50 and 77 s p95 across 13 baseline PRs | 40 s before the image guard. Two runs with the guard took 88 s and 94 s. |
 | API job waiting | 5 s target | 3 s p50, 68 s p95, 99 s worst across 61 started jobs on GitHub-hosted runners |
-| API setup | 53 s p50 across baseline jobs | 7.34–14.16 s on the final hosted run. Earlier cold samples reached 23 s. |
+| API setup | 53 s p50 across baseline jobs | 7.34–14.16 s on the earlier strict hosted run. Cold samples reached 23 s. |
 | API E2E | Zero scripts in Actions | The seven existing scripts run in five shards. The slow ledger script now runs in two sections with the same 23 check IDs. |
-| Deployment image | 98.17 s build and 2 s startup | 35.50 s build and 1 s startup |
+| Deployment image | 98.17 s earlier hosted build and 2 s to health | 49.33–49.66 s hosted build and 23.32–26.39 s for both smoke cases. Boots took 1.53–1.89 s (empty) and 1.17–1.54 s (pre-migrated). |
 | Ledger model | 737 s, timed out with 3 GiB heap | 650 s full model with 8 GiB heap. 22 s bounded model job. |
 | iOS | Zero Cloud runs at audit start | Build-only runs measured 76.49 s, 99.38 s, 83.40 s, and 87.38 s. |
 | Standard GitHub-hosted compute | $0 per PR and per month | $0 per PR and per month |
@@ -18,7 +18,7 @@ with nearest-rank percentiles. The 13 candidate workflow runs exclude
 jobs that did not start or were cancelled. Standard GitHub-hosted runners
 cannot meet a 5 s p95 waiting target. API CI fails if waiting exceeds 68 s
 or if setup and runner time reach their existing 15 s and 35 s limits.
-The 30 s E2E shard limit remains. The final run passed all seven required
+The 30 s E2E shard limit remains. The earlier run passed all seven active required
 jobs in 40 s. It waited 2–3 s per job. The slowest budget measurement
 was 33.04 s. The longest GitHub job timestamp span was 35 s, which
 includes post-step completion. The limited samples cannot establish
@@ -29,10 +29,22 @@ checks in one run. Its waits ranged from 37 s to 99 s.
 [Reduced setup round trips](https://github.com/My-apps-factory/BillBandit/actions/runs/45374393220)
 [Final required checks](https://github.com/My-apps-factory/BillBandit/actions/runs/45376270657)
 
+The additional **API image** check took 85–89 s on native Linux amd64
+runners. The job has its own five-minute limit. The seven parallel checks
+keep their existing limits. The image check guards Railway's container
+entry point before a merge. The 35 s runner limit applies to the faster
+checks. With this gate, the observed API PR results exceed the 60 s
+median target. Both were under 120 s. Two runs do not establish a p95.
+At 32 events per month, the image check adds 45–48 runner minutes at the
+observed times. Standard runner compute remains $0.
+[First image gate run](https://github.com/My-apps-factory/BillBandit/actions/runs/45378903464)
+[Latest image gate run](https://github.com/My-apps-factory/BillBandit/actions/runs/45379422020)
+
 The 30-day baseline had six Railway push runs that used 355 runner seconds
-and no PRs. The two earlier successful API candidates used 209 and 235
-parallel runner seconds per PR. The final run used 200 runner seconds. At 20 PRs, six merge groups, and six main
-pushes, those full API samples imply about 118 runner minutes per month.
+and no PRs. Before the image check, the passing candidate runs used 200–235
+runner seconds per PR. With the image check, the two runs used 295 and 299
+runner seconds per PR. At 20 PRs, six merge groups and six main pushes,
+those samples imply about 157–159 API runner minutes per month.
 Main full TLA+ would add about 71 runner minutes over six pushes. Six
 bounded model runs at the observed 98 runner seconds would add about ten
 runner minutes. Standard GitHub runner charges stay at $0 for the public
@@ -73,6 +85,29 @@ Compute hours equal summed action minutes divided by 60. See the
   Next ESLint for three rules and TypeScript 5 for Next's JavaScript API.
   [Toolchain comparison](toolchain.md)
   [Container comparison](https://github.com/My-apps-factory/BillBandit/actions/runs/45373847266)
+- The image guard builds the root Dockerfile for `linux/amd64` from a
+  Git archive. The Railway configuration selects that Dockerfile. It
+  starts the image with its default command on two isolated PostgreSQL 16
+  databases. The first has no migration records. The second replays the
+  tracked schema through `20261120120000_review_code_rate_limit`. It uses
+  synthetic data. On the second boot, the gate checks that the migration
+  record IDs and a pre-existing user survive startup. Both boots must
+  serve the exact commit on health and return `{"enabled":true}` for a
+  dummy 20-character code. The gate exercises real reviewer sign-in and
+  authenticated mobile access, then runs the existing any-member-delete
+  E2E script. The Bun reset and teardown commands both receive
+  `--confirm`. The stale reviewer session returns HTTP 401 after teardown.
+  The artifact contains both logs and migration records.
+- In an isolated Colima profile, cold `linux/amd64` builds took 275.53 s
+  on `main` and 247.60 s on #47. Docker's compressed content size grew
+  from 189,439,637 to 303,005,285 bytes. Start-to-health time on an empty
+  database went from 10.943 s to 12.320 s. On the pre-migrated database
+  it went from 8.441 s to 4.765 s. These are single runs with amd64
+  emulation. For native timings use the Actions samples above. Both
+  images passed all eight any-member-delete cases on each database. The
+  npm reference and Bun both passed `--confirm` to the reset and teardown
+  script. Both preserved the seeded user and all 15 existing migration
+  records on the pre-migrated database.
 - Railway deploys production through its GitHub integration on `main`.
   The bootstrap PR removes `deploy.yml` and its `railway up` call. This
   leaves one deployment path and removes the token
@@ -110,9 +145,10 @@ A local run with the original fixes disabled reproduced the
 [Bounded run](https://github.com/My-apps-factory/BillBandit/actions/runs/45373896095)
 
 The [active ruleset](https://github.com/My-apps-factory/BillBandit/rules/27974223)
-lists exactly the seven API names in [required-checks.txt](required-checks.txt).
-Each has both `pull_request` and `merge_group` triggers. No API context
-mismatches. The four Model checking jobs also have both triggers. GitHub
+still contains seven API names. [required-checks.txt](required-checks.txt)
+keeps all seven and adds `API image`. That is the single API context
+difference. Every API check runs on `pull_request` and `merge_group`.
+The owner adds `API image` before queueing #47. The four Model checking jobs also have both triggers. GitHub
 currently does not require them. The native Xcode Cloud check is still
 Build only on PRs. #51 supplies one opt-in `iOS Cloud Test` context for
 both events. It reads smoke on the PR head and the full Test result on
@@ -120,7 +156,7 @@ the queue SHA. A read-only replay against a successful Apple Build
 result found no Test result and exited 1 in 0.66 s.
 [PR #51](https://github.com/My-apps-factory/BillBandit/pull/51)
 
-GitHub showed zero merge-group runs and all seven checks passing on #47.
+GitHub showed zero merge-group runs and all eight API checks passing on #47.
 A local squash rehearsal of the five original PRs ran API static checks,
 a 9.05 s Next build, all eight API E2E files exactly once, and all 18
 bounded-queue TLA+ checks. The same snapshot ran the Cloud pre-build
@@ -133,8 +169,8 @@ Cloud Test result need an owner-started rollout.
 ## Merge order
 
 Each remaining PR targets `main`. Keep the default branch protected. Review the
-combined API bootstrap first because its diff supplies all seven required
-checks on the candidate revision.
+combined API bootstrap first because its diff supplies all seven active
+required checks and the new image check on the candidate revision.
 
 | Order | PR | Scope |
 | ---: | --- | --- |
@@ -156,7 +192,10 @@ per-job ledger is `audit/job-buckets.tsv`. New evidence is in `review/`,
 including `queue-seconds.json`, `container-proofs/`, `tla-hosted/`,
 `ledger-split-coverage.txt`, `ios-stage-pr39-dry-run.json`, and the
 readbacks for the disabled Cloud workflows. The combined rehearsal is
-under `review/rollout-rehearsal/integrated/`.
+under `review/rollout-rehearsal/integrated/`. Colima build, size, migration,
+startup and authenticated smoke logs are under
+`docker/docker-review/20261124T104833Z.sHPqCu/`. `REPLAY.md` there gives
+the tested revisions, environment and replay commands.
 
 Fetch a hosted API E2E result with
 `gh run download 45376270657 -R My-apps-factory/BillBandit --pattern 'api-e2e-*'`.
