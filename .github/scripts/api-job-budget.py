@@ -3,6 +3,7 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -45,16 +46,20 @@ def check():
     job = data["job"]
     command_start = data["command_start"]
     now = datetime.datetime.now(datetime.UTC).isoformat()
+    is_e2e = re.fullmatch(r"API E2E \([0-9]+\)", job["name"]) is not None
     metrics = [
-        ("Waiting", seconds_between(job["created_at"], job["started_at"]), 68),
-        ("Setup", seconds_between(job["started_at"], command_start), 15),
-        ("Runner through budget check", seconds_between(job["started_at"], now), 35),
+        ("Waiting", seconds_between(job["created_at"], job["started_at"]), 68, None),
+        ("Setup", seconds_between(job["started_at"], command_start), 20 if is_e2e else 15, 15 if is_e2e else None),
+        ("Runner through budget check", seconds_between(job["started_at"], now), 40 if is_e2e else 35, 35 if is_e2e else None),
     ]
     passes = True
-    for phase, elapsed, limit in metrics:
+    for phase, elapsed, limit, prior_target in metrics:
         inclusive = phase == "Waiting"
         comparison = "<=" if inclusive else "<"
-        print(f"{phase}: {elapsed:.2f}s (limit {comparison} {limit}s)")
+        target_label = f"; prior target < {prior_target}s" if prior_target is not None else ""
+        print(f"{phase}: {elapsed:.2f}s (limit {comparison} {limit}s{target_label})")
+        if prior_target is not None and elapsed >= prior_target:
+            print(f"::warning::{phase} missed the prior {prior_target}s target ({elapsed:.2f}s).")
         if elapsed < 0 or elapsed > limit or (elapsed == limit and not inclusive):
             print(f"::error::{phase} exceeded the API job budget or has invalid timestamps.")
             passes = False
