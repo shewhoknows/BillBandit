@@ -1,9 +1,13 @@
 # BillBandit on Xcode Cloud
 
-The App Store Connect API returned zero Xcode Cloud products for
-`com.billbandit.app` on November 24, 2026. It listed the fixed **Xcode 27.2**
-entry as build **27B52**. The post-clone script also enforces that exact
-version and rejects a mismatched marketing version on a release tag.
+At the start of this audit, App Store Connect returned zero Xcode Cloud products
+for `com.billbandit.app`. The product was connected during the audit. At
+09:52 UTC on November 24, the API showed one enabled workflow, **PR build**,
+with a single Build action and no Test action.
+
+The API lists the fixed **Xcode 27.2** entry as build **27B52**. The post-clone
+script enforces that exact version and rejects a mismatched marketing version
+on a release tag.
 
 Use the fixed **Xcode 27.2** entry under Environment for every workflow.
 Choose a compatible macOS entry without a beta label. Use the shared project
@@ -51,6 +55,8 @@ The owner submits through App Store Connect. Keep release distribution disabled
 until the full suite and staging work on a rehearsal. See
 [Apple's build number guidance](https://developer.apple.com/documentation/xcode/setting-the-next-build-number-for-xcode-cloud-builds/).
 
-No Cloud timings exist yet. The local unsigned build ran on Xcode 27.2.
-It measures compile time on this Mac. Apple adds queue time, checkout,
-simulator preparation, UI tests, and archive upload or processing as applicable.
+The existing build-only workflow completed one manual run at commit
+`136e120`. The run was `f5d4f4b4-038b-4edc-8ef9-dbf6fa5ac03f`. It spent
+9.60 s waiting and 66.89 s building, for 76.49 s total. It ran before
+this smoke scheme. Cloud UI, signed archives, and delivery remain unmeasured.
+The local unsigned build measures compile time on this Mac.
