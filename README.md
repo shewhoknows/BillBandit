@@ -11,11 +11,13 @@ iOS expense-splitting app (`com.billbandit.app`) with Shared Settle Up, Sign in 
 
 Production API: **`https://billbandit-api.contenthelper.in`** (Railway Postgres and service hostname).
 
-The old XcodeGen scaffold (`BillBanditApp/`, `project.yml`), `mockups/` and `apps/ios/` were removed on 2026-11-10. They remain in git history.
+The old XcodeGen scaffold (`BillBanditApp/`, `project.yml`) and `apps/ios/` remain in Git history. Read the [product and design decisions](mockups/PLAN.md) and [design notes](mockups/NOTES.md) for current context. The [historical mockup board and rendered concepts](https://github.com/My-apps-factory/BillBandit/tree/c91a7628b937a6dd71068907ed0e1c00bde1454b/mockups) and [source avatar export](https://github.com/My-apps-factory/BillBandit/tree/c91a7628b937a6dd71068907ed0e1c00bde1454b/profile-avatars-v1) are available at the pre-cleanup revision.
 
 ## Quick start
 
 **iOS**
+
+Install [Git LFS](https://git-lfs.com/) before cloning. For an existing checkout, run `git lfs install` once and `git lfs pull` after updating your branch.
 
 ```bash
 open BillBandit/BillBandit.xcodeproj

@@ -42,3 +42,6 @@ BillBandit/BillBandit.xcodeproj/xcshareddata/xcschemes/*-QA.local.xcscheme
 
 # Local evidence and scratch output
 .scratch/
+
+/mockups/generated-concepts/
+/profile-avatars-v1/

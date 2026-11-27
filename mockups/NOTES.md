@@ -43,7 +43,7 @@ port the decisions above.
 official SVG set?
 **Answer:** **official set.** All old hand-drawn raccoon art removed from the
 board; every screen now uses the production files from
-`../BillBandit-Raccoon-SVG/`, **inlined** into `index.html` as `<symbol>`s
+`../BillBandit-Raccoon-SVG/`, **inlined** into the [archived mockup board](https://github.com/My-apps-factory/BillBandit/blob/c91a7628b937a6dd71068907ed0e1c00bde1454b/mockups/index.html) as `<symbol>`s
 (`#m-greeting` etc.) because Safari refuses to `<img>` local SVG files from a
 `file://` page. Source of truth remains the external files; colours untouched.
 

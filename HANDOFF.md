@@ -97,7 +97,7 @@ poster-like aesthetic ("Direction B — Cobalt Club").
 | Server-authoritative mobile API | `apps/api/` |
 | Official mascot SVGs (source of truth) | `BillBandit-Raccoon-SVG/*.svg` (6 poses) |
 | Contextual mascot scene SVGs | `BillBandit-Raccoon-Scene-Variations-SVG/*.svg` (4 scenes) |
-| Throwaway mockup board | `mockups/index.html` (open in browser; `#shot1`–`#shot7` jump to a screen) |
+| Historical mockup board | [Archived HTML](https://github.com/My-apps-factory/BillBandit/blob/c91a7628b937a6dd71068907ed0e1c00bde1454b/mockups/index.html) |
 | Product plan + approved roadmap | `mockups/PLAN.md` (§6b = the approved build decisions) |
 | Design decision log | `mockups/NOTES.md` (Direction B, mascot asset lock) |
 
@@ -777,7 +777,7 @@ xcrun simctl io $D screenshot /tmp/shot.png
 drop into `Assets.xcassets/mascot-*.imageset` (single-scale,
 `preserves-vector-representation`).
 
-**Icon PDFs** — extract `i-*` `<symbol>`s from `mockups/index.html`, wrap with
+**Icon PDFs** — extract `i-*` `<symbol>`s from the [archived mockup board](https://github.com/My-apps-factory/BillBandit/blob/c91a7628b937a6dd71068907ed0e1c00bde1454b/mockups/index.html), wrap with
 `stroke:#000;fill:none;sw:2;round caps` on a 240px page, same Chrome step, into
 `icon-*.imageset` with `template-rendering-intent: template`.
 ⚠️ Chrome gotcha hit once: the print URL **must be an absolute `file://` URI** —
