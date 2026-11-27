@@ -1,3 +1,6 @@
 *.pdf binary
 *.png binary
 *.ttf binary
+
+BillBandit/BillBandit/Assets.xcassets/**/*.png filter=lfs diff=lfs merge=lfs -text
+BillBandit/BillBandit/Fonts/*.ttf filter=lfs diff=lfs merge=lfs -text
